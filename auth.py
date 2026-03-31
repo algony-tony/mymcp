@@ -4,6 +4,9 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
+
 
 class TokenStore:
     def __init__(self, path: str, admin_token: str):
@@ -61,3 +64,86 @@ class TokenStore:
     def list_tokens(self) -> dict:
         with self._lock:
             return dict(self._data["tokens"])
+
+
+# ---------------------------------------------------------------------------
+# FastAPI dependency / singleton
+# ---------------------------------------------------------------------------
+
+_store: "TokenStore | None" = None
+
+
+def get_store() -> "TokenStore":
+    """FastAPI dependency — returns the singleton TokenStore.
+    Override in tests via app.dependency_overrides[get_store]."""
+    global _store
+    if _store is None:
+        import config
+        if not config.ADMIN_TOKEN:
+            raise RuntimeError("MCP_ADMIN_TOKEN environment variable is required")
+        _store = TokenStore(config.TOKEN_FILE, config.ADMIN_TOKEN)
+    return _store
+
+
+async def require_auth(
+    request: Request,
+    store: "TokenStore" = Depends(get_store),
+) -> dict:
+    """FastAPI dependency — validates user Bearer token. Returns token info."""
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing Bearer token")
+    token = auth[7:]
+    info = store.validate(token)
+    if info is None:
+        raise HTTPException(status_code=401, detail="Invalid or disabled token")
+    return info
+
+
+async def require_admin(
+    request: Request,
+    store: "TokenStore" = Depends(get_store),
+) -> None:
+    """FastAPI dependency — validates admin Bearer token."""
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing Bearer token")
+    token = auth[7:]
+    if token != store.admin_token:
+        raise HTTPException(status_code=403, detail="Admin token required")
+
+
+# ---------------------------------------------------------------------------
+# Admin router
+# ---------------------------------------------------------------------------
+
+class _CreateTokenRequest(BaseModel):
+    name: str
+
+
+admin_router = APIRouter(
+    prefix="/admin",
+    dependencies=[Depends(require_admin)],
+)
+
+
+@admin_router.post("/tokens")
+async def create_token(
+    body: _CreateTokenRequest,
+    store: "TokenStore" = Depends(get_store),
+):
+    token = store.create_token(body.name)
+    return {"token": token, "name": body.name}
+
+
+@admin_router.delete("/tokens/{token}")
+async def revoke_token(token: str, store: "TokenStore" = Depends(get_store)):
+    found = store.revoke_token(token)
+    if not found:
+        raise HTTPException(status_code=404, detail="Token not found")
+    return {"revoked": token}
+
+
+@admin_router.get("/tokens")
+async def list_tokens(store: "TokenStore" = Depends(get_store)):
+    return store.list_tokens()
