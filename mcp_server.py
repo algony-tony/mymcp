@@ -1,7 +1,7 @@
 import json
 
 from mcp.server import Server
-from mcp.server.sse import SseServerTransport
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp import types
 
 import config
@@ -9,7 +9,7 @@ from tools.bash import run_bash_execute
 from tools.files import read_file, write_file, edit_file, glob_files, grep_files
 
 server = Server("linux-server")
-sse_transport = SseServerTransport("/messages")
+session_manager = StreamableHTTPSessionManager(server)
 
 
 @server.list_tools()

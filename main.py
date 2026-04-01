@@ -8,7 +8,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 import config
 from auth import admin_router, get_store
-from mcp_server import server, sse_transport
+from mcp_server import server, session_manager
 from tools.transfer import transfer_router
 
 
@@ -25,56 +25,35 @@ def _validate_token(request: Request) -> JSONResponse | None:
     return None
 
 
-class McpTransportMiddleware:
-    """Intercepts /sse and /messages as raw ASGI, bypassing FastAPI's
-    response wrapper which conflicts with SseServerTransport's direct
-    ASGI writes (double http.response.start)."""
+class McpAuthMiddleware:
+    """Intercepts /mcp to validate Bearer token, then delegates
+    to StreamableHTTPSessionManager as raw ASGI."""
 
     def __init__(self, app: ASGIApp):
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send):
-        if scope["type"] != "http":
-            await self.app(scope, receive, send)
-            return
-
-        path = scope.get("path", "")
-        method = scope.get("method", "")
-
-        if path == "/sse" and method == "GET":
+        if scope["type"] == "http" and scope.get("path", "") == "/mcp":
             request = Request(scope, receive, send)
             error = _validate_token(request)
             if error:
                 await error(scope, receive, send)
                 return
-            async with sse_transport.connect_sse(scope, receive, send) as streams:
-                await server.run(
-                    streams[0], streams[1], server.create_initialization_options()
-                )
+            await session_manager.handle_request(scope, receive, send)
             return
-
-        if path == "/messages" and method == "POST":
-            request = Request(scope, receive, send)
-            error = _validate_token(request)
-            if error:
-                await error(scope, receive, send)
-                return
-            await sse_transport.handle_post_message(scope, receive, send)
-            return
-
         await self.app(scope, receive, send)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     get_store()
-    yield
+    async with session_manager.run():
+        yield
 
 
 app = FastAPI(title="Linux MCP Server", version="1.0.0", lifespan=lifespan)
 
-# MCP transport middleware — intercepts /sse and /messages before FastAPI routing
-app.add_middleware(McpTransportMiddleware)
+app.add_middleware(McpAuthMiddleware)
 
 app.include_router(admin_router)
 app.include_router(transfer_router)
