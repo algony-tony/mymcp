@@ -1,6 +1,6 @@
 # Linux MCP Server
 
-A Python MCP server that exposes full Linux system control to AI clients (Claude Desktop, Claude Code, etc.) over HTTP/SSE. Modeled after Claude Code's built-in tool set.
+A Python MCP server that exposes full Linux system control to AI clients (Claude Desktop, Claude Code, Cursor, etc.) over Streamable HTTP.
 
 ## Features
 
@@ -8,46 +8,50 @@ A Python MCP server that exposes full Linux system control to AI clients (Claude
 - **File transfer**: large file upload/download via dedicated HTTP endpoints
 - **Multi-user auth**: Bearer token authentication with per-token management
 - **Admin API**: create/revoke tokens without restarting the server
+- **Streamable HTTP transport**: modern MCP protocol with session management
 
 ## Requirements
 
 - Python 3.11+
-- `ripgrep` (`rg`) installed on the server for `grep` tool
+- `ripgrep` (`rg`) — optional but recommended for faster `grep` tool (falls back to Python regex)
 
-## Installation
+## Quick Deploy
 
 ```bash
-git clone <repo>
+git clone https://github.com/algony-tony/mymcp.git
 cd mymcp
-pip install -r requirements.txt
+sudo bash deploy/install.sh
+```
+
+The install script will:
+- Find a suitable Python 3.11+ binary automatically
+- Install `ripgrep` if missing (dnf/apt/yum/pacman)
+- Create a venv at `/opt/mymcp/venv` with all dependencies
+- Install a systemd service (`mymcp`) with auto-restart
+
+Then:
+
+```bash
+# 1. Set your admin token
+sudo vim /opt/mymcp/.env
+
+# 2. Start the service
+sudo systemctl start mymcp
+
+# 3. Check logs
+journalctl -u mymcp -f
 ```
 
 ## Configuration
 
-Copy `.env.example` to `.env` and edit:
-
-```bash
-cp .env.example .env
-```
+Edit `/opt/mymcp/.env`:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `MCP_ADMIN_TOKEN` | *(required)* | Admin token for managing user tokens |
 | `MCP_HOST` | `0.0.0.0` | Bind address |
 | `MCP_PORT` | `8765` | Listen port |
-| `MCP_TOKEN_FILE` | `./tokens.json` | Token store path |
-| `MCP_ADMIN_TOKEN` | *(required)* | Admin token for managing user tokens |
-
-## Starting the Server
-
-```bash
-# Set required admin token
-export MCP_ADMIN_TOKEN=adm_your_secret_here
-
-# Start
-python main.py
-```
-
-On first start, `tokens.json` is created automatically with the admin token written in.
+| `MCP_TOKEN_FILE` | `/opt/mymcp/tokens.json` | Token store path |
 
 ## Managing Tokens
 
@@ -56,31 +60,32 @@ Use the admin API to create tokens for clients. All admin endpoints require `Aut
 ```bash
 # Create a token
 curl -X POST http://localhost:8765/admin/tokens \
-  -H "Authorization: Bearer adm_your_secret_here" \
+  -H "Authorization: Bearer <ADMIN_TOKEN>" \
   -H "Content-Type: application/json" \
   -d '{"name": "my-claude-desktop"}'
 # → {"token": "tok_abc123...", "name": "my-claude-desktop"}
 
 # List all tokens
 curl http://localhost:8765/admin/tokens \
-  -H "Authorization: Bearer adm_your_secret_here"
+  -H "Authorization: Bearer <ADMIN_TOKEN>"
 
 # Revoke a token
 curl -X DELETE http://localhost:8765/admin/tokens/tok_abc123 \
-  -H "Authorization: Bearer adm_your_secret_here"
+  -H "Authorization: Bearer <ADMIN_TOKEN>"
 ```
 
 ## Connecting Clients
 
-### Claude Desktop
+### Claude Desktop / Cursor
 
-Add to `claude_desktop_config.json`:
+Add to MCP settings:
 
 ```json
 {
   "mcpServers": {
     "linux-server": {
-      "url": "http://your-server:8765/sse",
+      "type": "streamableHttp",
+      "url": "http://your-server:8765/mcp",
       "headers": {
         "Authorization": "Bearer tok_abc123"
       }
@@ -93,7 +98,8 @@ Add to `claude_desktop_config.json`:
 
 ```bash
 claude mcp add linux-server \
-  --url http://your-server:8765/sse \
+  --transport streamable-http \
+  --url http://your-server:8765/mcp \
   --header "Authorization: Bearer tok_abc123"
 ```
 
@@ -101,17 +107,16 @@ claude mcp add linux-server \
 
 For files larger than 10MB, use the HTTP file transfer endpoints directly (same Bearer token).
 
-### Upload a file
+### Upload
 
 ```bash
 curl -X POST http://your-server:8765/files/upload \
   -H "Authorization: Bearer tok_abc123" \
   -F "file=@/local/path/backup.tar.gz" \
   -F "dest_path=/data/backup.tar.gz"
-# → {"path": "/data/backup.tar.gz", "size": 1073741824}
 ```
 
-### Download a file
+### Download
 
 ```bash
 curl http://your-server:8765/files/download?path=/data/backup.tar.gz \
@@ -119,7 +124,7 @@ curl http://your-server:8765/files/download?path=/data/backup.tar.gz \
   -o backup.tar.gz
 ```
 
-## MCP Tools Reference
+## MCP Tools
 
 | Tool | Description |
 |------|-------------|
@@ -128,7 +133,7 @@ curl http://your-server:8765/files/download?path=/data/backup.tar.gz \
 | `write_file` | Create or overwrite a file (max 10MB; use upload for larger). Args: `file_path`, `content` |
 | `edit_file` | Replace a string in a file. Args: `file_path`, `old_string`, `new_string`, `replace_all` |
 | `glob` | Find files by pattern. Args: `pattern`, `path` (default `/`) |
-| `grep` | Search file contents. Args: `pattern`, `path`, `glob`, `output_mode`, `context_lines`, `max_results` |
+| `grep` | Search file contents with regex. Args: `pattern`, `path`, `glob`, `output_mode`, `context_lines`, `max_results` |
 
 ## Security Note
 

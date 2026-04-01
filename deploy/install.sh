@@ -4,25 +4,104 @@ set -euo pipefail
 APP_DIR="/opt/mymcp"
 SERVICE_NAME="mymcp"
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+MIN_PYTHON_MINOR=11  # Python 3.11+
 
 echo "=== Installing MyMCP Server ==="
 
+# ---------------------------------------------------------------------------
+# Find suitable Python (>= 3.11)
+# ---------------------------------------------------------------------------
+find_python() {
+    # Try explicit versioned binaries first (highest to lowest)
+    for minor in 14 13 12 11; do
+        for cmd in "python3.${minor}" "python${minor}"; do
+            if command -v "$cmd" &>/dev/null; then
+                echo "$cmd"; return
+            fi
+        done
+    done
+    # Fall back to python3 / python and check version
+    for cmd in python3 python; do
+        if command -v "$cmd" &>/dev/null; then
+            ver=$("$cmd" -c 'import sys; print(sys.version_info.minor)' 2>/dev/null || echo 0)
+            if [ "$ver" -ge "$MIN_PYTHON_MINOR" ]; then
+                echo "$cmd"; return
+            fi
+        fi
+    done
+    return 1
+}
+
+PYTHON=$(find_python) || {
+    echo "ERROR: Python 3.${MIN_PYTHON_MINOR}+ not found."
+    echo "Install it first, e.g.:"
+    echo "  dnf install python3.11    # RHEL/CentOS"
+    echo "  apt install python3.11    # Debian/Ubuntu"
+    exit 1
+}
+PY_VERSION=$("$PYTHON" --version)
+echo "Using ${PYTHON} (${PY_VERSION})"
+
+# ---------------------------------------------------------------------------
+# Install ripgrep if missing
+# ---------------------------------------------------------------------------
+if ! command -v rg &>/dev/null; then
+    echo "ripgrep (rg) not found, installing..."
+    if command -v dnf &>/dev/null; then
+        dnf install -y ripgrep
+    elif command -v yum &>/dev/null; then
+        yum install -y ripgrep
+    elif command -v apt-get &>/dev/null; then
+        apt-get update -qq && apt-get install -y -qq ripgrep
+    elif command -v pacman &>/dev/null; then
+        pacman -S --noconfirm ripgrep
+    else
+        echo "WARNING: Cannot auto-install ripgrep. Please install it manually."
+        echo "  The 'grep' tool will fall back to Python regex (slower)."
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # Copy project files
+# ---------------------------------------------------------------------------
 echo "Copying files to ${APP_DIR}..."
 mkdir -p "${APP_DIR}"
 rsync -a --exclude='.git' --exclude='__pycache__' --exclude='tests' \
     --exclude='.pytest_cache' --exclude='deploy' --exclude='docs' \
     "${REPO_DIR}/" "${APP_DIR}/"
 
-# Create venv and install deps
+# ---------------------------------------------------------------------------
+# Create venv and install deps (recreate if Python version changed)
+# ---------------------------------------------------------------------------
+RECREATE_VENV=false
+if [ -d "${APP_DIR}/venv" ]; then
+    VENV_PY="${APP_DIR}/venv/bin/python3"
+    if [ ! -x "$VENV_PY" ] || ! "$VENV_PY" -c 'import pip' &>/dev/null; then
+        echo "Existing venv is broken, recreating..."
+        rm -rf "${APP_DIR}/venv"
+        RECREATE_VENV=true
+    fi
+fi
+
 if [ ! -d "${APP_DIR}/venv" ]; then
     echo "Creating virtual environment..."
-    python3 -m venv "${APP_DIR}/venv"
+    "$PYTHON" -m venv "${APP_DIR}/venv"
+
+    # Ensure pip is available (some distros ship venv without pip)
+    if ! "${APP_DIR}/venv/bin/python3" -c 'import pip' &>/dev/null; then
+        echo "Installing pip into venv..."
+        "${APP_DIR}/venv/bin/python3" -m ensurepip --upgrade 2>/dev/null \
+            || curl -sS https://bootstrap.pypa.io/get-pip.py | "${APP_DIR}/venv/bin/python3"
+    fi
 fi
+
 echo "Installing dependencies..."
+"${APP_DIR}/venv/bin/pip" install -q --upgrade pip
 "${APP_DIR}/venv/bin/pip" install -q -r "${APP_DIR}/requirements.txt"
 
+# ---------------------------------------------------------------------------
 # Create .env if not exists
+# ---------------------------------------------------------------------------
 if [ ! -f "${APP_DIR}/.env" ]; then
     echo "Creating .env file (edit MCP_ADMIN_TOKEN before starting)..."
     cat > "${APP_DIR}/.env" <<'EOF'
@@ -34,7 +113,9 @@ EOF
     echo "WARNING: Edit ${APP_DIR}/.env and set MCP_ADMIN_TOKEN before starting!"
 fi
 
-# Install systemd service
+# ---------------------------------------------------------------------------
+# Install systemd service (update Python path to match venv)
+# ---------------------------------------------------------------------------
 echo "Installing systemd service..."
 cp "${REPO_DIR}/deploy/mymcp.service" /etc/systemd/system/${SERVICE_NAME}.service
 systemctl daemon-reload
