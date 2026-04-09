@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Re-exec under bash if invoked via sh/dash
+if [ -z "${BASH_VERSION:-}" ]; then
+    exec bash "$0" "$@"
+fi
 set -euo pipefail
 
 AUTO_YES=false
@@ -16,39 +20,8 @@ while getopts "yh" opt; do
 done
 shift $((OPTIND - 1))
 
-# ---------------------------------------------------------------------------
-# Helper functions
-# ---------------------------------------------------------------------------
-confirm() {
-    local prompt="$1" default="${2:-Y}"
-    if [ "$AUTO_YES" = true ]; then
-        [ "$default" = "Y" ] && return 0 || return 1
-    fi
-    if [ "$default" = "Y" ]; then
-        read -rp "${prompt} [Y/n]: " answer
-        case "${answer,,}" in
-            n|no) return 1 ;;
-            *)    return 0 ;;
-        esac
-    else
-        read -rp "${prompt} [y/N]: " answer
-        case "${answer,,}" in
-            y|yes) return 0 ;;
-            *)     return 1 ;;
-        esac
-    fi
-}
-
-prompt_value() {
-    local prompt="$1" default="$2"
-    if [ "$AUTO_YES" = true ]; then
-        echo "$default"; return
-    fi
-    read -rp "${prompt} [${default}]: " value
-    echo "${value:-$default}"
-}
-
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+source "${REPO_DIR}/deploy/install_lib.sh"
 SERVICE_NAME="mymcp"
 MIN_PYTHON_MINOR=11
 
@@ -58,35 +31,13 @@ echo "=== Installing MyMCP Server ==="
 # Step 1: Install path
 # ---------------------------------------------------------------------------
 APP_DIR=$(prompt_value "Install path" "/opt/mymcp")
-case "$APP_DIR" in
-    /*) ;;
-    *) echo "ERROR: Install path must be absolute."; exit 1 ;;
-esac
+validate_app_dir "$APP_DIR" || exit 1
 echo ""
 
 # ---------------------------------------------------------------------------
 # Step 2: Find and confirm Python version
 # ---------------------------------------------------------------------------
-find_python() {
-    for minor in 14 13 12 11; do
-        for cmd in "python3.${minor}" "python${minor}"; do
-            if command -v "$cmd" &>/dev/null; then
-                echo "$cmd"; return
-            fi
-        done
-    done
-    for cmd in python3 python; do
-        if command -v "$cmd" &>/dev/null; then
-            ver=$("$cmd" -c 'import sys; print(sys.version_info.minor)' 2>/dev/null || echo 0)
-            if [ "$ver" -ge "$MIN_PYTHON_MINOR" ]; then
-                echo "$cmd"; return
-            fi
-        fi
-    done
-    return 1
-}
-
-PYTHON=$(find_python) || {
+PYTHON=$(find_python "$MIN_PYTHON_MINOR") || {
     echo "ERROR: Python 3.${MIN_PYTHON_MINOR}+ not found."
     echo "Install it first, e.g.:"
     echo "  dnf install python3.11    # RHEL/CentOS"
