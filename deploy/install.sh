@@ -1,18 +1,69 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_DIR="/opt/mymcp"
-SERVICE_NAME="mymcp"
+AUTO_YES=false
+
+while getopts "yh" opt; do
+    case "$opt" in
+        y) AUTO_YES=true ;;
+        h)
+            echo "Usage: $0 [-y]"
+            echo "  -y  Unattended mode (accept all defaults, no prompts)"
+            exit 0
+            ;;
+        *) echo "Usage: $0 [-y]"; exit 1 ;;
+    esac
+done
+shift $((OPTIND - 1))
+
+# ---------------------------------------------------------------------------
+# Helper functions
+# ---------------------------------------------------------------------------
+confirm() {
+    local prompt="$1" default="${2:-Y}"
+    if [ "$AUTO_YES" = true ]; then
+        [ "$default" = "Y" ] && return 0 || return 1
+    fi
+    if [ "$default" = "Y" ]; then
+        read -rp "${prompt} [Y/n]: " answer
+        case "${answer,,}" in
+            n|no) return 1 ;;
+            *)    return 0 ;;
+        esac
+    else
+        read -rp "${prompt} [y/N]: " answer
+        case "${answer,,}" in
+            y|yes) return 0 ;;
+            *)     return 1 ;;
+        esac
+    fi
+}
+
+prompt_value() {
+    local prompt="$1" default="$2"
+    if [ "$AUTO_YES" = true ]; then
+        echo "$default"; return
+    fi
+    read -rp "${prompt} [${default}]: " value
+    echo "${value:-$default}"
+}
+
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-MIN_PYTHON_MINOR=11  # Python 3.11+
+SERVICE_NAME="mymcp"
+MIN_PYTHON_MINOR=11
 
 echo "=== Installing MyMCP Server ==="
 
 # ---------------------------------------------------------------------------
-# Find suitable Python (>= 3.11)
+# Step 1: Install path
+# ---------------------------------------------------------------------------
+APP_DIR=$(prompt_value "Install path" "/opt/mymcp")
+echo ""
+
+# ---------------------------------------------------------------------------
+# Step 2: Find and confirm Python version
 # ---------------------------------------------------------------------------
 find_python() {
-    # Try explicit versioned binaries first (highest to lowest)
     for minor in 14 13 12 11; do
         for cmd in "python3.${minor}" "python${minor}"; do
             if command -v "$cmd" &>/dev/null; then
@@ -20,7 +71,6 @@ find_python() {
             fi
         done
     done
-    # Fall back to python3 / python and check version
     for cmd in python3 python; do
         if command -v "$cmd" &>/dev/null; then
             ver=$("$cmd" -c 'import sys; print(sys.version_info.minor)' 2>/dev/null || echo 0)
@@ -40,25 +90,33 @@ PYTHON=$(find_python) || {
     exit 1
 }
 PY_VERSION=$("$PYTHON" --version)
-echo "Using ${PYTHON} (${PY_VERSION})"
+
+if ! confirm "Use ${PYTHON} (${PY_VERSION})?" Y; then
+    echo "Aborted. Install your preferred Python 3.${MIN_PYTHON_MINOR}+ and re-run."
+    exit 1
+fi
+echo ""
 
 # ---------------------------------------------------------------------------
-# Install ripgrep if missing
+# Step 3: ripgrep (optional)
 # ---------------------------------------------------------------------------
-if ! command -v rg &>/dev/null; then
-    echo "ripgrep (rg) not found, installing..."
+if command -v rg &>/dev/null; then
+    echo "ripgrep already installed: $(rg --version | head -1)"
+elif confirm "Install ripgrep? (recommended for better search performance)" Y; then
+    echo "Installing ripgrep..."
     installed=false
 
-    # Try package manager first
     if command -v apt-get &>/dev/null; then
         apt-get update -qq && apt-get install -y -qq ripgrep && installed=true
+    elif command -v dnf &>/dev/null; then
+        dnf install -y -q ripgrep && installed=true
     elif command -v pacman &>/dev/null; then
         pacman -S --noconfirm ripgrep && installed=true
     fi
 
     # Fallback: download pre-built binary from GitHub
     if [ "$installed" = false ]; then
-        echo "Package manager doesn't have ripgrep, downloading binary from GitHub..."
+        echo "Package manager install failed, downloading binary from GitHub..."
         ARCH=$(uname -m)
         case "$ARCH" in
             x86_64)  RG_ARCH="x86_64-unknown-linux-musl" ;;
@@ -81,12 +139,15 @@ if ! command -v rg &>/dev/null; then
     fi
 
     if [ "$installed" = false ]; then
-        echo "WARNING: Could not install ripgrep. The 'grep' tool will fall back to Python regex (slower)."
+        echo "WARNING: Could not install ripgrep. grep tool will use Python regex fallback (slower)."
     fi
+else
+    echo "Skipped. grep tool will use Python regex fallback (slower)."
 fi
+echo ""
 
 # ---------------------------------------------------------------------------
-# Copy project files
+# Step 4: Copy project files
 # ---------------------------------------------------------------------------
 echo "Copying files to ${APP_DIR}..."
 mkdir -p "${APP_DIR}"
@@ -95,21 +156,20 @@ rsync -a --exclude='.git' --exclude='__pycache__' --exclude='tests' \
     "${REPO_DIR}/" "${APP_DIR}/"
 
 # ---------------------------------------------------------------------------
-# Create venv and install deps (recreate if Python version changed)
+# Step 5: Virtual environment & dependencies
 # ---------------------------------------------------------------------------
-RECREATE_VENV=false
 if [ -d "${APP_DIR}/venv" ]; then
     VENV_PY="${APP_DIR}/venv/bin/python3"
-    if [ ! -x "$VENV_PY" ] || ! "$VENV_PY" -c 'import pip' &>/dev/null; then
+    if [ -x "$VENV_PY" ] && "$VENV_PY" -c 'import pip' &>/dev/null; then
+        echo "Existing venv is healthy, skipping creation."
+    else
         echo "Existing venv is broken, recreating..."
         rm -rf "${APP_DIR}/venv"
-        RECREATE_VENV=true
     fi
 fi
 
 if [ ! -d "${APP_DIR}/venv" ]; then
     echo "Creating virtual environment..."
-    # Debian/Ubuntu: ensure python3.x-venv package is installed
     if ! "$PYTHON" -m venv --help &>/dev/null && command -v apt-get &>/dev/null; then
         PY_MINOR=$("$PYTHON" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
         echo "Installing python${PY_MINOR}-venv..."
@@ -117,7 +177,6 @@ if [ ! -d "${APP_DIR}/venv" ]; then
     fi
     "$PYTHON" -m venv "${APP_DIR}/venv"
 
-    # Ensure pip is available (some distros ship venv without pip)
     if ! "${APP_DIR}/venv/bin/python3" -c 'import pip' &>/dev/null; then
         echo "Installing pip into venv..."
         "${APP_DIR}/venv/bin/python3" -m ensurepip --upgrade 2>/dev/null \
@@ -128,31 +187,55 @@ fi
 echo "Installing dependencies..."
 "${APP_DIR}/venv/bin/pip" install -q --upgrade pip
 "${APP_DIR}/venv/bin/pip" install -q -r "${APP_DIR}/requirements.txt"
+echo ""
 
 # ---------------------------------------------------------------------------
-# Create .env if not exists
+# Step 6: .env configuration
 # ---------------------------------------------------------------------------
-if [ ! -f "${APP_DIR}/.env" ]; then
-    echo "Creating .env file (edit MCP_ADMIN_TOKEN before starting)..."
-    cat > "${APP_DIR}/.env" <<'EOF'
-MCP_ADMIN_TOKEN=CHANGE_ME
+GENERATED_TOKEN=""
+CONFIGURED_PORT="8765"
+
+if [ -f "${APP_DIR}/.env" ]; then
+    echo "Existing .env found, preserving configuration."
+    CONFIGURED_PORT=$(grep -oP '^MCP_PORT=\K.*' "${APP_DIR}/.env" 2>/dev/null || echo "8765")
+else
+    CONFIGURED_PORT=$(prompt_value "MCP port" "8765")
+    GENERATED_TOKEN=$(openssl rand -hex 16)
+
+    cat > "${APP_DIR}/.env" <<EOF
+MCP_ADMIN_TOKEN=${GENERATED_TOKEN}
 MCP_HOST=0.0.0.0
-MCP_PORT=8765
-MCP_TOKEN_FILE=/opt/mymcp/tokens.json
+MCP_PORT=${CONFIGURED_PORT}
+MCP_TOKEN_FILE=${APP_DIR}/tokens.json
 EOF
-    echo "WARNING: Edit ${APP_DIR}/.env and set MCP_ADMIN_TOKEN before starting!"
 fi
+echo ""
 
 # ---------------------------------------------------------------------------
-# Install systemd service (update Python path to match venv)
+# Step 7: systemd service
 # ---------------------------------------------------------------------------
 echo "Installing systemd service..."
-cp "${REPO_DIR}/deploy/mymcp.service" /etc/systemd/system/${SERVICE_NAME}.service
+sed -e "s|WorkingDirectory=.*|WorkingDirectory=${APP_DIR}|" \
+    -e "s|EnvironmentFile=.*|EnvironmentFile=${APP_DIR}/.env|" \
+    -e "s|ExecStart=.*|ExecStart=${APP_DIR}/venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port ${CONFIGURED_PORT}|" \
+    "${REPO_DIR}/deploy/mymcp.service" > /etc/systemd/system/${SERVICE_NAME}.service
+
 systemctl daemon-reload
 systemctl enable ${SERVICE_NAME}
 
+# ---------------------------------------------------------------------------
+# Done
+# ---------------------------------------------------------------------------
 echo ""
 echo "=== Installation complete ==="
-echo "1. Edit ${APP_DIR}/.env to set MCP_ADMIN_TOKEN"
-echo "2. Start with: systemctl start ${SERVICE_NAME}"
-echo "3. Check logs: journalctl -u ${SERVICE_NAME} -f"
+echo "  Install path: ${APP_DIR}"
+echo "  Python:       ${PYTHON} (${PY_VERSION})"
+echo "  MCP port:     ${CONFIGURED_PORT}"
+if [ -n "$GENERATED_TOKEN" ]; then
+    echo ""
+    echo "  *** Admin token: ${GENERATED_TOKEN} ***"
+    echo "  (Save this token — it won't be shown again)"
+fi
+echo ""
+echo "  Start: systemctl start ${SERVICE_NAME}"
+echo "  Logs:  journalctl -u ${SERVICE_NAME} -f"
