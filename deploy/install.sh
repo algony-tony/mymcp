@@ -58,6 +58,10 @@ echo "=== Installing MyMCP Server ==="
 # Step 1: Install path
 # ---------------------------------------------------------------------------
 APP_DIR=$(prompt_value "Install path" "/opt/mymcp")
+case "$APP_DIR" in
+    /*) ;;
+    *) echo "ERROR: Install path must be absolute."; exit 1 ;;
+esac
 echo ""
 
 # ---------------------------------------------------------------------------
@@ -197,7 +201,7 @@ CONFIGURED_PORT="8765"
 
 if [ -f "${APP_DIR}/.env" ]; then
     echo "Existing .env found, preserving configuration."
-    CONFIGURED_PORT=$(grep -oP '^MCP_PORT=\K.*' "${APP_DIR}/.env" 2>/dev/null || echo "8765")
+    CONFIGURED_PORT=$(sed -n 's/^MCP_PORT=//p' "${APP_DIR}/.env" 2>/dev/null || echo "8765")
 else
     CONFIGURED_PORT=$(prompt_value "MCP port" "8765")
     GENERATED_TOKEN=$(openssl rand -hex 16)
@@ -208,6 +212,7 @@ MCP_HOST=0.0.0.0
 MCP_PORT=${CONFIGURED_PORT}
 MCP_TOKEN_FILE=${APP_DIR}/tokens.json
 EOF
+    chmod 600 "${APP_DIR}/.env"
 fi
 echo ""
 
@@ -218,10 +223,10 @@ echo "Installing systemd service..."
 sed -e "s|WorkingDirectory=.*|WorkingDirectory=${APP_DIR}|" \
     -e "s|EnvironmentFile=.*|EnvironmentFile=${APP_DIR}/.env|" \
     -e "s|ExecStart=.*|ExecStart=${APP_DIR}/venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port ${CONFIGURED_PORT}|" \
-    "${REPO_DIR}/deploy/mymcp.service" > /etc/systemd/system/${SERVICE_NAME}.service
+    "${REPO_DIR}/deploy/mymcp.service" > "/etc/systemd/system/${SERVICE_NAME}.service"
 
 systemctl daemon-reload
-systemctl enable ${SERVICE_NAME}
+systemctl enable "${SERVICE_NAME}"
 
 # ---------------------------------------------------------------------------
 # Done
