@@ -109,6 +109,12 @@ fi
 
 if [ ! -d "${APP_DIR}/venv" ]; then
     echo "Creating virtual environment..."
+    # Debian/Ubuntu: ensure python3.x-venv package is installed
+    if ! "$PYTHON" -m venv --help &>/dev/null && command -v apt-get &>/dev/null; then
+        PY_MINOR=$("$PYTHON" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+        echo "Installing python${PY_MINOR}-venv..."
+        apt-get install -y -qq "python${PY_MINOR}-venv"
+    fi
     "$PYTHON" -m venv "${APP_DIR}/venv"
 
     # Ensure pip is available (some distros ship venv without pip)
