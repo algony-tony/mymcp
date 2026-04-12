@@ -1,21 +1,39 @@
+import contextvars
 import json
+import time
 
 from mcp.server import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp import types
 
 import config
+from audit import log_tool_call
 from tools.bash import run_bash_execute
 from tools.files import read_file, write_file, edit_file, glob_files, grep_files
 
-server = Server("linux-server")
-session_manager = StreamableHTTPSessionManager(server)
+# ---------------------------------------------------------------------------
+# Context variable: set by auth middleware, read by tool handlers
+# ---------------------------------------------------------------------------
+_current_audit_info: contextvars.ContextVar[dict] = contextvars.ContextVar(
+    "_current_audit_info",
+    default={"token_name": "unknown", "role": "rw", "ip": "unknown"},
+)
 
+# ---------------------------------------------------------------------------
+# Tool role sets
+# ---------------------------------------------------------------------------
+READ_TOOLS: set[str] = {"read_file", "glob", "grep"}
+WRITE_TOOLS: set[str] = {"bash_execute", "write_file", "edit_file"}
+ALL_TOOLS: set[str] = READ_TOOLS | WRITE_TOOLS
 
-@server.list_tools()
-async def list_tools() -> list[types.Tool]:
-    return [
-        types.Tool(
+# ---------------------------------------------------------------------------
+# Tool definitions
+# ---------------------------------------------------------------------------
+
+def _build_tool_definitions() -> dict[str, types.Tool]:
+    """Return all tool definitions keyed by name."""
+    return {
+        "bash_execute": types.Tool(
             name="bash_execute",
             description=(
                 "Execute any shell command on the Linux server. "
@@ -32,7 +50,7 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["command"],
             },
         ),
-        types.Tool(
+        "read_file": types.Tool(
             name="read_file",
             description="Read a file with line numbers. Supports pagination via offset/limit.",
             inputSchema={
@@ -45,12 +63,9 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["file_path"],
             },
         ),
-        types.Tool(
+        "write_file": types.Tool(
             name="write_file",
-            description=(
-                "Create or overwrite a file. Max 10MB. "
-                "For larger files use the /files/upload HTTP endpoint."
-            ),
+            description="Create or overwrite a file. Max 10MB.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -60,7 +75,7 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["file_path", "content"],
             },
         ),
-        types.Tool(
+        "edit_file": types.Tool(
             name="edit_file",
             description="Replace a string in a file. old_string must be unique unless replace_all=true.",
             inputSchema={
@@ -74,7 +89,7 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["file_path", "old_string", "new_string"],
             },
         ),
-        types.Tool(
+        "glob": types.Tool(
             name="glob",
             description="Find files by glob pattern, e.g. '**/*.py'. Results sorted by mtime desc.",
             inputSchema={
@@ -86,7 +101,7 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["pattern"],
             },
         ),
-        types.Tool(
+        "grep": types.Tool(
             name="grep",
             description="Search file contents with regex. Uses ripgrep if installed, else Python fallback.",
             inputSchema={
@@ -107,12 +122,107 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["pattern"],
             },
         ),
-    ]
+    }
+
+
+_TOOL_DEFS = _build_tool_definitions()
+
+# ---------------------------------------------------------------------------
+# Permission helpers
+# ---------------------------------------------------------------------------
+
+def filter_tools_by_role(role: str) -> list[types.Tool]:
+    """Return tool definitions visible to the given role."""
+    if role == "rw":
+        allowed = ALL_TOOLS
+    else:
+        allowed = READ_TOOLS
+    return [t for name, t in _TOOL_DEFS.items() if name in allowed]
+
+
+def check_tool_permission(tool_name: str, role: str) -> str | None:
+    """Return None if allowed, or an error message string if denied."""
+    if tool_name not in ALL_TOOLS:
+        return f"Unknown tool: {tool_name}"
+    if role == "rw":
+        return None
+    if tool_name in READ_TOOLS:
+        return None
+    return f"Permission denied: tool '{tool_name}' requires rw role"
+
+
+def _extract_params(name: str, args: dict) -> dict:
+    """Extract audit-safe params (omit large content fields)."""
+    omit_keys = {"content", "old_string", "new_string"}
+    safe = {}
+    for k, v in args.items():
+        if k in omit_keys:
+            safe[k] = f"<{len(str(v))} chars>"
+        else:
+            safe[k] = v
+    return safe
+
+
+# ---------------------------------------------------------------------------
+# MCP Server
+# ---------------------------------------------------------------------------
+
+server = Server("linux-server")
+session_manager = StreamableHTTPSessionManager(server)
+
+
+@server.list_tools()
+async def list_tools() -> list[types.Tool]:
+    info = _current_audit_info.get()
+    role = info.get("role", "rw")
+    return filter_tools_by_role(role)
 
 
 @server.call_tool()
 async def call_tool(name: str, arguments: dict | None) -> list[types.TextContent]:
-    result_json = await dispatch_tool(name, arguments or {})
+    args = arguments or {}
+    info = _current_audit_info.get()
+    token_name = info.get("token_name", "unknown")
+    role = info.get("role", "rw")
+    ip = info.get("ip", "unknown")
+
+    # Permission check
+    perm_err = check_tool_permission(name, role)
+    if perm_err is not None:
+        log_tool_call(
+            token_name=token_name,
+            role=role,
+            ip=ip,
+            tool=name,
+            params=_extract_params(name, args),
+            result="denied",
+            reason=perm_err,
+        )
+        error_result = json.dumps({"success": False, "error": "PermissionDenied", "message": perm_err})
+        return [types.TextContent(type="text", text=error_result)]
+
+    # Execute tool
+    t0 = time.monotonic()
+    result_json = await dispatch_tool(name, args)
+    duration_ms = int((time.monotonic() - t0) * 1000)
+
+    # Determine result status for audit
+    try:
+        result_data = json.loads(result_json)
+        result_status = "ok" if result_data.get("success", True) else "error"
+    except (json.JSONDecodeError, AttributeError):
+        result_status = "ok"
+
+    log_tool_call(
+        token_name=token_name,
+        role=role,
+        ip=ip,
+        tool=name,
+        params=_extract_params(name, args),
+        result=result_status,
+        duration_ms=duration_ms,
+    )
+
     return [types.TextContent(type="text", text=result_json)]
 
 
