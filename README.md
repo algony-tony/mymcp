@@ -5,7 +5,9 @@ A Python MCP server that exposes full Linux system control to AI clients (Claude
 ## Features
 
 - **6 MCP tools**: `bash_execute`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`
-- **File transfer**: large file upload/download via dedicated HTTP endpoints
+- **Per-token permissions**: read-only (`ro`) or read-write (`rw`) roles
+- **Audit logging**: JSON Lines audit trail of all tool invocations
+- **Protected paths**: MCP's own files are protected from tool access
 - **Multi-user auth**: Bearer token authentication with per-token management
 - **Admin API**: create/revoke tokens without restarting the server
 - **Streamable HTTP transport**: modern MCP protocol with session management
@@ -52,18 +54,29 @@ Edit `/opt/mymcp/.env`:
 | `MCP_HOST` | `0.0.0.0` | Bind address |
 | `MCP_PORT` | `8765` | Listen port |
 | `MCP_TOKEN_FILE` | `/opt/mymcp/tokens.json` | Token store path |
+| `MCP_APP_DIR` | `/opt/mymcp` | Application directory (auto-protected) |
+| `MCP_AUDIT_ENABLED` | `false` | Enable audit logging |
+| `MCP_AUDIT_LOG_DIR` | `/var/log/mymcp` | Audit log directory (auto-protected) |
+| `MCP_PROTECTED_PATHS` | *(empty)* | Additional protected paths, comma-separated |
 
 ## Managing Tokens
 
 Use the admin API to create tokens for clients. All admin endpoints require `Authorization: Bearer <MCP_ADMIN_TOKEN>`.
 
 ```bash
-# Create a token
+# Create a read-only token (default)
 curl -X POST http://localhost:8765/admin/tokens \
   -H "Authorization: Bearer <ADMIN_TOKEN>" \
   -H "Content-Type: application/json" \
   -d '{"name": "my-claude-desktop"}'
-# → {"token": "tok_abc123...", "name": "my-claude-desktop"}
+# → {"token": "tok_abc123...", "name": "my-claude-desktop", "role": "ro"}
+
+# Create a read-write token
+curl -X POST http://localhost:8765/admin/tokens \
+  -H "Authorization: Bearer <ADMIN_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-admin-client", "role": "rw"}'
+# → {"token": "tok_def456...", "name": "my-admin-client", "role": "rw"}
 
 # List all tokens
 curl http://localhost:8765/admin/tokens \
@@ -103,38 +116,40 @@ claude mcp add linux-server \
   --header "Authorization: Bearer tok_abc123"
 ```
 
-## File Transfer
-
-For files larger than 10MB, use the HTTP file transfer endpoints directly (same Bearer token).
-
-### Upload
-
-```bash
-curl -X POST http://your-server:8765/files/upload \
-  -H "Authorization: Bearer tok_abc123" \
-  -F "file=@/local/path/backup.tar.gz" \
-  -F "dest_path=/data/backup.tar.gz"
-```
-
-### Download
-
-```bash
-curl http://your-server:8765/files/download?path=/data/backup.tar.gz \
-  -H "Authorization: Bearer tok_abc123" \
-  -o backup.tar.gz
-```
-
 ## MCP Tools
 
-| Tool | Description |
-|------|-------------|
-| `bash_execute` | Run any shell command. Args: `command`, `timeout` (default 30s), `working_dir`, `max_output_bytes` |
-| `read_file` | Read file with line numbers. Args: `file_path`, `offset`, `limit` (default 2000 lines) |
-| `write_file` | Create or overwrite a file (max 10MB; use upload for larger). Args: `file_path`, `content` |
-| `edit_file` | Replace a string in a file. Args: `file_path`, `old_string`, `new_string`, `replace_all` |
-| `glob` | Find files by pattern. Args: `pattern`, `path` (default `/`) |
-| `grep` | Search file contents with regex. Args: `pattern`, `path`, `glob`, `output_mode`, `context_lines`, `max_results` |
+| Tool | Permission | Description |
+|------|-----------|-------------|
+| `bash_execute` | rw | Run any shell command |
+| `read_file` | ro | Read file with line numbers and pagination |
+| `write_file` | rw | Create or overwrite a file (max 10MB) |
+| `edit_file` | rw | Replace a string in a file |
+| `glob` | ro | Find files by pattern |
+| `grep` | ro | Search file contents with regex |
+
+## Audit Logging
+
+When enabled (`MCP_AUDIT_ENABLED=true`), all tool invocations are logged to `<MCP_AUDIT_LOG_DIR>/audit.log` in JSON Lines format:
+
+```json
+{"ts":"2026-04-10T15:30:22Z","token_name":"my-client","role":"rw","ip":"203.0.113.5","tool":"bash_execute","params":{"command":"apt update"},"result":"success","duration_ms":1523}
+```
+
+Logs rotate automatically at 10MB with 5 backups.
+
+## Protected Paths
+
+MCP automatically protects its own installation directory and audit log directory from access via file tools (`read_file`, `write_file`, `edit_file`, `glob`, `grep`). This prevents AI clients from reading tokens, modifying server code, or tampering with audit logs.
+
+Add extra protected paths via `MCP_PROTECTED_PATHS=/path/one,/path/two`.
+
+Note: `bash_execute` is not subject to path protection — use `ro` tokens for untrusted clients.
 
 ## Security Note
 
-This server grants **unrestricted root-equivalent access** to the Linux system. Only issue tokens to trusted clients. Run behind a firewall and consider using TLS (e.g. via nginx reverse proxy) in production.
+This server grants system access to AI clients. Security measures:
+
+- **Permissions**: New tokens default to `ro` (read-only). Only grant `rw` to trusted clients.
+- **Audit**: Enable audit logging to track all tool invocations.
+- **Protected paths**: Server files are automatically protected from tool access.
+- **Network**: Run behind a firewall and consider TLS (e.g. via nginx reverse proxy).
