@@ -21,6 +21,10 @@ class TokenStore:
             with open(self.path) as f:
                 self._data = json.load(f)
             self._data["admin_token"] = self.admin_token
+            # Backward compat: add default role to tokens missing it
+            for info in self._data.get("tokens", {}).values():
+                if "role" not in info:
+                    info["role"] = "rw"
         else:
             self._data = {"tokens": {}, "admin_token": self.admin_token}
             self._save()
@@ -40,7 +44,9 @@ class TokenStore:
             self._save()
             return dict(info)
 
-    def create_token(self, name: str) -> str:
+    def create_token(self, name: str, role: str = "ro") -> str:
+        if role not in ("ro", "rw"):
+            raise ValueError(f"Invalid role: {role!r}. Must be 'ro' or 'rw'.")
         token = "tok_" + secrets.token_hex(16)
         with self._lock:
             self._data["tokens"][token] = {
@@ -48,6 +54,7 @@ class TokenStore:
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "last_used": None,
                 "enabled": True,
+                "role": role,
             }
             self._save()
         return token
@@ -119,6 +126,7 @@ async def require_admin(
 
 class _CreateTokenRequest(BaseModel):
     name: str
+    role: str = "ro"
 
 
 admin_router = APIRouter(
@@ -132,8 +140,11 @@ async def create_token(
     body: _CreateTokenRequest,
     store: "TokenStore" = Depends(get_store),
 ):
-    token = store.create_token(body.name)
-    return {"token": token, "name": body.name}
+    try:
+        token = store.create_token(body.name, role=body.role)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"token": token, "name": body.name, "role": body.role}
 
 
 @admin_router.delete("/tokens/{token}")

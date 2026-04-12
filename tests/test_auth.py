@@ -66,3 +66,45 @@ def test_validate_updates_last_used(tmp_path):
     store = make_store(tmp_path)
     token = store.create_token("client-d")
     assert store.validate(token)["last_used"] is not None
+
+
+def test_create_token_default_role_is_ro(tmp_path):
+    store = make_store(tmp_path)
+    token = store.create_token("client-ro")
+    info = store.validate(token)
+    assert info["role"] == "ro"
+
+
+def test_create_token_with_rw_role(tmp_path):
+    store = make_store(tmp_path)
+    token = store.create_token("client-rw", role="rw")
+    info = store.validate(token)
+    assert info["role"] == "rw"
+
+
+def test_backward_compat_missing_role_defaults_rw(tmp_path):
+    """Tokens without a role field (from older versions) default to rw."""
+    import json
+    path = tmp_path / "tokens.json"
+    old_data = {
+        "tokens": {
+            "tok_legacy": {
+                "name": "old-client",
+                "created_at": "2026-01-01T00:00:00+00:00",
+                "last_used": None,
+                "enabled": True,
+            }
+        },
+        "admin_token": "adm_testadmin",
+    }
+    path.write_text(json.dumps(old_data))
+    store = TokenStore(str(path), "adm_testadmin")
+    info = store.validate("tok_legacy")
+    assert info is not None
+    assert info["role"] == "rw"
+
+
+def test_create_token_invalid_role_raises(tmp_path):
+    store = make_store(tmp_path)
+    with pytest.raises(ValueError):
+        store.create_token("bad", role="admin")
