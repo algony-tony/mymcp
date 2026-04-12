@@ -157,11 +157,23 @@ else
     CONFIGURED_PORT=$(prompt_value "MCP port" "8765")
     GENERATED_TOKEN=$(openssl rand -hex 16)
 
+    AUDIT_ENABLED="false"
+    AUDIT_LOG_DIR="/var/log/mymcp"
+    if confirm "Enable audit logging? (recommended)" Y; then
+        AUDIT_ENABLED="true"
+        AUDIT_LOG_DIR=$(prompt_value "Audit log directory" "/var/log/mymcp")
+        mkdir -p "${AUDIT_LOG_DIR}"
+        chmod 750 "${AUDIT_LOG_DIR}"
+    fi
+
     cat > "${APP_DIR}/.env" <<EOF
 MCP_ADMIN_TOKEN=${GENERATED_TOKEN}
 MCP_HOST=0.0.0.0
 MCP_PORT=${CONFIGURED_PORT}
 MCP_TOKEN_FILE=${APP_DIR}/tokens.json
+MCP_APP_DIR=${APP_DIR}
+MCP_AUDIT_ENABLED=${AUDIT_ENABLED}
+MCP_AUDIT_LOG_DIR=${AUDIT_LOG_DIR}
 EOF
     chmod 600 "${APP_DIR}/.env"
 fi
@@ -191,6 +203,9 @@ if [ -n "$GENERATED_TOKEN" ]; then
     echo ""
     echo "  *** Admin token: ${GENERATED_TOKEN} ***"
     echo "  (Save this token — it won't be shown again)"
+fi
+if [ "$AUDIT_ENABLED" = "true" ] 2>/dev/null; then
+    echo "  Audit log:    ${AUDIT_LOG_DIR}/audit.log"
 fi
 echo ""
 echo "  Start: systemctl start ${SERVICE_NAME}"
