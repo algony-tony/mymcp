@@ -6,6 +6,21 @@ import shutil
 import config
 
 
+def check_protected_path(file_path: str) -> str | None:
+    """Returns error message if path is protected, None if allowed."""
+    real = os.path.realpath(file_path)
+    for protected in config.PROTECTED_PATHS:
+        protected_real = os.path.realpath(protected)
+        if real == protected_real or real.startswith(protected_real + os.sep):
+            return f"Access denied: path is within protected directory {protected}"
+    return None
+
+
+def _filter_protected(paths: list[str]) -> list[str]:
+    """Filter out paths that fall within protected directories."""
+    return [p for p in paths if check_protected_path(p) is None]
+
+
 # ---------------------------------------------------------------------------
 # read_file
 # ---------------------------------------------------------------------------
@@ -17,6 +32,10 @@ async def read_file(
 ) -> dict:
     limit = min(max(1, limit), config.READ_FILE_MAX_LIMIT)
     offset = max(1, offset)
+
+    err = check_protected_path(file_path)
+    if err:
+        return {"success": False, "error": "ProtectedPath", "message": err}
 
     try:
         with open(file_path, "rb") as f:
@@ -68,6 +87,10 @@ async def read_file(
 # ---------------------------------------------------------------------------
 
 async def write_file(file_path: str, content: str) -> dict:
+    err = check_protected_path(file_path)
+    if err:
+        return {"success": False, "error": "ProtectedPath", "message": err}
+
     content_bytes = content.encode("utf-8")
     if len(content_bytes) > config.WRITE_FILE_MAX_BYTES:
         return {
@@ -104,6 +127,10 @@ async def edit_file(
     new_string: str,
     replace_all: bool = False,
 ) -> dict:
+    err = check_protected_path(file_path)
+    if err:
+        return {"success": False, "error": "ProtectedPath", "message": err}
+
     if len(old_string.encode("utf-8")) > config.EDIT_STRING_MAX_BYTES:
         return {"success": False, "error": "FileTooLarge", "message": "old_string exceeds 1MB limit"}
     if len(new_string.encode("utf-8")) > config.EDIT_STRING_MAX_BYTES:
@@ -158,6 +185,7 @@ async def glob_files(pattern: str, path: str = "/") -> dict:
             key=lambda p: os.path.getmtime(p) if os.path.exists(p) else 0,
             reverse=True,
         )
+        matches = _filter_protected(matches)
         truncated = len(matches) > config.GLOB_MAX_RESULTS
         return {
             "files": matches[: config.GLOB_MAX_RESULTS],
@@ -214,6 +242,13 @@ async def _grep_rg(
     except asyncio.TimeoutError:
         return {"success": False, "error": "TimeoutError", "message": "grep timed out after 60s"}
 
+    filtered = []
+    for line in lines:
+        parts = line.split(":", 1)
+        if parts and check_protected_path(parts[0]) is None:
+            filtered.append(line)
+    lines = filtered
+
     total = len(lines)
     truncated = total > max_results
     result_str = "\n".join(lines[:max_results])
@@ -246,6 +281,8 @@ async def _grep_python(
 
     matches = []
     for fpath in files_to_search:
+        if check_protected_path(fpath) is not None:
+            continue
         if len(matches) >= max_results and output_mode == "content":
             break
         try:
