@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt pytest-cov
+
+      - name: Run tests with coverage
+        run: |
+          python -m pytest tests/ -v --cov=. --cov-report=term-missing
+
+      - name: Update coverage badge
+        if: github.ref == 'refs/heads/master' && matrix.python-version == '3.12'
+        run: |
+          COVERAGE=$(python -m pytest tests/ --cov=. --cov-report=term -q 2>/dev/null | grep '^TOTAL' | awk '{print $NF}' | tr -d '%')
+          if [ "$COVERAGE" -ge 90 ]; then COLOR="brightgreen"
+          elif [ "$COVERAGE" -ge 80 ]; then COLOR="green"
+          elif [ "$COVERAGE" -ge 70 ]; then COLOR="yellowgreen"
+          elif [ "$COVERAGE" -ge 60 ]; then COLOR="yellow"
+          else COLOR="red"; fi
+          echo "{\"schemaVersion\":1,\"label\":\"coverage\",\"message\":\"${COVERAGE}%\",\"color\":\"${COLOR}\"}" > coverage-badge.json
+          curl -s -X PATCH \
+            -H "Authorization: token ${{ secrets.GIST_TOKEN }}" \
+            -d "{\"files\":{\"mymcp-coverage.json\":{\"content\":$(cat coverage-badge.json | python -c 'import sys,json; print(json.dumps(sys.stdin.read()))')}}}" \
+            "https://api.github.com/gists/${{ secrets.GIST_ID }}"
