@@ -46,6 +46,8 @@ def log_tool_call(
     params: dict,
     result: str,
     reason: str | None = None,
+    error_code: str | None = None,
+    error_message: str | None = None,
     duration_ms: int | None = None,
 ) -> None:
     global _logger
@@ -65,6 +67,10 @@ def log_tool_call(
     }
     if reason is not None:
         entry["reason"] = reason
+    if error_code is not None:
+        entry["error_code"] = error_code
+    if error_message is not None:
+        entry["error_message"] = error_message
     if duration_ms is not None:
         entry["duration_ms"] = duration_ms
 

@@ -83,6 +83,29 @@ def test_log_error_includes_reason(audit_config):
     assert record["reason"] == "TimeoutError"
 
 
+def test_log_error_includes_error_code_and_message(audit_config):
+    import audit
+    audit.log_tool_call(
+        token_name="client",
+        role="ro",
+        ip="10.0.0.1",
+        tool="read_file",
+        params={"file_path": "/protected/file"},
+        result="error",
+        error_code="ProtectedPath",
+        error_message="Access denied: path is within protected directory /opt/mymcp",
+        duration_ms=0,
+    )
+
+    log_file = audit_config / "audit.log"
+    record = json.loads(log_file.read_text().strip())
+    assert record["result"] == "error"
+    assert record["error_code"] == "ProtectedPath"
+    assert record["error_message"].startswith("Access denied")
+    assert record["duration_ms"] == 0
+    assert "reason" not in record
+
+
 def test_audit_disabled_writes_nothing(tmp_path):
     with patch.multiple(
         "config",

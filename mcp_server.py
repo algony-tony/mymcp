@@ -1,6 +1,8 @@
 import contextvars
 import json
+import logging
 import time
+import traceback
 
 from mcp.server import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
@@ -10,6 +12,8 @@ import config
 from audit import log_tool_call
 from tools.bash import run_bash_execute
 from tools.files import read_file, write_file, edit_file, glob_files, grep_files
+
+logger = logging.getLogger("mymcp")
 
 # ---------------------------------------------------------------------------
 # Context variable: set by auth middleware, read by tool handlers
@@ -203,15 +207,51 @@ async def call_tool(name: str, arguments: dict | None) -> list[types.TextContent
 
     # Execute tool
     t0 = time.monotonic()
-    result_json = await dispatch_tool(name, args)
+    try:
+        result_json = await dispatch_tool(name, args)
+    except Exception:
+        duration_ms = int((time.monotonic() - t0) * 1000)
+        tb = traceback.format_exc()
+        logger.error("Unhandled exception in tool %s: %s", name, tb)
+        error_data = {
+            "success": False,
+            "error": "InternalError",
+            "message": f"Tool '{name}' failed with an unexpected error",
+        }
+        log_tool_call(
+            token_name=token_name,
+            role=role,
+            ip=ip,
+            tool=name,
+            params=_extract_params(name, args),
+            result="error",
+            error_code="InternalError",
+            error_message=f"Unhandled exception in {name}",
+            duration_ms=duration_ms,
+        )
+        return [types.TextContent(type="text", text=json.dumps(error_data))]
+
     duration_ms = int((time.monotonic() - t0) * 1000)
 
     # Determine result status for audit
+    error_code = None
+    error_message = None
     try:
         result_data = json.loads(result_json)
-        result_status = "ok" if result_data.get("success", True) else "error"
+        if result_data.get("success", True) is False:
+            result_status = "error"
+            error_code = result_data.get("error", "")
+            error_message = result_data.get("message", "")
+        else:
+            result_status = "ok"
     except (json.JSONDecodeError, AttributeError):
         result_status = "ok"
+
+    if result_status == "error":
+        logger.warning(
+            "Tool %s returned error: [%s] %s (token=%s, ip=%s)",
+            name, error_code, error_message, token_name, ip,
+        )
 
     log_tool_call(
         token_name=token_name,
@@ -220,6 +260,8 @@ async def call_tool(name: str, arguments: dict | None) -> list[types.TextContent
         tool=name,
         params=_extract_params(name, args),
         result=result_status,
+        error_code=error_code,
+        error_message=error_message,
         duration_ms=duration_ms,
     )
 
