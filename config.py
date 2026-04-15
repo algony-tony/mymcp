@@ -12,7 +12,7 @@ BASH_MAX_OUTPUT_BYTES_HARD = int(os.getenv("MCP_BASH_MAX_OUTPUT_BYTES_HARD", "10
 # read_file limits
 READ_FILE_DEFAULT_LIMIT = int(os.getenv("MCP_READ_FILE_DEFAULT_LIMIT", "2000"))         # lines
 READ_FILE_MAX_LIMIT = int(os.getenv("MCP_READ_FILE_MAX_LIMIT", "50000"))                # lines
-READ_FILE_MAX_LINE_BYTES = int(os.getenv("MCP_READ_FILE_MAX_LINE_BYTES", "4096"))       # bytes per line
+READ_FILE_MAX_LINE_BYTES = int(os.getenv("MCP_READ_FILE_MAX_LINE_BYTES", "32768"))      # 32 KB per line
 
 # write_file limit
 WRITE_FILE_MAX_BYTES = int(os.getenv("MCP_WRITE_FILE_MAX_BYTES", str(10 * 1024 * 1024)))  # 10 MB
@@ -24,7 +24,7 @@ EDIT_STRING_MAX_BYTES = int(os.getenv("MCP_EDIT_STRING_MAX_BYTES", str(1024 * 10
 GLOB_MAX_RESULTS = int(os.getenv("MCP_GLOB_MAX_RESULTS", "1000"))
 
 # grep limits
-GREP_DEFAULT_MAX_RESULTS = int(os.getenv("MCP_GREP_DEFAULT_MAX_RESULTS", "250"))
+GREP_DEFAULT_MAX_RESULTS = int(os.getenv("MCP_GREP_DEFAULT_MAX_RESULTS", "500"))
 GREP_MAX_RESULTS = int(os.getenv("MCP_GREP_MAX_RESULTS", "5000"))
 
 # Audit logging

@@ -55,7 +55,7 @@ async def test_read_file_is_directory(tmp_path):
 @pytest.mark.anyio
 async def test_read_file_long_line_truncated(tmp_path):
     f = tmp_path / "long.txt"
-    f.write_bytes(b"x" * 10000 + b"\n")
+    f.write_bytes(b"x" * 40000 + b"\n")
     result = await read_file(str(f))
     assert "[LINE TRUNCATED]" in result["content"]
 
