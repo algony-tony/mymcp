@@ -52,3 +52,16 @@ async def test_bad_working_dir_returns_error():
     result = await run_bash_execute("ls", working_dir="/nonexistent_dir_xyz_abc")
     assert result.get("success") is False
     assert "error" in result
+
+
+@pytest.mark.anyio
+async def test_permission_denied_working_dir(tmp_path):
+    d = tmp_path / "noaccess"
+    d.mkdir()
+    d.chmod(0o000)
+    try:
+        result = await run_bash_execute("ls", working_dir=str(d))
+        assert result.get("success") is False
+        assert result["error"] == "PermissionError"
+    finally:
+        d.chmod(0o755)

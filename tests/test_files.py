@@ -1,4 +1,9 @@
+import os
+import stat
+
 import pytest
+from unittest.mock import patch
+
 from tools.files import read_file, write_file, edit_file, glob_files, grep_files
 
 
@@ -60,6 +65,35 @@ async def test_read_file_long_line_truncated(tmp_path):
     assert "[LINE TRUNCATED]" in result["content"]
 
 
+@pytest.mark.anyio
+async def test_read_file_permission_denied(tmp_path):
+    f = tmp_path / "noperm.txt"
+    f.write_text("secret")
+    f.chmod(0o000)
+    try:
+        result = await read_file(str(f))
+        assert result["success"] is False
+        assert result["error"] == "PermissionError"
+    finally:
+        f.chmod(0o644)
+
+
+@pytest.mark.anyio
+async def test_read_file_offset_below_one(tmp_path):
+    f = tmp_path / "test.txt"
+    f.write_text("line1\nline2\n")
+    result = await read_file(str(f), offset=0)
+    assert "   1\tline1" in result["content"]
+
+
+@pytest.mark.anyio
+async def test_read_file_limit_clamped(tmp_path):
+    f = tmp_path / "test.txt"
+    f.write_text("line1\nline2\n")
+    result = await read_file(str(f), limit=0)
+    assert result["total_lines"] == 2
+
+
 # ---------------------------------------------------------------------------
 # write_file
 # ---------------------------------------------------------------------------
@@ -96,6 +130,19 @@ async def test_write_file_too_large():
     result = await write_file("/tmp/toobig.txt", big)
     assert result["success"] is False
     assert result["error"] == "FileTooLarge"
+
+
+@pytest.mark.anyio
+async def test_write_file_permission_denied(tmp_path):
+    d = tmp_path / "readonly_dir"
+    d.mkdir()
+    d.chmod(0o555)
+    try:
+        result = await write_file(str(d / "file.txt"), "data")
+        assert result["success"] is False
+        assert result["error"] == "PermissionError"
+    finally:
+        d.chmod(0o755)
 
 
 # ---------------------------------------------------------------------------
@@ -145,6 +192,54 @@ async def test_edit_file_not_found():
     result = await edit_file("/nonexistent_xyz/file.py", "old", "new")
     assert result["success"] is False
     assert result["error"] == "FileNotFoundError"
+
+
+@pytest.mark.anyio
+async def test_edit_file_old_string_too_large(tmp_path):
+    f = tmp_path / "file.txt"
+    f.write_text("hello")
+    with patch("config.EDIT_STRING_MAX_BYTES", 10):
+        result = await edit_file(str(f), "x" * 20, "new")
+    assert result["success"] is False
+    assert result["error"] == "FileTooLarge"
+    assert "old_string" in result["message"]
+
+
+@pytest.mark.anyio
+async def test_edit_file_new_string_too_large(tmp_path):
+    f = tmp_path / "file.txt"
+    f.write_text("hello")
+    with patch("config.EDIT_STRING_MAX_BYTES", 10):
+        result = await edit_file(str(f), "hello", "x" * 20)
+    assert result["success"] is False
+    assert result["error"] == "FileTooLarge"
+    assert "new_string" in result["message"]
+
+
+@pytest.mark.anyio
+async def test_edit_file_read_permission_denied(tmp_path):
+    f = tmp_path / "noperm.txt"
+    f.write_text("content")
+    f.chmod(0o000)
+    try:
+        result = await edit_file(str(f), "content", "new")
+        assert result["success"] is False
+        assert result["error"] == "PermissionError"
+    finally:
+        f.chmod(0o644)
+
+
+@pytest.mark.anyio
+async def test_edit_file_write_permission_denied(tmp_path):
+    f = tmp_path / "readonly.txt"
+    f.write_text("content")
+    f.chmod(0o444)
+    try:
+        result = await edit_file(str(f), "content", "new")
+        assert result["success"] is False
+        assert result["error"] == "PermissionError"
+    finally:
+        f.chmod(0o644)
 
 
 # ---------------------------------------------------------------------------
@@ -227,3 +322,37 @@ async def test_grep_truncates_at_max_results(tmp_path):
     result = await grep_files("match", path=str(tmp_path), max_results=10)
     assert "[TRUNCATED" in result["results"]
     assert result["match_count"] == 300
+
+
+@pytest.mark.anyio
+async def test_grep_count_mode(tmp_path):
+    f = tmp_path / "data.txt"
+    f.write_text("apple\nbanana\napple pie\n")
+    result = await grep_files("apple", path=str(tmp_path), output_mode="count")
+    assert result["match_count"] >= 1
+    assert "2" in result["results"]
+
+
+@pytest.mark.anyio
+async def test_grep_context_lines(tmp_path):
+    f = tmp_path / "ctx.txt"
+    f.write_text("aaa\nbbb\nccc\nddd\neee\n")
+    result = await grep_files("ccc", path=str(tmp_path), context_lines=1)
+    assert "ccc" in result["results"]
+    assert result["match_count"] >= 1
+
+
+@pytest.mark.anyio
+async def test_grep_single_file(tmp_path):
+    f = tmp_path / "single.txt"
+    f.write_text("needle in haystack\n")
+    result = await grep_files("needle", path=str(f))
+    assert result["match_count"] >= 1
+
+
+@pytest.mark.anyio
+async def test_grep_no_matches(tmp_path):
+    f = tmp_path / "empty_match.txt"
+    f.write_text("nothing here\n")
+    result = await grep_files("zzz_nonexistent", path=str(tmp_path))
+    assert result["match_count"] == 0

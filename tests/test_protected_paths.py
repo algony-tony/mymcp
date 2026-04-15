@@ -1,6 +1,23 @@
+import importlib
 import os
 import pytest
 from unittest.mock import patch
+
+
+def test_config_extra_protected_paths():
+    """MCP_PROTECTED_PATHS env var should extend PROTECTED_PATHS."""
+    import config
+    with patch.dict(os.environ, {
+        "MCP_PROTECTED_PATHS": "/extra/one, /extra/two",
+        "MCP_APP_DIR": "/opt/mymcp",
+        "MCP_AUDIT_LOG_DIR": "/var/log/mymcp",
+    }):
+        importlib.reload(config)
+        assert "/extra/one" in config.PROTECTED_PATHS
+        assert "/extra/two" in config.PROTECTED_PATHS
+        assert "/opt/mymcp" in config.PROTECTED_PATHS
+    # Reload again to restore defaults
+    importlib.reload(config)
 
 
 @pytest.fixture(autouse=True)
