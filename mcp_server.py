@@ -239,9 +239,21 @@ async def call_tool(name: str, arguments: dict | None) -> list[types.TextContent
     try:
         result_data = json.loads(result_json)
         if result_data.get("success", True) is False:
+            # Explicit failure (ProtectedPath, FileNotFoundError, etc.)
             result_status = "error"
             error_code = result_data.get("error", "")
             error_message = result_data.get("message", "")
+        elif result_data.get("timed_out"):
+            # bash_execute timeout
+            result_status = "error"
+            error_code = "TimeoutError"
+            error_message = result_data.get("stderr", "Command timed out")
+        elif result_data.get("exit_code") is not None and result_data["exit_code"] != 0:
+            # bash_execute non-zero exit
+            result_status = "error"
+            error_code = f"ExitCode:{result_data['exit_code']}"
+            stderr = result_data.get("stderr", "")
+            error_message = stderr[:200] if stderr else "Non-zero exit code"
         else:
             result_status = "ok"
     except (json.JSONDecodeError, AttributeError):
