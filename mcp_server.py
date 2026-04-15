@@ -172,7 +172,7 @@ def _extract_params(name: str, args: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 server = Server("linux-server")
-session_manager = StreamableHTTPSessionManager(server)
+session_manager = StreamableHTTPSessionManager(server, stateless=True)
 
 
 @server.list_tools()
