@@ -17,8 +17,11 @@ python3 -m pytest tests/test_files.py::test_read_file_basic -v
 # Start dev server
 python3 main.py
 
-# Install dependencies
+# Install production dependencies
 pip install -r requirements.txt
+
+# Install development/test dependencies
+pip install -r requirements-dev.txt
 ```
 
 ## Architecture
