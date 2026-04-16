@@ -76,3 +76,80 @@ async def test_revoke_unknown_token(client):
 async def test_missing_auth_header_returns_401(client):
     resp = await client.get("/admin/tokens")
     assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# require_auth dependency
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_require_auth_missing_bearer(store):
+    """require_auth should reject requests without Bearer prefix."""
+    from fastapi import FastAPI, Depends
+    from auth import require_auth, get_store
+
+    app2 = FastAPI()
+
+    @app2.get("/protected")
+    async def protected(info: dict = Depends(require_auth)):
+        return info
+
+    app2.dependency_overrides[get_store] = lambda: store
+    async with AsyncClient(transport=ASGITransport(app=app2), base_url="http://test") as c:
+        resp = await c.get("/protected")
+        assert resp.status_code == 401
+        assert "Bearer" in resp.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_require_auth_invalid_token(store):
+    from fastapi import FastAPI, Depends
+    from auth import require_auth, get_store
+
+    app2 = FastAPI()
+
+    @app2.get("/protected")
+    async def protected(info: dict = Depends(require_auth)):
+        return info
+
+    app2.dependency_overrides[get_store] = lambda: store
+    async with AsyncClient(transport=ASGITransport(app=app2), base_url="http://test") as c:
+        resp = await c.get(
+            "/protected",
+            headers={"Authorization": "Bearer tok_doesnotexist"},
+        )
+        assert resp.status_code == 401
+        assert "Invalid" in resp.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_require_auth_valid_token(store):
+    from fastapi import FastAPI, Depends
+    from auth import require_auth, get_store
+
+    app2 = FastAPI()
+
+    @app2.get("/protected")
+    async def protected(info: dict = Depends(require_auth)):
+        return {"name": info["name"]}
+
+    token = store.create_token("auth-test")
+    app2.dependency_overrides[get_store] = lambda: store
+    async with AsyncClient(transport=ASGITransport(app=app2), base_url="http://test") as c:
+        resp = await c.get(
+            "/protected",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["name"] == "auth-test"
+
+
+@pytest.mark.anyio
+async def test_require_admin_wrong_token(client):
+    """require_admin rejects non-admin tokens with 403."""
+    resp = await client.get(
+        "/admin/tokens",
+        headers={"Authorization": "Bearer tok_notadmin"},
+    )
+    assert resp.status_code == 403
+    assert "Admin" in resp.json()["detail"]

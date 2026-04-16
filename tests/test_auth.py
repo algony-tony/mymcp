@@ -1,5 +1,6 @@
 import pytest
 from pathlib import Path
+from unittest.mock import patch
 from auth import TokenStore
 
 
@@ -108,3 +109,37 @@ def test_create_token_invalid_role_raises(tmp_path):
     store = make_store(tmp_path)
     with pytest.raises(ValueError):
         store.create_token("bad", role="admin")
+
+
+# ---------------------------------------------------------------------------
+# get_store() singleton
+# ---------------------------------------------------------------------------
+
+def test_get_store_raises_without_admin_token(tmp_path):
+    """get_store() should raise RuntimeError when ADMIN_TOKEN is empty."""
+    import auth
+    original = auth._store
+    auth._store = None  # Reset singleton
+    try:
+        with patch("config.ADMIN_TOKEN", ""):
+            with pytest.raises(RuntimeError, match="MCP_ADMIN_TOKEN"):
+                auth.get_store()
+    finally:
+        auth._store = original
+
+
+def test_get_store_creates_singleton(tmp_path):
+    """get_store() should create and return a TokenStore singleton."""
+    import auth
+    original = auth._store
+    auth._store = None
+    try:
+        with patch("config.ADMIN_TOKEN", "adm_test123"), \
+             patch("config.TOKEN_FILE", str(tmp_path / "tokens.json")):
+            store = auth.get_store()
+            assert store is not None
+            # Second call returns same instance
+            store2 = auth.get_store()
+            assert store is store2
+    finally:
+        auth._store = original
