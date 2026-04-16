@@ -1,4 +1,4 @@
 [tool.mutmut]
 paths_to_mutate = "auth.py,audit.py,config.py,tools/bash.py,tools/files.py,mcp_server.py"
 tests_dir = "tests/"
-runner = "python -m pytest tests/ -x -q --tb=no --no-header --benchmark-disable"
+runner = "python3 -m pytest tests/ -x -q --tb=no --no-header --benchmark-disable"
