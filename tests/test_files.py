@@ -1,3 +1,4 @@
+import asyncio
 import os
 import stat
 
@@ -356,3 +357,160 @@ async def test_grep_no_matches(tmp_path):
     f.write_text("nothing here\n")
     result = await grep_files("zzz_nonexistent", path=str(tmp_path))
     assert result["match_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# glob_files — exception path
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_glob_exception_returns_error(tmp_path):
+    """glob_files should catch exceptions and return error dict."""
+    with patch("tools.files._glob_module.glob", side_effect=OSError("disk error")):
+        result = await glob_files("*.py", path=str(tmp_path))
+    assert result["success"] is False
+    assert result["error"] == "OSError"
+    assert "disk error" in result["message"]
+
+
+# ---------------------------------------------------------------------------
+# _grep_python fallback — full coverage
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_grep_python_invalid_regex(tmp_path):
+    """Invalid regex should return error."""
+    (tmp_path / "f.txt").write_text("data\n")
+    with patch("shutil.which", return_value=None):
+        result = await grep_files("[invalid", path=str(tmp_path))
+    assert result["success"] is False
+    assert result["error"] == "InvalidRegex"
+
+
+@pytest.mark.anyio
+async def test_grep_python_single_file(tmp_path):
+    """When path is a file, search that single file."""
+    f = tmp_path / "single.txt"
+    f.write_text("hello world\nfoo bar\nhello again\n")
+    with patch("shutil.which", return_value=None):
+        result = await grep_files("hello", path=str(f))
+    assert result["match_count"] == 2
+
+
+@pytest.mark.anyio
+async def test_grep_python_files_mode(tmp_path):
+    """Python fallback files output_mode."""
+    (tmp_path / "a.txt").write_text("match here\n")
+    (tmp_path / "b.txt").write_text("nothing\n")
+    with patch("shutil.which", return_value=None):
+        result = await grep_files("match", path=str(tmp_path), output_mode="files")
+    assert any("a.txt" in line for line in result["results"].splitlines())
+    assert not any("b.txt" in line for line in result["results"].splitlines())
+
+
+@pytest.mark.anyio
+async def test_grep_python_count_mode(tmp_path):
+    """Python fallback count output_mode."""
+    (tmp_path / "data.txt").write_text("apple\nbanana\napple pie\n")
+    with patch("shutil.which", return_value=None):
+        result = await grep_files("apple", path=str(tmp_path), output_mode="count")
+    assert result["match_count"] >= 1
+    assert "2" in result["results"]
+
+
+@pytest.mark.anyio
+async def test_grep_python_glob_filter(tmp_path):
+    """Python fallback glob filter."""
+    (tmp_path / "a.log").write_text("target\n")
+    (tmp_path / "b.txt").write_text("target\n")
+    with patch("shutil.which", return_value=None):
+        result = await grep_files("target", path=str(tmp_path), glob="*.log")
+    assert any("a.log" in line for line in result["results"].splitlines())
+    assert not any("b.txt" in line for line in result["results"].splitlines())
+
+
+@pytest.mark.anyio
+async def test_grep_python_permission_error_skipped(tmp_path):
+    """Python fallback should skip files with permission errors."""
+    ok = tmp_path / "ok.txt"
+    ok.write_text("findme\n")
+    noperm = tmp_path / "noperm.txt"
+    noperm.write_text("findme\n")
+    noperm.chmod(0o000)
+    try:
+        with patch("shutil.which", return_value=None):
+            result = await grep_files("findme", path=str(tmp_path))
+        assert result["match_count"] >= 1
+        assert "ok.txt" in result["results"]
+    finally:
+        noperm.chmod(0o644)
+
+
+@pytest.mark.anyio
+async def test_grep_python_case_insensitive(tmp_path):
+    """Python fallback case-insensitive search."""
+    (tmp_path / "f.txt").write_text("ERROR found\n")
+    with patch("shutil.which", return_value=None):
+        result = await grep_files("error", path=str(tmp_path), case_insensitive=True)
+    assert result["match_count"] >= 1
+
+
+@pytest.mark.anyio
+async def test_grep_python_truncates(tmp_path):
+    """Python fallback truncation."""
+    f = tmp_path / "big.txt"
+    f.write_text("\n".join(f"match line {i}" for i in range(100)))
+    with patch("shutil.which", return_value=None):
+        result = await grep_files("match", path=str(tmp_path), max_results=5)
+    assert "[TRUNCATED" in result["results"]
+
+
+# ---------------------------------------------------------------------------
+# _grep_rg — explicit tests (only run if rg is available)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_grep_rg_files_mode(tmp_path):
+    """ripgrep files output_mode."""
+    import shutil
+    if not shutil.which("rg"):
+        pytest.skip("ripgrep not installed")
+    (tmp_path / "a.txt").write_text("target line\n")
+    (tmp_path / "b.txt").write_text("nothing\n")
+    result = await grep_files("target", path=str(tmp_path), output_mode="files")
+    assert any("a.txt" in line for line in result["results"].splitlines())
+
+
+@pytest.mark.anyio
+async def test_grep_rg_count_mode(tmp_path):
+    """ripgrep count output_mode."""
+    import shutil
+    if not shutil.which("rg"):
+        pytest.skip("ripgrep not installed")
+    (tmp_path / "data.txt").write_text("apple\nbanana\napple pie\n")
+    result = await grep_files("apple", path=str(tmp_path), output_mode="count")
+    assert result["match_count"] >= 1
+
+
+@pytest.mark.anyio
+async def test_grep_rg_context_lines(tmp_path):
+    """ripgrep with context lines."""
+    import shutil
+    if not shutil.which("rg"):
+        pytest.skip("ripgrep not installed")
+    f = tmp_path / "ctx.txt"
+    f.write_text("aaa\nbbb\nccc\nddd\neee\n")
+    result = await grep_files("ccc", path=str(tmp_path), context_lines=1)
+    assert "ccc" in result["results"]
+
+
+@pytest.mark.anyio
+async def test_grep_rg_timeout(tmp_path):
+    """ripgrep timeout should return error."""
+    import shutil
+    if not shutil.which("rg"):
+        pytest.skip("ripgrep not installed")
+    with patch("asyncio.wait_for", side_effect=asyncio.TimeoutError()):
+        result = await grep_files("pattern", path=str(tmp_path))
+    assert result["success"] is False
+    assert result["error"] == "TimeoutError"
