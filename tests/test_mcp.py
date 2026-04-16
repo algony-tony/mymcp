@@ -206,3 +206,52 @@ def test_extract_params_keeps_normal_fields():
         "timeout": 30,
     })
     assert params == {"command": "ls -la", "timeout": 30}
+
+
+# ---------------------------------------------------------------------------
+# list_tools — via _current_audit_info contextvar
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_list_tools_ro_role():
+    """list_tools should return only read tools for ro role."""
+    from mcp_server import list_tools, _current_audit_info, READ_TOOLS
+    token = _current_audit_info.set({
+        "token_name": "ro-user", "role": "ro", "ip": "127.0.0.1",
+    })
+    try:
+        tools = await list_tools()
+        tool_names = {t.name for t in tools}
+        assert tool_names == READ_TOOLS
+    finally:
+        _current_audit_info.reset(token)
+
+
+@pytest.mark.anyio
+async def test_list_tools_rw_role():
+    """list_tools should return all tools for rw role."""
+    from mcp_server import list_tools, _current_audit_info, ALL_TOOLS
+    token = _current_audit_info.set({
+        "token_name": "rw-user", "role": "rw", "ip": "127.0.0.1",
+    })
+    try:
+        tools = await list_tools()
+        tool_names = {t.name for t in tools}
+        assert tool_names == ALL_TOOLS
+    finally:
+        _current_audit_info.reset(token)
+
+
+# ---------------------------------------------------------------------------
+# call_tool — JSON decode error path
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_call_tool_non_json_result(set_audit_info):
+    """When dispatch_tool returns non-JSON, result_status should be 'ok'."""
+    with patch("mcp_server.dispatch_tool", return_value="plain text not json"):
+        with patch("mcp_server.log_tool_call") as mock_log:
+            results = await call_tool("bash_execute", {"command": "echo x"})
+            assert results[0].text == "plain text not json"
+            kwargs = mock_log.call_args.kwargs
+            assert kwargs["result"] == "ok"
