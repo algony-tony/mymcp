@@ -28,19 +28,83 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          python -m pytest tests/ -v --cov=. --cov-report=term-missing
+          python -m pytest tests/ -v --cov=. --cov-branch --cov-report=term-missing --benchmark-disable
 
-      - name: Update coverage badge
+      - name: Update coverage badges
         if: github.ref == 'refs/heads/master' && matrix.python-version == '3.12'
         run: |
-          COVERAGE=$(python -m pytest tests/ --cov=. --cov-report=term -q 2>/dev/null | grep '^TOTAL' | awk '{print $NF}' | tr -d '%')
-          if [ "$COVERAGE" -ge 90 ]; then COLOR="brightgreen"
-          elif [ "$COVERAGE" -ge 80 ]; then COLOR="green"
-          elif [ "$COVERAGE" -ge 70 ]; then COLOR="yellowgreen"
-          elif [ "$COVERAGE" -ge 60 ]; then COLOR="yellow"
+          # Extract line coverage
+          LINE_COV=$(python -m pytest tests/ --cov=. --cov-report=term -q --benchmark-disable 2>/dev/null | grep '^TOTAL' | awk '{print $NF}' | tr -d '%')
+          # Extract branch coverage
+          BRANCH_COV=$(python -m pytest tests/ --cov=. --cov-branch --cov-report=term -q --benchmark-disable 2>/dev/null | grep '^TOTAL' | awk '{print $NF}' | tr -d '%')
+
+          # Line coverage badge
+          if [ "$LINE_COV" -ge 90 ]; then COLOR="brightgreen"
+          elif [ "$LINE_COV" -ge 80 ]; then COLOR="green"
+          elif [ "$LINE_COV" -ge 70 ]; then COLOR="yellowgreen"
+          elif [ "$LINE_COV" -ge 60 ]; then COLOR="yellow"
           else COLOR="red"; fi
-          echo "{\"schemaVersion\":1,\"label\":\"coverage\",\"message\":\"${COVERAGE}%\",\"color\":\"${COLOR}\"}" > coverage-badge.json
+          LINE_JSON="{\"schemaVersion\":1,\"label\":\"coverage\",\"message\":\"${LINE_COV}%\",\"color\":\"${COLOR}\"}"
+
+          # Branch coverage badge
+          if [ "$BRANCH_COV" -ge 85 ]; then BCOLOR="brightgreen"
+          elif [ "$BRANCH_COV" -ge 75 ]; then BCOLOR="green"
+          elif [ "$BRANCH_COV" -ge 65 ]; then BCOLOR="yellowgreen"
+          elif [ "$BRANCH_COV" -ge 55 ]; then BCOLOR="yellow"
+          else BCOLOR="red"; fi
+          BRANCH_JSON="{\"schemaVersion\":1,\"label\":\"branch coverage\",\"message\":\"${BRANCH_COV}%\",\"color\":\"${BCOLOR}\"}"
+
+          # Push both to gist
           curl -s -X PATCH \
             -H "Authorization: token ${{ secrets.GIST_TOKEN }}" \
-            -d "{\"files\":{\"mymcp-coverage.json\":{\"content\":$(cat coverage-badge.json | python -c 'import sys,json; print(json.dumps(sys.stdin.read()))')}}}" \
+            -d "{\"files\":{\"mymcp-coverage.json\":{\"content\":$(echo "$LINE_JSON" | python -c 'import sys,json; print(json.dumps(sys.stdin.read()))')},\"mymcp-branch-coverage.json\":{\"content\":$(echo "$BRANCH_JSON" | python -c 'import sys,json; print(json.dumps(sys.stdin.read()))')}}}" \
+            "https://api.github.com/gists/${{ secrets.GIST_ID }}"
+
+  mutation:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/master'
+    needs: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Run mutation testing
+        run: |
+          python -m mutmut run --no-progress 2>&1 || true
+          python -m mutmut results > mutmut-results.txt 2>&1 || true
+          cat mutmut-results.txt
+
+      - name: Update mutation badge
+        run: |
+          # Parse mutmut results
+          KILLED=$(grep -oP 'Killed \K\d+' mutmut-results.txt || echo 0)
+          SURVIVED=$(grep -oP 'Survived \K\d+' mutmut-results.txt || echo 0)
+          TIMEOUT=$(grep -oP 'Timeout \K\d+' mutmut-results.txt || echo 0)
+          TOTAL=$((KILLED + SURVIVED + TIMEOUT))
+          if [ "$TOTAL" -gt 0 ]; then
+            SCORE=$((KILLED * 100 / TOTAL))
+          else
+            SCORE=0
+          fi
+
+          if [ "$SCORE" -ge 80 ]; then COLOR="brightgreen"
+          elif [ "$SCORE" -ge 70 ]; then COLOR="green"
+          elif [ "$SCORE" -ge 60 ]; then COLOR="yellowgreen"
+          elif [ "$SCORE" -ge 50 ]; then COLOR="yellow"
+          else COLOR="red"; fi
+
+          MUTATION_JSON="{\"schemaVersion\":1,\"label\":\"mutation score\",\"message\":\"${SCORE}%\",\"color\":\"${COLOR}\"}"
+          curl -s -X PATCH \
+            -H "Authorization: token ${{ secrets.GIST_TOKEN }}" \
+            -d "{\"files\":{\"mymcp-mutation.json\":{\"content\":$(echo "$MUTATION_JSON" | python -c 'import sys,json; print(json.dumps(sys.stdin.read()))')}}}" \
             "https://api.github.com/gists/${{ secrets.GIST_ID }}"

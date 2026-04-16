@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/algony-tony/mymcp/actions/workflows/ci.yml/badge.svg)](https://github.com/algony-tony/mymcp/actions/workflows/ci.yml)
 [![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/algony-tony/f5b7d1a23781d63db40ea2e2dcdf71c2/raw/mymcp-coverage.json&cacheSeconds=3600)](https://github.com/algony-tony/mymcp/actions/workflows/ci.yml)
+[![Branch Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/algony-tony/f5b7d1a23781d63db40ea2e2dcdf71c2/raw/mymcp-branch-coverage.json&cacheSeconds=3600)](https://github.com/algony-tony/mymcp/actions/workflows/ci.yml)
+[![Mutation Score](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/algony-tony/f5b7d1a23781d63db40ea2e2dcdf71c2/raw/mymcp-mutation.json&cacheSeconds=3600)](https://github.com/algony-tony/mymcp/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
@@ -192,6 +194,42 @@ MCP automatically protects its own installation directory and audit log director
 Add extra protected paths via `MCP_PROTECTED_PATHS=/path/one,/path/two`.
 
 Note: `bash_execute` is not subject to path protection — use `ro` tokens for untrusted clients.
+
+## Testing
+
+```bash
+# Run all tests (excludes benchmarks)
+python -m pytest tests/ -v --benchmark-disable
+
+# Run with coverage report
+python -m pytest tests/ -v --cov=. --cov-branch --cov-report=term-missing --benchmark-disable
+
+# Run benchmark tests only
+python -m pytest tests/test_benchmark.py --benchmark-only -v
+
+# Save benchmark baseline for comparison
+python -m pytest tests/test_benchmark.py --benchmark-save=baseline
+
+# Run mutation testing
+python -m mutmut run
+python -m mutmut results
+
+# Run load tests (start server first: python main.py)
+export MCP_TEST_TOKEN=<your-rw-token>
+locust -f tests/loadtest/locustfile.py --host http://localhost:8765
+```
+
+### Test Dimensions
+
+| Dimension | Tool | Target |
+|-----------|------|--------|
+| Line coverage | pytest-cov | 97%+ |
+| Branch coverage | pytest-cov --cov-branch | tracked |
+| Integration tests | httpx ASGITransport | full auth->tool->audit chain |
+| Boundary analysis | pytest | all parameter edge cases |
+| Performance benchmarks | pytest-benchmark | per-function timing |
+| Load testing | locust | multi-user concurrency |
+| Mutation testing | mutmut | 80%+ score |
 
 ## Security Note
 
