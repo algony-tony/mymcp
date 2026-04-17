@@ -418,6 +418,18 @@ Not handling:
 
 CI addition: a `deploy-test` workflow that runs the Docker scenarios on master pushes. Separate from the existing test/mutation jobs.
 
+## Release process (v1.1.0 and onward)
+
+At v1.1.0 release time (not part of each feature commit):
+- Create `CHANGELOG.md` at repo root, Keep a Changelog format.
+- Backfill v1.0.0 entry from git log narrative.
+- Promote `## [Unreleased]` section to `## [1.1.0] - YYYY-MM-DD` with all changes from this branch.
+- `gh release create v1.0.0 --notes-file=<v1.0.0 section>` to backfill the missing GitHub Release object.
+- `gh release create v1.1.0 --notes-file=<v1.1.0 section>` at release time.
+- `deploy/UPGRADE_NOTES.md` remains separate — action-oriented, breaking changes only.
+
+Not part of this plan: no per-task CHANGELOG updates during development. All entries are drafted at release time from the final commit history.
+
 ## Files & Changes
 
 - **Modify:** `deploy/install.sh` — keep rsync path as explicit fallback; add git-based population; add `--source`, `--version` flags; write `.install-info`; create `/var/log/mymcp/` and install logrotate snippet.
