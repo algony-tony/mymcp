@@ -184,18 +184,50 @@ Order:
 
 #### Rollback
 
-Triggers:
+**Invariant: the service is running when the script exits.** This is a hard guarantee. Whether the upgrade succeeded, the rollback succeeded, or the rollback itself failed, the script's final act is to ensure `systemctl is-active mymcp` returns active (or to clearly tell the user that automated recovery is impossible and the service is down).
+
+This matters especially for MCP-client-driven upgrades: the AI client detached and disconnected; if an error leaves the service down silently, the user only discovers it when they try to reconnect. So we structure the script with an `EXIT` trap that performs a "last-resort start" regardless of how execution reached the end.
+
+Triggers for rollback:
 - Automatic on step 6–9 failure.
 - Manual via `upgrade.sh --rollback` (uses most recent backup).
 
-Rollback steps:
-1. `systemctl stop mymcp`
+Rollback steps (happy path):
+1. `systemctl stop mymcp` (idempotent; no-op if already stopped)
 2. `git -C $APP_DIR checkout <backup.previous_sha>` (recorded in backup metadata)
 3. `venv/bin/pip install -r requirements.txt` (revert deps)
 4. `systemctl start mymcp`
-5. Health check again; if still fails, print manual recovery instructions and exit nonzero.
+5. Health check; log success
 
-Rationale for git-based rollback (vs. restoring from `.bak` directory): git rollback is atomic for code and preserves state files untouched. The `.bak` directory is a safety net in case git-level rollback fails (e.g., disk corruption). We keep both.
+**Cascading recovery** — each later tier runs only if the previous one failed:
+
+```
+Tier 1: git rollback + pip revert + start    (happy path above)
+  │ fail
+  ▼
+Tier 2: restore from .bak directory + start
+  │ (rsync the most-recent $APP_DIR.bak-* back over APP_DIR, excluding .env/tokens.json
+  │  which were preserved in place; then systemctl start)
+  │ fail
+  ▼
+Tier 3: force-start whatever code is currently in APP_DIR
+  │ (systemctl start mymcp even if we don't know which version — better a broken
+  │  new version answering /health than a silent outage)
+  │ fail
+  ▼
+Tier 4: report to user
+  (Print: "Upgrade FAILED and auto-recovery FAILED. Service is stopped.
+   Manual recovery required. Backup at $APP_DIR.bak-*. Logs: $LOG_FILE."
+   Exit non-zero. State file marked 'failed-manual-intervention'.)
+```
+
+The final-tier `systemctl start` runs unconditionally in an `EXIT` trap. Even if the script itself crashes with an unhandled error, the trap fires and tries to start the service.
+
+Rationale for git-based rollback as tier 1 (vs. restoring from `.bak` first): git rollback is faster and preserves state files cleanly. The `.bak` directory is tier 2 safety net in case git-level operations fail (corrupt `.git`, missing remote, disk pressure mid-checkout). Tier 3 handles cases where both tiers failed but the service might still boot. Tier 4 is the escape hatch — we never silently leave the service down.
+
+**State-file transitions during failure:**
+- Upgrade failure: state → `rolling-back` (tier 1) → `rolling-back-from-backup` (tier 2) → `force-starting` (tier 3) → `failed-manual-intervention` (tier 4) or `rolled-back` (any tier that recovers the service).
+- The state file always reflects the current attempt, so `--status` from the client shows the truth.
 
 ### Self-upgrade scenario (MCP client triggering upgrade via `bash_execute`)
 
@@ -290,7 +322,8 @@ When `is_under_mymcp && --foreground`: print error and exit. When `is_under_mymc
   {"pid": 12345, "from": "v1.0.0", "to": "v1.1.0", "step": "installing-deps",
    "started_at": "2026-04-18T12:00:00Z", "updated_at": "2026-04-18T12:01:30Z"}
   ```
-  Steps: `preflight` → `backup` → `stopping-service` → `checking-out-code` → `installing-deps` → `refreshing-unit` → `starting-service` → `health-check` → `done` | `rolling-back` | `failed`.
+  Happy-path steps: `preflight` → `backup` → `stopping-service` → `checking-out-code` → `installing-deps` → `refreshing-unit` → `starting-service` → `health-check` → `done`.
+  Failure-path steps: `rolling-back` → `rolling-back-from-backup` → `force-starting` → `rolled-back` | `failed-manual-intervention`.
 
 - **Log file:** `/var/log/mymcp/upgrade.log` (single file, rotated via `logrotate` snippet installed by install.sh; or rely on `journalctl -u mymcp-upgrade` when systemd-run is used).
 
@@ -368,6 +401,8 @@ Not handling:
 | Detached runner fails before writing first state | Parent prints generic "failed to start" message with log path for post-mortem |
 | State file says `rolling-back` but rollback process died | `--status` flags as stuck; user runs `--rollback` manually or restores from `.bak` |
 | Log file hits rotation during upgrade | Runner writes to a specific timestamped file (`upgrade-YYYYMMDD-HHMMSS.log`) and updates a `current.log` symlink to avoid mid-flight rotation |
+| Rollback itself fails (git corrupt, pip network error, etc.) | Cascading recovery: git rollback → backup dir restore → force-start current code → manual-intervention report. EXIT trap ensures a final start attempt no matter how the script terminates. |
+| Script crashes unexpectedly (kill -9, OOM, etc.) | `EXIT` trap runs `systemctl start mymcp` unconditionally as last resort. Incomplete upgrade state is visible via `--status` for post-mortem. |
 
 ## Testing strategy
 
