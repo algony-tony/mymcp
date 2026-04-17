@@ -118,6 +118,10 @@ Options:
   --rollback          Revert to last backup (see Rollback section)
   --current           Print current version and exit
   --list              Print available tags and exit
+  --status            Print status of an in-progress upgrade (see Self-upgrade)
+  --logs [-f]         Print recent upgrade logs (with -f: follow)
+  --foreground        Run synchronously (default: detach, see Self-upgrade)
+  --no-detach         Alias for --foreground
   -h, --help          Show help
 ```
 
@@ -193,6 +197,112 @@ Rollback steps:
 
 Rationale for git-based rollback (vs. restoring from `.bak` directory): git rollback is atomic for code and preserves state files untouched. The `.bak` directory is a safety net in case git-level rollback fails (e.g., disk corruption). We keep both.
 
+### Self-upgrade scenario (MCP client triggering upgrade via `bash_execute`)
+
+**Problem.** A common usage is an AI client (Claude Code etc.) connected to mymcp, being asked to upgrade mymcp itself. The client calls `bash_execute` to run `upgrade.sh`. Two issues arise:
+
+1. **Process tree kill**. `bash_execute` runs as a subprocess of the uvicorn mymcp process. Step 5 of the workflow (`systemctl stop mymcp`) kills uvicorn, which kills all its descendants — including `upgrade.sh` itself. The upgrade dies mid-way, leaving the service down and code half-updated.
+2. **Script-file rewrite during self-execution**. Bash reads a script as it executes. If `git checkout v1.1.0` overwrites `deploy/upgrade.sh` with a new version while the script is still running, behavior is undefined (bash may read garbage, mis-seek, etc.).
+3. **Blocking client**. Even ignoring the above, a 2–3 minute synchronous `bash_execute` call is a poor UX; the HTTP client likely times out.
+
+**Write-protection impact.** None. `bash_execute` bypasses `check_protected_path` by design. `git checkout`, `rsync`, `pip`, `systemctl` all run as shell commands, not through MCP file tools. Write protection only blocks `read_file`/`write_file`/`edit_file`/`glob`/`grep` against protected paths — upgrade doesn't use those.
+
+#### Design: detach by default
+
+The upgrade script detaches itself on startup, unless `--foreground` is given:
+
+```
+upgrade.sh entry
+  ├─ (a) Parse args, run pre-flight (synchronous, fast — returns errors to caller)
+  ├─ (b) If --status / --logs / --current / --list / --dry-run / --rollback: execute synchronously and exit
+  ├─ (c) Self-copy: cp $0 /tmp/mymcp-upgrade-$$.sh (defends against script rewrite at git checkout)
+  ├─ (d) Detach: spawn a background runner via one of the mechanisms below, redirect stdout+stderr to log file
+  ├─ (e) Print to caller:
+  │       "Upgrade v1.0.0 → v1.1.0 started in background (PID NNNN, unit mymcp-upgrade).
+  │        Service will be unavailable for ~2 minutes.
+  │        Check status:  sudo /opt/mymcp/deploy/upgrade.sh --status
+  │        Follow logs:   sudo /opt/mymcp/deploy/upgrade.sh --logs -f
+  │        Reconnect your MCP client after the service returns to healthy state."
+  └─ (f) Exit 0 immediately — the detached runner continues independently
+```
+
+The AI client receives step (e)'s message and can advise the human user to reconnect after a few minutes.
+
+#### Detach mechanism (cross-distro)
+
+Primary: `systemd-run` (transient scope, journal integration).
+Fallback: `setsid nohup bash ... &>log &` + `disown` (pure POSIX).
+
+Order of preference per distro:
+
+```
+if command -v systemd-run >/dev/null && systemctl is-system-running &>/dev/null; then
+    systemd-run --unit=mymcp-upgrade --property=After=network.target \
+        --no-block --quiet \
+        /tmp/mymcp-upgrade-$$.sh --detach-runner "$@"
+else
+    setsid nohup /tmp/mymcp-upgrade-$$.sh --detach-runner "$@" \
+        >>/var/log/mymcp/upgrade.log 2>&1 </dev/null &
+    disown
+fi
+```
+
+**Target distros and compatibility:**
+
+| Distro | Version | systemd-run | Notes |
+|---|---|---|---|
+| RHEL / CentOS / Rocky / AlmaLinux | 7, 8, 9 | ✓ | systemd since 7 |
+| Fedora | all modern | ✓ | |
+| Debian | 10 (buster) + | ✓ | |
+| Ubuntu | 18.04 + | ✓ | LTS releases |
+| openSUSE / SLES | 15+ | ✓ | |
+| Arch / Manjaro | rolling | ✓ | |
+| Alpine | all | — | Uses OpenRC; fallback path (`setsid nohup`) covers it. Not a primary target. |
+
+The fallback (`setsid nohup ... & disown`) works on any POSIX shell environment, so distros without systemd (Alpine, containers without PID 1 = systemd) still function — they just lose journal integration.
+
+#### Detection: "am I being called from inside mymcp?"
+
+If the upgrade script's ancestor process tree includes the mymcp uvicorn worker, forced-foreground (`--foreground`) is rejected with an explanation. Check:
+
+```bash
+is_under_mymcp() {
+    local pid=$PPID
+    while [ "$pid" -gt 1 ]; do
+        local cmd
+        cmd=$(cat "/proc/$pid/cmdline" 2>/dev/null | tr '\0' ' ')
+        if [[ "$cmd" == *"uvicorn"*"main:app"* ]] || [[ "$cmd" == *"/opt/mymcp/venv"* ]]; then
+            return 0
+        fi
+        pid=$(awk '{print $4}' "/proc/$pid/stat" 2>/dev/null)
+        [ -z "$pid" ] && break
+    done
+    return 1
+}
+```
+
+When `is_under_mymcp && --foreground`: print error and exit. When `is_under_mymcp && !--foreground`: proceed with detach (expected path).
+
+#### State & logs
+
+- **State file:** `$APP_DIR/.upgrade-state` (JSON, single line for atomic write via rename):
+  ```json
+  {"pid": 12345, "from": "v1.0.0", "to": "v1.1.0", "step": "installing-deps",
+   "started_at": "2026-04-18T12:00:00Z", "updated_at": "2026-04-18T12:01:30Z"}
+  ```
+  Steps: `preflight` → `backup` → `stopping-service` → `checking-out-code` → `installing-deps` → `refreshing-unit` → `starting-service` → `health-check` → `done` | `rolling-back` | `failed`.
+
+- **Log file:** `/var/log/mymcp/upgrade.log` (single file, rotated via `logrotate` snippet installed by install.sh; or rely on `journalctl -u mymcp-upgrade` when systemd-run is used).
+
+- **`--status`**: prints the state file plus last 10 log lines.
+- **`--logs`**: `tail -n 200` of log file; `-f` for follow.
+
+#### Concurrency & safety
+
+- `$APP_DIR/.upgrade.lock` acquired via `flock` — refuses concurrent invocations.
+- Stale lock detection: if lockholder PID is dead (`kill -0 $PID` fails), auto-clean.
+- The self-copy in `/tmp/mymcp-upgrade-$$.sh` is cleaned up on the detached runner's `trap EXIT`.
+
 ### Version metadata
 
 Two sources of truth:
@@ -253,6 +363,11 @@ Not handling:
 | Service stopped before upgrade starts | Skip step 5, flag as unusual, continue |
 | Health check fails but service is running | Rollback regardless; a running-but-unhealthy service is not "upgraded" |
 | Wheels dir missing expected package | Fail fast with "missing <pkg> in wheels dir" |
+| Invoked from mymcp's own `bash_execute` | Auto-detect via process ancestry; force detach; reject `--foreground` with clear message |
+| systemd-run unavailable (Alpine, minimal container) | Fall back to `setsid nohup ... & disown` automatically |
+| Detached runner fails before writing first state | Parent prints generic "failed to start" message with log path for post-mortem |
+| State file says `rolling-back` but rollback process died | `--status` flags as stuck; user runs `--rollback` manually or restores from `.bak` |
+| Log file hits rotation during upgrade | Runner writes to a specific timestamped file (`upgrade-YYYYMMDD-HHMMSS.log`) and updates a `current.log` symlink to avoid mid-flight rotation |
 
 ## Testing strategy
 
@@ -270,21 +385,24 @@ CI addition: a `deploy-test` workflow that runs the Docker scenarios on master p
 
 ## Files & Changes
 
-- **Modify:** `deploy/install.sh` — switch from `rsync` to git-based population; add `--source`, `--version` flags; write `.install-info`.
-- **Modify:** `deploy/install_lib.sh` — add helper functions for version resolution, source detection.
-- **Create:** `deploy/upgrade.sh` — new script, main logic.
+- **Modify:** `deploy/install.sh` — keep rsync path as explicit fallback; add git-based population; add `--source`, `--version` flags; write `.install-info`; create `/var/log/mymcp/` and install logrotate snippet.
+- **Modify:** `deploy/install_lib.sh` — add helpers for version resolution, source detection, `is_under_mymcp` process-ancestry check, detach launcher with systemd-run + setsid fallback.
+- **Create:** `deploy/upgrade.sh` — new script, main logic plus detach entry point.
 - **Create:** `deploy/UPGRADE_NOTES.md` — breaking-change log (starts with v1.0.0 as "initial release, no notes").
-- **Create:** `tests/deploy/` — bash test harness with mocked tools and Docker scenarios.
-- **Create:** `.github/workflows/deploy-test.yml` — CI for upgrade scenarios.
-- **Modify:** `README.md` — add Upgrade section with common commands.
-- **Modify:** `CLAUDE.md` — document upgrade.sh location and intent.
+- **Create:** `deploy/logrotate.mymcp-upgrade` — rotation config for upgrade logs (installed to `/etc/logrotate.d/` by install.sh).
+- **Create:** `tests/deploy/` — bash test harness with mocked tools and Docker scenarios (RHEL-family + Debian-family images).
+- **Create:** `.github/workflows/deploy-test.yml` — CI for upgrade scenarios including detach verification.
+- **Modify:** `README.md` — add Upgrade section with common commands (including the "upgrade via MCP client" flow).
+- **Modify:** `CLAUDE.md` — document upgrade.sh location, detach model, and that `bash_execute`-driven upgrade is the expected path for AI clients.
 
-## Open questions (for reviewer)
+## Resolved design decisions
 
-1. Should `install.sh` still support pure-rsync mode (for users who explicitly don't want `.git` in `APP_DIR`)? Current design says yes as fallback-of-last-resort; alternative is to hard-require a git source.
-2. Backup retention default of 3 — appropriate? Each backup is ~10 MB without venv.
-3. `--allow-branch` naming — also considered `--unsafe-ref`, `--dev-mode`. Happy to take suggestions.
-4. Offline wheel support in v1.1 or defer to v1.2? Adds complexity to upgrade.sh; not blocking for most users.
+1. **Pure-rsync install mode:** kept as explicit last-resort fallback. `upgrade.sh` converts such installs to git-managed on first run.
+2. **Backup retention:** default 3, `--keep-backups=N` overrides.
+3. **Branch checkout naming:** `--allow-branch`.
+4. **Offline wheel support:** in-scope for v1.1 (this release).
+5. **Detach behavior:** default detach (safe for MCP-driven upgrade); `--foreground` opt-in for interactive SSH debug.
+6. **Detach mechanism:** prefer `systemd-run`, fall back to `setsid nohup & disown`; covers RHEL/CentOS/Rocky/Alma 7+, Debian 10+, Ubuntu 18.04+, openSUSE 15+, Arch, Fedora, and non-systemd (Alpine) via fallback.
 
 ---
 
