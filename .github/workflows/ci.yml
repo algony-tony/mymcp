@@ -86,16 +86,22 @@ jobs:
 
       - name: Update mutation badge
         run: |
-          # Parse mutmut results
-          KILLED=$(grep -oP 'Killed \K\d+' mutmut-results.txt || echo 0)
-          SURVIVED=$(grep -oP 'Survived \K\d+' mutmut-results.txt || echo 0)
-          TIMEOUT=$(grep -oP 'Timeout \K\d+' mutmut-results.txt || echo 0)
-          TOTAL=$((KILLED + SURVIVED + TIMEOUT))
-          if [ "$TOTAL" -gt 0 ]; then
-            SCORE=$((KILLED * 100 / TOTAL))
-          else
-            SCORE=0
-          fi
+          # Parse mutmut results from sqlite cache (mutmut results text doesn't print killed count)
+          SCORE=$(python -c "
+          import sqlite3, sys
+          try:
+              conn = sqlite3.connect('.mutmut-cache')
+              c = conn.cursor()
+              counts = dict(c.execute('SELECT status, count(*) FROM mutant GROUP BY status').fetchall())
+              conn.close()
+              killed = counts.get('ok_killed', 0)
+              survived = counts.get('bad_survived', 0)
+              timeout = counts.get('bad_timeout', 0)
+              total = killed + survived + timeout
+              print(killed * 100 // total if total > 0 else 0)
+          except Exception:
+              print(0)
+          ")
 
           if [ "$SCORE" -ge 80 ]; then COLOR="brightgreen"
           elif [ "$SCORE" -ge 70 ]; then COLOR="green"
