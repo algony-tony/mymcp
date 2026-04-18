@@ -198,3 +198,40 @@ setup_git_repo() {
     [ "$status" -ne 0 ]
     [ "$output" = "unknown" ]
 }
+
+# =========================================================================
+# create_backup / prune_backups
+# =========================================================================
+
+@test "create_backup: copies files excluding venv and .git" {
+    mkdir -p "$APP_DIR/venv" "$APP_DIR/tools"
+    echo "hello" > "$APP_DIR/main.py"
+    echo "x" > "$APP_DIR/venv/foo"
+    echo "t" > "$APP_DIR/tools/x.py"
+    run create_backup "$APP_DIR" "v1.0.0"
+    [ "$status" -eq 0 ]
+    # Find the created backup
+    local bak
+    bak=$(ls -d "${APP_DIR}.bak-"*/ 2>/dev/null | head -1)
+    [ -n "$bak" ]
+    [ -f "$bak/main.py" ]
+    [ -f "$bak/tools/x.py" ]
+    [ ! -d "$bak/venv" ]
+    [ ! -d "$bak/.git" ]
+    [ -f "$bak/.backup-info" ]
+    run cat "$bak/.backup-info"
+    [[ "$output" == *'"from_version":"v1.0.0"'* ]]
+}
+
+@test "prune_backups: keeps N most recent, deletes older" {
+    mkdir -p "${APP_DIR}.bak-20260101-000001"
+    mkdir -p "${APP_DIR}.bak-20260102-000001"
+    mkdir -p "${APP_DIR}.bak-20260103-000001"
+    mkdir -p "${APP_DIR}.bak-20260104-000001"
+    run prune_backups "$APP_DIR" 2
+    [ "$status" -eq 0 ]
+    [ ! -d "${APP_DIR}.bak-20260101-000001" ]
+    [ ! -d "${APP_DIR}.bak-20260102-000001" ]
+    [ -d "${APP_DIR}.bak-20260103-000001" ]
+    [ -d "${APP_DIR}.bak-20260104-000001" ]
+}

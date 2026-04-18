@@ -257,3 +257,47 @@ classify_ref() {
     echo "unknown"
     return 1
 }
+
+# ---------------------------------------------------------------------------
+# create_backup app_dir from_version [to_version]
+#   Snapshot $app_dir to $app_dir.bak-<timestamp>/ excluding venv and .git.
+#   Prints the backup path on success.
+# ---------------------------------------------------------------------------
+create_backup() {
+    local app_dir="$1" from_version="$2" to_version="${3:-}"
+    local ts
+    ts=$(date +%Y%m%d-%H%M%S)
+    local bak="${app_dir}.bak-${ts}"
+    mkdir -p "$bak"
+    rsync -a --exclude='venv' --exclude='.git' "$app_dir/" "$bak/"
+    local sha=""
+    if [ -d "$app_dir/.git" ]; then
+        sha=$(git -C "$app_dir" rev-parse HEAD 2>/dev/null || echo "")
+    fi
+    printf '{"from_version":"%s","to_version":"%s","from_sha":"%s","created_at":"%s"}\n' \
+        "$from_version" "$to_version" "$sha" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$bak/.backup-info"
+    echo "$bak"
+}
+
+# ---------------------------------------------------------------------------
+# prune_backups app_dir keep
+#   Keep the most recent $keep backups of the form $app_dir.bak-*; delete the rest.
+# ---------------------------------------------------------------------------
+prune_backups() {
+    local app_dir="$1" keep="${2:-3}"
+    local parent base
+    parent=$(dirname "$app_dir")
+    base=$(basename "$app_dir")
+    local -a all
+    # shellcheck disable=SC2207
+    all=( $(ls -1d "$parent/${base}.bak-"*/ 2>/dev/null | sort) )
+    local count=${#all[@]}
+    local excess=$((count - keep))
+    [ "$excess" -le 0 ] && return 0
+    local i=0
+    for d in "${all[@]}"; do
+        [ "$i" -ge "$excess" ] && break
+        rm -rf "${d%/}"
+        i=$((i + 1))
+    done
+}
