@@ -236,6 +236,39 @@ EOF
     [[ "$output" == *"--foreground"* ]] || [[ "$output" == *"detach"* ]]
 }
 
+@test "upgrade.sh --rollback restores from most-recent .bak" {
+    mkdir -p "$APP_DIR"
+    echo "new-code" > "$APP_DIR/main.py"
+    echo "MCP_FAKE=1" > "$APP_DIR/.env"
+
+    local BAK="${APP_DIR}.bak-20260410-120000"
+    mkdir -p "$BAK"
+    echo "old-code" > "$BAK/main.py"
+    echo '{"from_version":"v1.0.0","to_version":"v1.1.0"}' > "$BAK/.backup-info"
+
+    local stubs="$TMPROOT/stubs"
+    mkdir -p "$stubs"
+    cat > "$stubs/systemctl" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+    chmod +x "$stubs/systemctl"
+
+    PATH="$stubs:$PATH" run bash "$UPGRADE_SH" --app-dir="$APP_DIR" --rollback
+    [ "$status" -eq 0 ]
+    run cat "$APP_DIR/main.py"
+    [ "$output" = "old-code" ]
+    # .env preserved (not clobbered)
+    run cat "$APP_DIR/.env"
+    [ "$output" = "MCP_FAKE=1" ]
+}
+
+@test "upgrade.sh --rollback exits non-zero when no backup exists" {
+    run bash "$UPGRADE_SH" --app-dir="$APP_DIR" --rollback
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"no backup"* || "$output" == *"No backup"* ]]
+}
+
 @test "upgrade.sh converts non-git APP_DIR and reaches backup step" {
     # Set up a "source" repo with two tags
     local SRC="$TMPROOT/src"

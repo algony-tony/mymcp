@@ -280,11 +280,24 @@ if [ "$MODE" = "upgrade" ] && [ ! -d "$APP_DIR/.git" ]; then
 fi
 
 # --------------------------------------------------------------------------
-# Rollback command (handled by --rollback flag; proper cascade in Task 17)
+# Rollback command
 # --------------------------------------------------------------------------
 if [ "$MODE" = "rollback" ]; then
-    echo "--rollback not yet implemented" >&2
-    exit 3
+    # Find most recent backup
+    PARENT=$(dirname "$APP_DIR")
+    BASE=$(basename "$APP_DIR")
+    LATEST_BAK=$(ls -1d "$PARENT/${BASE}.bak-"*/ 2>/dev/null | sort | tail -1 || true)
+    LATEST_BAK="${LATEST_BAK%/}"
+    if [ -z "$LATEST_BAK" ]; then
+        echo "ERROR: no backup found at ${APP_DIR}.bak-*" >&2
+        exit 12
+    fi
+    echo ">>> Rolling back from $LATEST_BAK"
+    systemctl stop "$SERVICE_NAME" 2>/dev/null || true
+    rsync -a --checksum --exclude='.env' --exclude='tokens.json' "$LATEST_BAK/" "$APP_DIR/"
+    systemctl start "$SERVICE_NAME"
+    echo "Rollback complete."
+    exit 0
 fi
 
 # --------------------------------------------------------------------------
