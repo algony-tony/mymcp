@@ -170,3 +170,34 @@ detect_current_version() {
     echo "unknown"
     return 0
 }
+
+# ---------------------------------------------------------------------------
+# is_under_mymcp
+#   Walk ancestor PIDs via /proc. Return 0 if any ancestor's cmdline contains
+#   uvicorn main:app or a path ending in /mymcp/venv. MYMCP_FAKE_UNDER=1
+#   short-circuits to true (for tests on systems where /proc differs).
+# ---------------------------------------------------------------------------
+is_under_mymcp() {
+    if [ "${MYMCP_FAKE_UNDER:-0}" = "1" ]; then
+        return 0
+    fi
+    local pid=$PPID
+    local depth=0
+    while [ "$pid" -gt 1 ] && [ "$depth" -lt 20 ]; do
+        if [ -r "/proc/$pid/cmdline" ]; then
+            local cmd
+            cmd=$(tr '\0' ' ' < "/proc/$pid/cmdline")
+            if [[ "$cmd" == *"uvicorn"*"main:app"* ]] || [[ "$cmd" == *"/mymcp/venv/"* ]]; then
+                return 0
+            fi
+        fi
+        if [ -r "/proc/$pid/stat" ]; then
+            pid=$(awk '{print $4}' "/proc/$pid/stat" 2>/dev/null)
+            [ -z "$pid" ] && break
+        else
+            break
+        fi
+        depth=$((depth + 1))
+    done
+    return 1
+}

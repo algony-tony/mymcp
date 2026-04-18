@@ -107,3 +107,18 @@ teardown() {
     [ "$status" -eq 0 ]
     [ "$output" = "unknown" ]
 }
+
+# =========================================================================
+# is_under_mymcp
+# =========================================================================
+
+@test "is_under_mymcp: returns 1 outside mymcp" {
+    run is_under_mymcp
+    [ "$status" -eq 1 ]
+}
+
+@test "is_under_mymcp: matches marker envvar MYMCP_FAKE_ANCESTOR" {
+    # Inject a fake ancestor detection by overriding the read function
+    MYMCP_FAKE_UNDER=1 run is_under_mymcp
+    [ "$status" -eq 0 ]
+}
