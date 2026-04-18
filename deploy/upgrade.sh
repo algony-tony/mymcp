@@ -404,7 +404,52 @@ if step_backup \
     exit 0
 fi
 
-# Failure path — placeholder; Task 17 adds real rollback cascade
-echo "ERROR: upgrade step failed; rollback cascade not yet implemented" >&2
-write_state "$APP_DIR" "failed-manual-intervention" "$CURRENT_VERSION" "$TARGET_VERSION"
-exit 8
+# --------------------------------------------------------------------------
+# Cascading recovery
+# --------------------------------------------------------------------------
+do_rollback_tier1() {
+    echo ">>> Rollback tier 1: git reset + pip revert"
+    write_state "$APP_DIR" "rolling-back" "$CURRENT_VERSION" "$TARGET_VERSION"
+    systemctl stop "$SERVICE_NAME" 2>/dev/null || true
+    [ -n "$PREV_SHA" ] && git -C "$APP_DIR" reset --hard "$PREV_SHA" || return 1
+    "$APP_DIR/venv/bin/pip" install -q -r "$APP_DIR/requirements.txt" || return 1
+    systemctl start "$SERVICE_NAME" || return 1
+    return 0
+}
+
+do_rollback_tier2() {
+    echo ">>> Rollback tier 2: restore from .bak"
+    write_state "$APP_DIR" "rolling-back-from-backup" "$CURRENT_VERSION" "$TARGET_VERSION"
+    [ -z "$BACKUP_DIR" ] && return 1
+    systemctl stop "$SERVICE_NAME" 2>/dev/null || true
+    # Restore files (excluding .env/tokens.json which we want to preserve as-is)
+    rsync -a --exclude='.env' --exclude='tokens.json' "$BACKUP_DIR/" "$APP_DIR/" || return 1
+    systemctl start "$SERVICE_NAME" || return 1
+    return 0
+}
+
+do_rollback_tier3() {
+    echo ">>> Rollback tier 3: force-start current code"
+    write_state "$APP_DIR" "force-starting" "$CURRENT_VERSION" "$TARGET_VERSION"
+    systemctl start "$SERVICE_NAME"
+}
+
+do_rollback_tier4() {
+    echo ">>> Rollback tier 4: manual intervention required"
+    write_state "$APP_DIR" "failed-manual-intervention" "$CURRENT_VERSION" "$TARGET_VERSION"
+    echo "Service is stopped. Backup: ${BACKUP_DIR:-<none>}. Review logs and run --rollback manually."
+    return 1
+}
+
+echo "ERROR: upgrade step failed; initiating rollback cascade..." >&2
+if rollback_cascade \
+    --tier1="do_rollback_tier1" \
+    --tier2="do_rollback_tier2" \
+    --tier3="do_rollback_tier3" \
+    --tier4="do_rollback_tier4"; then
+    write_state "$APP_DIR" "rolled-back" "$CURRENT_VERSION" "$TARGET_VERSION"
+    echo "Recovered. Service is running on previous version."
+    exit 9
+else
+    exit 10
+fi

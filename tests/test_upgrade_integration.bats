@@ -142,6 +142,53 @@ EOF
     [[ "$output" == *'"step":"done"'* ]]
 }
 
+@test "upgrade.sh rolls back to previous SHA when a step fails" {
+    # Same setup as end-to-end test
+    local SRC="$TMPROOT/src"
+    mkdir -p "$SRC"
+    cd "$SRC"
+    git init -q
+    git config user.email ci@local
+    git config user.name ci
+    echo "v1" > main.py
+    echo "" > requirements.txt
+    git add main.py requirements.txt
+    git commit -q -m "c1"
+    git tag v1.0.0
+    echo "v2" > main.py
+    git commit -qam "c2"
+    git tag v1.1.0
+
+    git clone -q "$SRC" "$APP_DIR"
+    git -C "$APP_DIR" checkout -q v1.0.0
+
+    local stubs="$TMPROOT/stubs"
+    mkdir -p "$stubs"
+    # systemctl stub: always succeed
+    cat > "$stubs/systemctl" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+    chmod +x "$stubs/systemctl"
+
+    # Force failure: pip exits non-zero
+    mkdir -p "$APP_DIR/venv/bin"
+    cat > "$APP_DIR/venv/bin/pip" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+    chmod +x "$APP_DIR/venv/bin/pip"
+
+    PATH="$stubs:$PATH" run bash "$UPGRADE_SH" \
+        --app-dir="$APP_DIR" --source="$SRC" --foreground --no-health-check v1.1.0
+    [ "$status" -ne 0 ]  # upgrade failed
+    # HEAD is back at v1.0.0 (rollback succeeded)
+    run git -C "$APP_DIR" describe --tags
+    [ "$output" = "v1.0.0" ]
+    run cat "$APP_DIR/.upgrade-state"
+    [[ "$output" == *'"step":"rolled-back"'* ]]
+}
+
 @test "upgrade.sh converts non-git APP_DIR and reaches backup step" {
     # Set up a "source" repo with two tags
     local SRC="$TMPROOT/src"
