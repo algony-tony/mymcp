@@ -154,3 +154,47 @@ teardown() {
     [ "$status" -eq 0 ]
     [[ "$output" == "https://github.com/"* ]]
 }
+
+# =========================================================================
+# classify_ref
+# =========================================================================
+
+setup_git_repo() {
+    cd "$APP_DIR"
+    git init -q
+    git config user.email ci@local
+    git config user.name ci
+    git commit --allow-empty -q -m "c1"
+    git tag v1.0.0
+    git commit --allow-empty -q -m "c2"
+    git branch feature-x
+    SHA_C2=$(git rev-parse HEAD)
+}
+
+@test "classify_ref: tag returns 'tag'" {
+    setup_git_repo
+    run classify_ref "$APP_DIR" v1.0.0
+    [ "$status" -eq 0 ]
+    [ "$output" = "tag" ]
+}
+
+@test "classify_ref: branch returns 'branch'" {
+    setup_git_repo
+    run classify_ref "$APP_DIR" feature-x
+    [ "$status" -eq 0 ]
+    [ "$output" = "branch" ]
+}
+
+@test "classify_ref: commit SHA returns 'commit'" {
+    setup_git_repo
+    run classify_ref "$APP_DIR" "$SHA_C2"
+    [ "$status" -eq 0 ]
+    [ "$output" = "commit" ]
+}
+
+@test "classify_ref: unknown ref returns 'unknown' and non-zero" {
+    setup_git_repo
+    run classify_ref "$APP_DIR" nothing-here
+    [ "$status" -ne 0 ]
+    [ "$output" = "unknown" ]
+}

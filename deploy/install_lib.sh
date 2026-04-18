@@ -234,3 +234,26 @@ resolve_source() {
     _SOURCE_KIND="git-remote"
     echo "$MYMCP_DEFAULT_REMOTE"
 }
+
+# ---------------------------------------------------------------------------
+# classify_ref app_dir ref
+#   Print 'tag', 'branch', 'commit', or 'unknown'. Exit 0 unless unknown.
+# ---------------------------------------------------------------------------
+classify_ref() {
+    local app_dir="$1" ref="$2"
+    if git -C "$app_dir" show-ref --verify --quiet "refs/tags/$ref"; then
+        echo "tag"
+        return 0
+    fi
+    if git -C "$app_dir" show-ref --verify --quiet "refs/heads/$ref" \
+        || git -C "$app_dir" show-ref --verify --quiet "refs/remotes/origin/$ref"; then
+        echo "branch"
+        return 0
+    fi
+    if git -C "$app_dir" rev-parse --verify --quiet "${ref}^{commit}" >/dev/null; then
+        echo "commit"
+        return 0
+    fi
+    echo "unknown"
+    return 1
+}
