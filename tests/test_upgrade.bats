@@ -78,3 +78,32 @@ teardown() {
     run acquire_lock "$APP_DIR"
     [ "$status" -eq 0 ]
 }
+
+# =========================================================================
+# detect_current_version
+# =========================================================================
+
+@test "detect_current_version: returns git describe output on git tree" {
+    cd "$APP_DIR"
+    git init -q
+    git config user.email ci@local
+    git config user.name ci
+    git commit --allow-empty -q -m "init"
+    git tag v9.9.9
+    run detect_current_version "$APP_DIR"
+    [ "$status" -eq 0 ]
+    [ "$output" = "v9.9.9" ]
+}
+
+@test "detect_current_version: falls back to .install-info" {
+    echo '{"version":"v0.5.0","installed_at":"2026-01-01T00:00:00Z"}' > "$APP_DIR/.install-info"
+    run detect_current_version "$APP_DIR"
+    [ "$status" -eq 0 ]
+    [ "$output" = "v0.5.0" ]
+}
+
+@test "detect_current_version: returns 'unknown' when neither available" {
+    run detect_current_version "$APP_DIR"
+    [ "$status" -eq 0 ]
+    [ "$output" = "unknown" ]
+}

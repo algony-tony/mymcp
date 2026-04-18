@@ -144,3 +144,29 @@ release_lock() {
     [ -n "${_UPGRADE_LOCK_FD:-}" ] && exec {_UPGRADE_LOCK_FD}>&- 2>/dev/null || true
     rm -f "$app_dir/.upgrade.lock"
 }
+
+# ---------------------------------------------------------------------------
+# detect_current_version app_dir
+#   Returns installed version. Tries git describe, then .install-info, else 'unknown'.
+# ---------------------------------------------------------------------------
+detect_current_version() {
+    local app_dir="$1"
+    if [ -d "$app_dir/.git" ]; then
+        local v
+        v=$(git -C "$app_dir" describe --tags --always 2>/dev/null || true)
+        if [ -n "$v" ]; then
+            echo "$v"
+            return 0
+        fi
+    fi
+    if [ -f "$app_dir/.install-info" ]; then
+        local v
+        v=$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' "$app_dir/.install-info")
+        if [ -n "$v" ]; then
+            echo "$v"
+            return 0
+        fi
+    fi
+    echo "unknown"
+    return 0
+}
