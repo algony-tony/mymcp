@@ -188,6 +188,15 @@ fi
 echo ""
 
 # ---------------------------------------------------------------------------
+# Step 6b: Upgrade log directory and rotation
+# ---------------------------------------------------------------------------
+mkdir -p /var/log/mymcp
+chmod 750 /var/log/mymcp
+if [ -f "${REPO_DIR}/deploy/logrotate.mymcp-upgrade" ] && [ -d /etc/logrotate.d ]; then
+    cp "${REPO_DIR}/deploy/logrotate.mymcp-upgrade" /etc/logrotate.d/mymcp-upgrade
+fi
+
+# ---------------------------------------------------------------------------
 # Step 7: systemd service
 # ---------------------------------------------------------------------------
 echo "Installing systemd service..."
