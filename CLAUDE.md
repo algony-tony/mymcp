@@ -6,13 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # Run all tests
-python3 -m pytest tests/ -v
-
-# Run a single test file
-python3 -m pytest tests/test_files.py -v
+python3 -m pytest tests/ -v --benchmark-disable
 
 # Run a single test
 python3 -m pytest tests/test_files.py::test_read_file_basic -v
+
+# Run bats tests for deploy helpers
+bats tests/test_install.bats tests/test_upgrade.bats tests/test_upgrade_integration.bats
 
 # Start dev server
 python3 main.py
@@ -22,7 +22,18 @@ pip install -r requirements.txt
 
 # Install development/test dependencies
 pip install -r requirements-dev.txt
+
+# Upgrade an installed mymcp (runs in background by default)
+sudo /opt/mymcp/deploy/upgrade.sh v1.1.0
 ```
+
+### Upgrade flow for MCP clients
+
+When an AI client invokes `deploy/upgrade.sh` via `bash_execute`, the script
+detects the process ancestry and automatically detaches. The client receives
+a "started in background" message and should advise the user to reconnect in
+~2 minutes. `bash_execute` bypasses path protection by design, so upgrade
+runs without interference.
 
 ## Architecture
 

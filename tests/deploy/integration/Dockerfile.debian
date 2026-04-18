@@ -1,0 +1,15 @@
+FROM debian:12
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        python3 python3-pip python3-venv \
+        git curl rsync systemd systemd-sysv \
+        procps ripgrep bats openssl ca-certificates \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Systemd container setup
+STOPSIGNAL SIGRTMIN+3
+ENV container=docker
+
+# mymcp source mounted at /src; scenario script orchestrates install + upgrade.
+WORKDIR /src

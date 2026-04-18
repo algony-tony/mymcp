@@ -52,6 +52,47 @@ sudo systemctl start mymcp
 journalctl -u mymcp -f
 ```
 
+## Upgrading
+
+Once installed, use `deploy/upgrade.sh` to switch versions. It detaches into
+the background by default so you can trigger upgrades from anywhere —
+including through mymcp's own `bash_execute` tool.
+
+```bash
+# Check current and available versions
+sudo /opt/mymcp/deploy/upgrade.sh --current
+sudo /opt/mymcp/deploy/upgrade.sh --list
+
+# Upgrade to a specific tag (recommended)
+sudo /opt/mymcp/deploy/upgrade.sh v1.1.0
+
+# Upgrade to latest tag
+sudo /opt/mymcp/deploy/upgrade.sh --latest
+
+# Preview without changes
+sudo /opt/mymcp/deploy/upgrade.sh --dry-run v1.1.0
+
+# Check status of an in-progress upgrade
+sudo /opt/mymcp/deploy/upgrade.sh --status
+sudo /opt/mymcp/deploy/upgrade.sh --logs -f
+
+# Revert to most recent backup (if something went wrong)
+sudo /opt/mymcp/deploy/upgrade.sh --rollback
+```
+
+**Air-gapped / offline upgrade**: prepare a wheels directory on a connected machine:
+
+```bash
+pip download -r requirements.txt -d /tmp/wheels
+# Copy /tmp/wheels to the target host, then:
+sudo /opt/mymcp/deploy/upgrade.sh --wheels-dir=/path/to/wheels v1.1.0
+```
+
+**Upgrading via an MCP client (Claude Code, etc.)**: ask the client to run
+the upgrade command above through its `bash_execute` tool. The script
+detaches automatically; the MCP service will be unavailable for ~2 minutes.
+Reconnect your client when the service returns.
+
 ## Configuration
 
 Edit `/opt/mymcp/.env`. See `.env.example` for all available settings.
