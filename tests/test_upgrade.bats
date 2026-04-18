@@ -122,3 +122,35 @@ teardown() {
     MYMCP_FAKE_UNDER=1 run is_under_mymcp
     [ "$status" -eq 0 ]
 }
+
+# =========================================================================
+# resolve_source
+# =========================================================================
+
+@test "resolve_source: --source wins over everything" {
+    run resolve_source --source=/custom/path --repo-dir="$APP_DIR"
+    [ "$status" -eq 0 ]
+    [ "$output" = "/custom/path" ]
+}
+
+@test "resolve_source: local git tree at repo_dir preferred over default remote" {
+    cd "$APP_DIR"
+    git init -q
+    run resolve_source --repo-dir="$APP_DIR"
+    [ "$status" -eq 0 ]
+    [ "$output" = "$APP_DIR" ]
+}
+
+@test "resolve_source: default is GitHub when repo_dir is not a git tree" {
+    run resolve_source --repo-dir="$APP_DIR"
+    [ "$status" -eq 0 ]
+    [[ "$output" == "https://github.com/"* ]]
+}
+
+@test "resolve_source: --prefer-remote skips local git tree" {
+    cd "$APP_DIR"
+    git init -q
+    run resolve_source --repo-dir="$APP_DIR" --prefer-remote
+    [ "$status" -eq 0 ]
+    [[ "$output" == "https://github.com/"* ]]
+}

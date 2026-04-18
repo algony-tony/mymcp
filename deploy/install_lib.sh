@@ -201,3 +201,36 @@ is_under_mymcp() {
     done
     return 1
 }
+
+MYMCP_DEFAULT_REMOTE="${MYMCP_DEFAULT_REMOTE:-https://github.com/algony-tony/mymcp.git}"
+
+# ---------------------------------------------------------------------------
+# resolve_source [--source=X] [--repo-dir=Y] [--prefer-remote]
+#   Resolve code source via fallback chain. Prints the chosen source.
+#   Sets global _SOURCE_KIND to 'git-local', 'git-remote', or 'rsync'.
+# ---------------------------------------------------------------------------
+resolve_source() {
+    local explicit="" repo_dir="" prefer_remote=0
+    for arg in "$@"; do
+        case "$arg" in
+            --source=*)      explicit="${arg#--source=}" ;;
+            --repo-dir=*)    repo_dir="${arg#--repo-dir=}" ;;
+            --prefer-remote) prefer_remote=1 ;;
+        esac
+    done
+
+    if [ -n "$explicit" ]; then
+        _SOURCE_KIND="explicit"
+        echo "$explicit"
+        return 0
+    fi
+
+    if [ "$prefer_remote" = 0 ] && [ -n "$repo_dir" ] && [ -d "$repo_dir/.git" ]; then
+        _SOURCE_KIND="git-local"
+        echo "$repo_dir"
+        return 0
+    fi
+
+    _SOURCE_KIND="git-remote"
+    echo "$MYMCP_DEFAULT_REMOTE"
+}
