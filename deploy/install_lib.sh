@@ -357,3 +357,49 @@ discover_app_dir() {
     fi
     echo "/opt/mymcp"
 }
+
+# ---------------------------------------------------------------------------
+# launch_detached script_path [--log-dir=DIR] [--unit-name=NAME] [args...]
+#   Launch script detached from this process. Prefers systemd-run, falls back
+#   to setsid+nohup+disown. Prints 'PID NNNN' or 'UNIT name' on success.
+# ---------------------------------------------------------------------------
+launch_detached() {
+    local script="$1"; shift
+    local logdir="/var/log/mymcp" unit="mymcp-upgrade"
+    local -a passthrough=()
+    for arg in "$@"; do
+        case "$arg" in
+            --log-dir=*)   logdir="${arg#--log-dir=}" ;;
+            --unit-name=*) unit="${arg#--unit-name=}" ;;
+            *)             passthrough+=( "$arg" ) ;;
+        esac
+    done
+    mkdir -p "$logdir"
+    local ts
+    ts=$(date +%Y%m%d-%H%M%S)
+    local logfile="$logdir/upgrade-$ts.log"
+
+    local use_systemd=1
+    [ "${MYMCP_FORCE_FALLBACK:-0}" = "1" ] && use_systemd=0
+    if [ "$use_systemd" = 1 ]; then
+        if ! command -v systemd-run >/dev/null 2>&1; then
+            use_systemd=0
+        elif ! systemctl is-system-running >/dev/null 2>&1; then
+            use_systemd=0
+        fi
+    fi
+
+    if [ "$use_systemd" = 1 ]; then
+        systemd-run --unit="$unit" \
+            --property=StandardOutput=append:"$logfile" \
+            --property=StandardError=append:"$logfile" \
+            --no-block --quiet \
+            "$script" "${passthrough[@]}"
+        echo "UNIT $unit"
+        return 0
+    fi
+    # Fallback: setsid + nohup + disown
+    ( setsid nohup "$script" "${passthrough[@]}" >>"$logfile" 2>&1 </dev/null & disown ) &
+    sleep 0.05  # tiny delay so the child's fork completes
+    echo "LOG $logfile"
+}

@@ -298,3 +298,48 @@ EOF
     [ "$status" -eq 0 ]
     [ "$output" = "/opt/mymcp" ]
 }
+
+# =========================================================================
+# launch_detached
+# =========================================================================
+
+@test "launch_detached: child survives parent exit (fallback mode)" {
+    local logdir="$TMPROOT/log"
+    mkdir -p "$logdir"
+    local marker="$TMPROOT/marker"
+    local script="$TMPROOT/child.sh"
+    cat > "$script" <<EOF
+#!/usr/bin/env bash
+sleep 0.5
+echo survived > "$marker"
+EOF
+    chmod +x "$script"
+    # Force fallback path (no systemd)
+    MYMCP_FORCE_FALLBACK=1 run launch_detached "$script" --log-dir="$logdir"
+    [ "$status" -eq 0 ]
+    # Child writes marker AFTER parent launch exits; wait for it
+    local wait_deadline=$(( $(date +%s) + 5 ))
+    while [ "$(date +%s)" -lt "$wait_deadline" ] && [ ! -f "$marker" ]; do
+        sleep 0.1
+    done
+    [ -f "$marker" ]
+    [ "$(cat "$marker")" = "survived" ]
+}
+
+@test "launch_detached: creates log file under logdir" {
+    local logdir="$TMPROOT/log"
+    mkdir -p "$logdir"
+    local script="$TMPROOT/child.sh"
+    cat > "$script" <<'EOF'
+#!/usr/bin/env bash
+echo "detached-child-output"
+sleep 0.2
+EOF
+    chmod +x "$script"
+    MYMCP_FORCE_FALLBACK=1 run launch_detached "$script" --log-dir="$logdir"
+    [ "$status" -eq 0 ]
+    sleep 0.6
+    # At least one log file should exist with expected content
+    run bash -c "grep -l detached-child-output $logdir/*.log"
+    [ "$status" -eq 0 ]
+}
