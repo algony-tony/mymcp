@@ -343,3 +343,44 @@ EOF
     run bash -c "grep -l detached-child-output $logdir/*.log"
     [ "$status" -eq 0 ]
 }
+
+# =========================================================================
+# rollback_cascade
+# =========================================================================
+
+@test "rollback_cascade: tier1 success stops further tiers" {
+    local trace="$TMPROOT/trace"
+    run rollback_cascade \
+        --tier1="echo t1 >> $trace" \
+        --tier2="echo t2 >> $trace" \
+        --tier3="echo t3 >> $trace" \
+        --tier4="echo t4 >> $trace"
+    [ "$status" -eq 0 ]
+    [ "$(cat "$trace")" = "t1" ]
+}
+
+@test "rollback_cascade: tier1 fails, tier2 succeeds, stops there" {
+    local trace="$TMPROOT/trace"
+    run rollback_cascade \
+        --tier1="echo t1 >> $trace; false" \
+        --tier2="echo t2 >> $trace" \
+        --tier3="echo t3 >> $trace" \
+        --tier4="echo t4 >> $trace"
+    [ "$status" -eq 0 ]
+    run cat "$trace"
+    [[ "$output" == *"t1"* ]]
+    [[ "$output" == *"t2"* ]]
+    [[ "$output" != *"t3"* ]]
+}
+
+@test "rollback_cascade: all tiers fail, exit non-zero" {
+    local trace="$TMPROOT/trace"
+    run rollback_cascade \
+        --tier1="echo t1 >> $trace; false" \
+        --tier2="echo t2 >> $trace; false" \
+        --tier3="echo t3 >> $trace; false" \
+        --tier4="echo t4 >> $trace; false"
+    [ "$status" -ne 0 ]
+    run cat "$trace"
+    [[ "$output" == *"t1"* && "$output" == *"t2"* && "$output" == *"t3"* && "$output" == *"t4"* ]]
+}

@@ -403,3 +403,32 @@ launch_detached() {
     sleep 0.05  # tiny delay so the child's fork completes
     echo "LOG $logfile"
 }
+
+# ---------------------------------------------------------------------------
+# rollback_cascade --tier1=CMD --tier2=CMD --tier3=CMD --tier4=CMD
+#   Run each tier in order. Stop as soon as one succeeds.
+#   Each tier is eval'd as a shell command.
+#   Returns 0 if any tier succeeds; returns exit of last tier otherwise.
+# ---------------------------------------------------------------------------
+rollback_cascade() {
+    local t1="" t2="" t3="" t4=""
+    for arg in "$@"; do
+        case "$arg" in
+            --tier1=*) t1="${arg#--tier1=}" ;;
+            --tier2=*) t2="${arg#--tier2=}" ;;
+            --tier3=*) t3="${arg#--tier3=}" ;;
+            --tier4=*) t4="${arg#--tier4=}" ;;
+        esac
+    done
+    local last_status=1 tier_exit
+    for tier_cmd in "$t1" "$t2" "$t3" "$t4"; do
+        [ -z "$tier_cmd" ] && continue
+        eval "$tier_cmd"
+        tier_exit=$?
+        if [ "$tier_exit" -eq 0 ]; then
+            return 0
+        fi
+        last_status=$tier_exit
+    done
+    return "$last_status"
+}
