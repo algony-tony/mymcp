@@ -52,3 +52,29 @@ teardown() {
     run read_state "$APP_DIR"
     [ "$status" -eq 1 ]
 }
+
+# =========================================================================
+# Lock file
+# =========================================================================
+
+@test "acquire_lock: succeeds on first call" {
+    run acquire_lock "$APP_DIR"
+    [ "$status" -eq 0 ]
+    [ -f "$APP_DIR/.upgrade.lock" ]
+}
+
+@test "acquire_lock: second call fails while first process holds lock" {
+    ( flock -x "$APP_DIR/.upgrade.lock" sleep 2 ) &
+    local holder=$!
+    sleep 0.2
+    run acquire_lock "$APP_DIR"
+    [ "$status" -ne 0 ]
+    wait "$holder"
+}
+
+@test "acquire_lock: cleans stale lock whose PID is dead" {
+    # Write lock file with a non-existent PID (we use 999999 which is unlikely)
+    echo "999999" > "$APP_DIR/.upgrade.lock"
+    run acquire_lock "$APP_DIR"
+    [ "$status" -eq 0 ]
+}

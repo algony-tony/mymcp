@@ -105,3 +105,42 @@ read_state() {
     [ -f "$state_file" ] || return 1
     cat "$state_file"
 }
+
+# ---------------------------------------------------------------------------
+# acquire_lock app_dir
+#   Acquire exclusive lock on $app_dir/.upgrade.lock (non-blocking).
+#   If lock file contains a dead PID, remove it and retry once.
+#   The lock FD is assigned to global _UPGRADE_LOCK_FD; release with
+#   release_lock.
+# ---------------------------------------------------------------------------
+acquire_lock() {
+    local app_dir="$1"
+    local lockfile="$app_dir/.upgrade.lock"
+
+    # Clean stale lock if PID is dead
+    if [ -f "$lockfile" ]; then
+        local pid
+        pid=$(cat "$lockfile" 2>/dev/null || echo "")
+        if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
+            rm -f "$lockfile"
+        fi
+    fi
+
+    exec {_UPGRADE_LOCK_FD}>"$lockfile"
+    if ! flock -n -x "$_UPGRADE_LOCK_FD"; then
+        exec {_UPGRADE_LOCK_FD}>&-
+        return 1
+    fi
+    echo "$$" >&"$_UPGRADE_LOCK_FD"
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# release_lock app_dir
+#   Release previously-acquired lock.
+# ---------------------------------------------------------------------------
+release_lock() {
+    local app_dir="$1"
+    [ -n "${_UPGRADE_LOCK_FD:-}" ] && exec {_UPGRADE_LOCK_FD}>&- 2>/dev/null || true
+    rm -f "$app_dir/.upgrade.lock"
+}
