@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Simulate a legacy (rsync-based) install and verify upgrade converts it to git-managed.
 set -euo pipefail
+source "$(dirname "$0")/_setup.sh"
 
 WORKDIR=$(mktemp -d)
 cp -r /src "$WORKDIR/repo"

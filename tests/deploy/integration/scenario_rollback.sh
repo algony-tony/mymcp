@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Install, inject a failing pip step on upgrade, verify rollback returns HEAD to original.
 set -euo pipefail
+source "$(dirname "$0")/_setup.sh"
 
 WORKDIR=$(mktemp -d)
 cp -r /src "$WORKDIR/repo"

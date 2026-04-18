@@ -5,6 +5,7 @@
 # 3. Upgrade to HEAD (simulating v1.1.0)
 # 4. Verify git checkout and /health
 set -euo pipefail
+source "$(dirname "$0")/_setup.sh"
 
 WORKDIR=$(mktemp -d)
 cp -r /src "$WORKDIR/repo"

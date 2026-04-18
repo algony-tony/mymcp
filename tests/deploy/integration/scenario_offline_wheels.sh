@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Install, prepare a wheels dir, run upgrade with --wheels-dir to verify offline install path.
 set -euo pipefail
+source "$(dirname "$0")/_setup.sh"
 
 WORKDIR=$(mktemp -d)
 cp -r /src "$WORKDIR/repo"
