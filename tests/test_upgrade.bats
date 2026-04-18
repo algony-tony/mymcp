@@ -235,3 +235,38 @@ setup_git_repo() {
     [ -d "${APP_DIR}.bak-20260103-000001" ]
     [ -d "${APP_DIR}.bak-20260104-000001" ]
 }
+
+# =========================================================================
+# wait_for_health
+# =========================================================================
+
+@test "wait_for_health: returns 0 quickly when mock server responds 200" {
+    # Pick a random free port to avoid TIME_WAIT collisions between runs
+    local health_port
+    health_port=$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()")
+    # Start a simple HTTP server in a subshell
+    python3 -c "
+import http.server, socketserver, sys
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path=='/health':
+            self.send_response(200); self.send_header('Content-Type','application/json'); self.end_headers()
+            self.wfile.write(b'{\"status\":\"ok\"}')
+        else:
+            self.send_response(404); self.end_headers()
+    def log_message(self,*a,**kw): pass
+socketserver.TCPServer.allow_reuse_address = True
+s=socketserver.TCPServer(('127.0.0.1', $health_port), H)
+s.serve_forever()
+" &
+    local server_pid=$!
+    sleep 0.3
+    MCP_HOST=127.0.0.1 MCP_PORT=$health_port run wait_for_health "$APP_DIR" 5
+    kill "$server_pid" 2>/dev/null || true
+    [ "$status" -eq 0 ]
+}
+
+@test "wait_for_health: returns non-zero when no server responds within timeout" {
+    MCP_HOST=127.0.0.1 MCP_PORT=17655 run wait_for_health "$APP_DIR" 2
+    [ "$status" -ne 0 ]
+}

@@ -301,3 +301,32 @@ prune_backups() {
         i=$((i + 1))
     done
 }
+
+# ---------------------------------------------------------------------------
+# wait_for_health app_dir [timeout_seconds]
+#   Poll /health endpoint. Reads MCP_HOST/MCP_PORT from env or $app_dir/.env.
+#   Defaults: host=127.0.0.1 port=8765. Returns 0 on 200, 1 on timeout.
+# ---------------------------------------------------------------------------
+wait_for_health() {
+    local app_dir="$1" timeout="${2:-30}"
+    local host="${MCP_HOST:-}" port="${MCP_PORT:-}"
+    if [ -z "$host" ] || [ -z "$port" ]; then
+        if [ -f "$app_dir/.env" ]; then
+            [ -z "$host" ] && host=$(sed -n 's/^MCP_HOST=//p' "$app_dir/.env" 2>/dev/null || true)
+            [ -z "$port" ] && port=$(sed -n 's/^MCP_PORT=//p' "$app_dir/.env" 2>/dev/null || true)
+        fi
+    fi
+    [ -z "$host" ] && host="127.0.0.1"
+    [ -z "$port" ] && port="8765"
+    # 0.0.0.0 means "listen on all" — poll localhost
+    [ "$host" = "0.0.0.0" ] && host="127.0.0.1"
+
+    local deadline=$(( $(date +%s) + timeout ))
+    while [ "$(date +%s)" -lt "$deadline" ]; do
+        if curl -sf -m 2 "http://${host}:${port}/health" >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
+}
