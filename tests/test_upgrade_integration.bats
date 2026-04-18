@@ -43,3 +43,44 @@ teardown() {
     [ "$status" -eq 0 ]
     [[ "$output" == *"no upgrade in progress"* ]]
 }
+
+@test "upgrade.sh --dry-run on git install prints plan and exits 0" {
+    cd "$APP_DIR"
+    git init -q
+    git config user.email ci@local
+    git config user.name ci
+    git commit --allow-empty -q -m "c1"
+    git tag v1.0.0
+    git commit --allow-empty -q -m "c2"
+    git tag v1.1.0
+    # Fake service discovery: simulate no systemd lookup needed
+    run bash "$UPGRADE_SH" --app-dir="$APP_DIR" --source="$APP_DIR" --dry-run v1.1.0
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Current: v1.0.0"* ]]
+    [[ "$output" == *"Target: v1.1.0"* ]]
+    [[ "$output" == *"DRY RUN"* ]]
+}
+
+@test "upgrade.sh aborts when target == current without --force" {
+    cd "$APP_DIR"
+    git init -q
+    git config user.email ci@local
+    git config user.name ci
+    git commit --allow-empty -q -m "c1"
+    git tag v1.0.0
+    run bash "$UPGRADE_SH" --app-dir="$APP_DIR" --source="$APP_DIR" --dry-run v1.0.0
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"same version"* || "$output" == *"already"* ]]
+}
+
+@test "upgrade.sh rejects branch without --allow-branch" {
+    cd "$APP_DIR"
+    git init -q
+    git config user.email ci@local
+    git config user.name ci
+    git commit --allow-empty -q -m "c1"
+    git checkout -q -b dev
+    run bash "$UPGRADE_SH" --app-dir="$APP_DIR" --source="$APP_DIR" --dry-run dev
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"--allow-branch"* ]]
+}
