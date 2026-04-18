@@ -299,6 +299,17 @@ convert_legacy_install() {
     echo "<<< Conversion complete; now at $target"
 }
 
+# --------------------------------------------------------------------------
+# Reject --foreground under mymcp (client-driven upgrade must detach).
+# Checked early so we fail before mutating APP_DIR.
+# --------------------------------------------------------------------------
+if [ "$MODE" = "upgrade" ] && [ "$FOREGROUND" = 1 ] && is_under_mymcp; then
+    echo "ERROR: --foreground is unsafe when invoked from inside mymcp." >&2
+    echo "       The service kill during upgrade would terminate this script." >&2
+    echo "       Omit --foreground; the script will detach automatically." >&2
+    exit 11
+fi
+
 if [ "$MODE" = "upgrade" ] && [ ! -d "$APP_DIR/.git" ]; then
     convert_legacy_install "$APP_DIR" "$SOURCE" "$TARGET_VERSION"
     CURRENT_VERSION=$(detect_current_version "$APP_DIR")
@@ -323,16 +334,6 @@ if [ "$MODE" = "rollback" ]; then
     systemctl start "$SERVICE_NAME"
     echo "Rollback complete."
     exit 0
-fi
-
-# --------------------------------------------------------------------------
-# Reject --foreground under mymcp (client-driven upgrade must detach)
-# --------------------------------------------------------------------------
-if [ "$FOREGROUND" = 1 ] && is_under_mymcp; then
-    echo "ERROR: --foreground is unsafe when invoked from inside mymcp." >&2
-    echo "       The service kill during upgrade would terminate this script." >&2
-    echo "       Omit --foreground; the script will detach automatically." >&2
-    exit 11
 fi
 
 # --------------------------------------------------------------------------
