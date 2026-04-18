@@ -189,6 +189,53 @@ EOF
     [[ "$output" == *'"step":"rolled-back"'* ]]
 }
 
+@test "upgrade.sh default mode detaches (parent exits immediately)" {
+    local SRC="$TMPROOT/src"
+    mkdir -p "$SRC"
+    cd "$SRC"
+    git init -q
+    git config user.email ci@local
+    git config user.name ci
+    echo "v1" > main.py
+    echo "" > requirements.txt
+    git add .
+    git commit -q -m "c1"
+    git tag v1.0.0
+    echo "v2" > main.py
+    git commit -qam "c2"
+    git tag v1.1.0
+    git clone -q "$SRC" "$APP_DIR"
+    git -C "$APP_DIR" checkout -q v1.0.0
+    mkdir -p "$APP_DIR/venv/bin"
+    cat > "$APP_DIR/venv/bin/pip" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+    chmod +x "$APP_DIR/venv/bin/pip"
+
+    local stubs="$TMPROOT/stubs"
+    mkdir -p "$stubs"
+    cat > "$stubs/systemctl" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+    chmod +x "$stubs/systemctl"
+
+    local start=$(date +%s)
+    MYMCP_FORCE_FALLBACK=1 MYMCP_LOG_DIR="$TMPROOT/log" PATH="$stubs:$PATH" \
+        run bash "$UPGRADE_SH" --app-dir="$APP_DIR" --source="$SRC" --no-health-check v1.1.0
+    local elapsed=$(( $(date +%s) - start ))
+    [ "$status" -eq 0 ]
+    [ "$elapsed" -lt 3 ]  # parent returned promptly
+    [[ "$output" == *"started in background"* ]] || [[ "$output" == *"Upgrade"* ]]
+}
+
+@test "upgrade.sh rejects --foreground when under mymcp" {
+    MYMCP_FAKE_UNDER=1 run bash "$UPGRADE_SH" --app-dir="$APP_DIR" --foreground v1.0.0
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"--foreground"* ]] || [[ "$output" == *"detach"* ]]
+}
+
 @test "upgrade.sh converts non-git APP_DIR and reaches backup step" {
     # Set up a "source" repo with two tags
     local SRC="$TMPROOT/src"

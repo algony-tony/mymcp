@@ -288,11 +288,55 @@ if [ "$MODE" = "rollback" ]; then
 fi
 
 # --------------------------------------------------------------------------
-# Detach unless --foreground
+# Reject --foreground under mymcp (client-driven upgrade must detach)
+# --------------------------------------------------------------------------
+if [ "$FOREGROUND" = 1 ] && is_under_mymcp; then
+    echo "ERROR: --foreground is unsafe when invoked from inside mymcp." >&2
+    echo "       The service kill during upgrade would terminate this script." >&2
+    echo "       Omit --foreground; the script will detach automatically." >&2
+    exit 11
+fi
+
+# --------------------------------------------------------------------------
+# Detach unless --foreground or already the detached runner
 # --------------------------------------------------------------------------
 if [ "$FOREGROUND" != 1 ] && [ "${MYMCP_DETACHED:-0}" != 1 ]; then
-    # Block --foreground when called from inside mymcp
-    :  # Detach implementation in Task 18; for now this branch is inert.
+    # Self-copy so git checkout inside the run can't corrupt our own file
+    COPY="/tmp/mymcp-upgrade-$$.sh"
+    cp "$0" "$COPY"
+    chmod +x "$COPY"
+    # Preserve flags and pass --foreground to the runner (it's already detached)
+    DETACH_ARGS=( --foreground --app-dir="$APP_DIR" )
+    [ -n "$SOURCE_FLAG" ]   && DETACH_ARGS+=( --source="$SOURCE_FLAG" )
+    [ -n "$WHEELS_DIR" ]    && DETACH_ARGS+=( --wheels-dir="$WHEELS_DIR" )
+    [ "$KEEP_BACKUPS" != "3" ] && DETACH_ARGS+=( --keep-backups="$KEEP_BACKUPS" )
+    [ "$PREFER_REMOTE" = 1 ] && DETACH_ARGS+=( --prefer-remote )
+    [ "$ALLOW_BRANCH" = 1 ]  && DETACH_ARGS+=( --allow-branch )
+    [ "$FORCE" = 1 ]         && DETACH_ARGS+=( --force )
+    [ "$NO_HEALTH" = 1 ]     && DETACH_ARGS+=( --no-health-check )
+    DETACH_ARGS+=( "$TARGET_VERSION" )
+
+    LAUNCH_INFO=$(MYMCP_DETACHED=1 launch_detached "$COPY" \
+        --log-dir="$LOG_DIR" --unit-name=mymcp-upgrade -- "${DETACH_ARGS[@]}")
+    echo "Upgrade $CURRENT_VERSION → $TARGET_VERSION started in background."
+    echo "  $LAUNCH_INFO"
+    echo "  Service will be unavailable for ~2 minutes."
+    echo "  Status:  sudo $0 --status"
+    echo "  Logs:    sudo $0 --logs -f"
+    echo "  Reconnect your MCP client after the service returns to healthy state."
+    exit 0
+fi
+
+# --------------------------------------------------------------------------
+# EXIT trap — service-running invariant (final last-resort start)
+# --------------------------------------------------------------------------
+final_service_start() {
+    systemctl start "$SERVICE_NAME" 2>/dev/null || true
+}
+
+# Detached runner cleans up its own /tmp copy on exit
+if [ "${MYMCP_DETACHED:-0}" = 1 ]; then
+    trap 'release_lock "$APP_DIR"; final_service_start; rm -f "$0"' EXIT
 fi
 
 # --------------------------------------------------------------------------
@@ -302,14 +346,6 @@ if ! acquire_lock "$APP_DIR"; then
     echo "ERROR: another upgrade is in progress (lock held)" >&2
     exit 7
 fi
-trap 'release_lock "$APP_DIR"' EXIT
-
-# --------------------------------------------------------------------------
-# EXIT trap — service-running invariant (final last-resort start)
-# --------------------------------------------------------------------------
-final_service_start() {
-    systemctl start "$SERVICE_NAME" 2>/dev/null || true
-}
 trap 'release_lock "$APP_DIR"; final_service_start' EXIT
 
 # --------------------------------------------------------------------------
