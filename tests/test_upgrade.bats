@@ -384,3 +384,41 @@ EOF
     run cat "$trace"
     [[ "$output" == *"t1"* && "$output" == *"t2"* && "$output" == *"t3"* && "$output" == *"t4"* ]]
 }
+
+# =========================================================================
+# populate_app_dir (used by install.sh)
+# =========================================================================
+
+@test "populate_app_dir: git-local source produces a git tree at APP_DIR" {
+    local SRC="$TMPROOT/src"
+    mkdir -p "$SRC"
+    cd "$SRC"
+    git init -q
+    git config user.email ci@local
+    git config user.name ci
+    echo "x" > main.py
+    git add main.py
+    git commit -q -m "c1"
+    git tag v1.0.0
+
+    local TARGET="$TMPROOT/target"
+    run populate_app_dir --source="$SRC" --app-dir="$TARGET" --version=v1.0.0
+    [ "$status" -eq 0 ]
+    [ -d "$TARGET/.git" ]
+    [ -f "$TARGET/main.py" ]
+    run git -C "$TARGET" describe --tags
+    [ "$output" = "v1.0.0" ]
+}
+
+@test "populate_app_dir: non-git source rsyncs files (no .git)" {
+    local SRC="$TMPROOT/src"
+    mkdir -p "$SRC/tools"
+    echo "x" > "$SRC/main.py"
+    echo "t" > "$SRC/tools/a.py"
+    local TARGET="$TMPROOT/target"
+    run populate_app_dir --source="$SRC" --app-dir="$TARGET" --version=unknown --mode=rsync
+    [ "$status" -eq 0 ]
+    [ ! -d "$TARGET/.git" ]
+    [ -f "$TARGET/main.py" ]
+    [ -f "$TARGET/tools/a.py" ]
+}

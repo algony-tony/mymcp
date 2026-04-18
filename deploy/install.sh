@@ -105,10 +105,18 @@ echo ""
 # Step 4: Copy project files
 # ---------------------------------------------------------------------------
 echo "Copying files to ${APP_DIR}..."
-mkdir -p "${APP_DIR}"
-rsync -a --exclude='.git' --exclude='__pycache__' --exclude='tests' \
-    --exclude='.pytest_cache' --exclude='deploy' --exclude='docs' \
-    "${REPO_DIR}/" "${APP_DIR}/"
+# Detect mode: prefer git if REPO_DIR is a git tree
+if [ -d "${REPO_DIR}/.git" ]; then
+    POPULATE_MODE=git
+    INSTALL_VERSION=$(git -C "$REPO_DIR" describe --tags --always 2>/dev/null || echo "unknown")
+else
+    POPULATE_MODE=rsync
+    INSTALL_VERSION="unknown"
+    echo "NOTE: REPO_DIR is not a git tree; using rsync fallback."
+    echo "      Future upgrades will convert APP_DIR to a git checkout on first run."
+fi
+populate_app_dir --source="$REPO_DIR" --app-dir="$APP_DIR" \
+                 --version="$INSTALL_VERSION" --mode="$POPULATE_MODE"
 
 # ---------------------------------------------------------------------------
 # Step 5: Virtual environment & dependencies

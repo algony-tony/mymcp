@@ -441,3 +441,66 @@ rollback_cascade() {
     done
     return "$last_status"
 }
+
+# ---------------------------------------------------------------------------
+# populate_app_dir --source=X --app-dir=Y --version=V [--mode=git|rsync|auto]
+#   Populate APP_DIR from source.
+#   mode=auto (default): git clone if source is a git tree/URL, else rsync.
+#   mode=git: force git clone.
+#   mode=rsync: force rsync (non-git source).
+# ---------------------------------------------------------------------------
+populate_app_dir() {
+    local src="" dest="" version="" mode="auto"
+    for arg in "$@"; do
+        case "$arg" in
+            --source=*)   src="${arg#--source=}" ;;
+            --app-dir=*)  dest="${arg#--app-dir=}" ;;
+            --version=*)  version="${arg#--version=}" ;;
+            --mode=*)     mode="${arg#--mode=}" ;;
+        esac
+    done
+    [ -z "$src" ] && { echo "populate_app_dir: missing --source" >&2; return 1; }
+    [ -z "$dest" ] && { echo "populate_app_dir: missing --app-dir" >&2; return 1; }
+
+    # Auto mode: choose git or rsync
+    if [ "$mode" = "auto" ]; then
+        if [ -d "$src/.git" ] || [[ "$src" == *://* ]]; then
+            mode="git"
+        else
+            mode="rsync"
+        fi
+    fi
+
+    if [ "$mode" = "git" ]; then
+        if [ -d "$dest/.git" ]; then
+            # Already a git tree — just fetch and checkout
+            git -C "$dest" fetch --tags -q origin || true
+            git -C "$dest" checkout -q "${version:-HEAD}"
+        else
+            # Fresh clone — preserve .env/tokens.json if they already exist
+            local preserve="$(mktemp -d)"
+            [ -f "$dest/.env" ]        && mv "$dest/.env" "$preserve/"
+            [ -f "$dest/tokens.json" ] && mv "$dest/tokens.json" "$preserve/"
+            rm -rf "$dest"
+            mkdir -p "$dest"
+            if [[ "$src" == *://* ]]; then
+                git clone -q --branch "${version:-HEAD}" "$src" "$dest"
+            else
+                git clone -q --local "$src" "$dest"
+                [ -n "$version" ] && git -C "$dest" checkout -q "$version"
+            fi
+            [ -f "$preserve/.env" ]        && mv "$preserve/.env" "$dest/"
+            [ -f "$preserve/tokens.json" ] && mv "$preserve/tokens.json" "$dest/"
+            rm -rf "$preserve"
+        fi
+    else
+        # rsync fallback
+        mkdir -p "$dest"
+        rsync -a --exclude='.git' --exclude='__pycache__' --exclude='tests' \
+              --exclude='.pytest_cache' --exclude='docs' "$src/" "$dest/"
+    fi
+
+    # Write .install-info
+    printf '{"version":"%s","installed_at":"%s","mode":"%s"}\n' \
+        "${version:-unknown}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$mode" > "$dest/.install-info"
+}

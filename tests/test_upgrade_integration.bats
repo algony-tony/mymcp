@@ -2,6 +2,10 @@
 # Integration-ish tests for deploy/upgrade.sh.
 # Run: bats tests/test_upgrade_integration.bats
 
+skip_if_non_root_required() {
+    [ "$(id -u)" -eq 0 ] || skip "requires root"
+}
+
 setup() {
     export AUTO_YES=true
     TMPROOT="$(mktemp -d)"
@@ -296,4 +300,9 @@ EOF
     [ -d "$APP_DIR/.git" ]
     # .env preserved
     [ -f "$APP_DIR/.env" ]
+}
+
+@test "install.sh populates APP_DIR as git checkout when REPO_DIR is git tree" {
+    skip_if_non_root_required
+    skip "covered by Docker integration scenario fresh_upgrade"
 }
