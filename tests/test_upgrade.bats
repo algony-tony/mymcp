@@ -270,3 +270,31 @@ s.serve_forever()
     MCP_HOST=127.0.0.1 MCP_PORT=17655 run wait_for_health "$APP_DIR" 2
     [ "$status" -ne 0 ]
 }
+
+# =========================================================================
+# discover_app_dir
+# =========================================================================
+
+@test "discover_app_dir: explicit flag wins" {
+    run discover_app_dir --app-dir=/my/custom --unit-file=/nonexistent
+    [ "$status" -eq 0 ]
+    [ "$output" = "/my/custom" ]
+}
+
+@test "discover_app_dir: reads WorkingDirectory from unit file" {
+    local unit="$TMPROOT/mymcp.service"
+    cat > "$unit" <<EOF
+[Service]
+WorkingDirectory=/svc/path
+ExecStart=/x
+EOF
+    run discover_app_dir --unit-file="$unit"
+    [ "$status" -eq 0 ]
+    [ "$output" = "/svc/path" ]
+}
+
+@test "discover_app_dir: default /opt/mymcp when no clues" {
+    run discover_app_dir --unit-file=/nonexistent
+    [ "$status" -eq 0 ]
+    [ "$output" = "/opt/mymcp" ]
+}

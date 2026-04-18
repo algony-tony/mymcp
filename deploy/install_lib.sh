@@ -330,3 +330,30 @@ wait_for_health() {
     done
     return 1
 }
+
+# ---------------------------------------------------------------------------
+# discover_app_dir [--app-dir=PATH] [--unit-file=PATH]
+#   Discover APP_DIR via flag > unit file WorkingDirectory > /opt/mymcp.
+# ---------------------------------------------------------------------------
+discover_app_dir() {
+    local explicit="" unit="/etc/systemd/system/mymcp.service"
+    for arg in "$@"; do
+        case "$arg" in
+            --app-dir=*)   explicit="${arg#--app-dir=}" ;;
+            --unit-file=*) unit="${arg#--unit-file=}" ;;
+        esac
+    done
+    if [ -n "$explicit" ]; then
+        echo "$explicit"
+        return 0
+    fi
+    if [ -f "$unit" ]; then
+        local wd
+        wd=$(sed -n 's/^WorkingDirectory=//p' "$unit" | head -1)
+        if [ -n "$wd" ]; then
+            echo "$wd"
+            return 0
+        fi
+    fi
+    echo "/opt/mymcp"
+}
