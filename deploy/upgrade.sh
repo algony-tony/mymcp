@@ -234,6 +234,31 @@ if [ "$MODE" = "upgrade" ]; then
 fi
 
 # --------------------------------------------------------------------------
+# Display UPGRADE_NOTES.md diff if changed between CURRENT and TARGET
+# --------------------------------------------------------------------------
+if [ "$MODE" = "upgrade" ] && [ -d "$APP_DIR/.git" ]; then
+    # Fetch the target ref from SOURCE so we can diff even before checkout
+    git -C "$APP_DIR" fetch --tags -q "$SOURCE" "$TARGET_VERSION" 2>/dev/null || \
+        git -C "$APP_DIR" fetch --tags -q origin 2>/dev/null || true
+    if git -C "$APP_DIR" rev-parse --verify --quiet "$TARGET_VERSION" >/dev/null 2>&1; then
+        notes_diff=$(git -C "$APP_DIR" diff "${CURRENT_VERSION}..${TARGET_VERSION}" \
+            -- deploy/UPGRADE_NOTES.md 2>/dev/null || true)
+        if [ -n "$notes_diff" ]; then
+            echo "=== UPGRADE_NOTES.md changes from $CURRENT_VERSION to $TARGET_VERSION ==="
+            echo "$notes_diff"
+            echo "==============================================================="
+            if [ "$DRY_RUN" != 1 ] && [ "$AUTO_YES" != "true" ] && [ "$FORCE" != 1 ]; then
+                read -rp "Proceed with upgrade? [y/N]: " ans
+                case "${ans,,}" in
+                    y|yes) : ;;
+                    *) echo "Aborted."; exit 0 ;;
+                esac
+            fi
+        fi
+    fi
+fi
+
+# --------------------------------------------------------------------------
 # Dry-run
 # --------------------------------------------------------------------------
 if [ "$DRY_RUN" = 1 ] && [ "$MODE" = "upgrade" ]; then

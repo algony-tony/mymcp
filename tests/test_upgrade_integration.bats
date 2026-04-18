@@ -306,3 +306,36 @@ EOF
     skip_if_non_root_required
     skip "covered by Docker integration scenario fresh_upgrade"
 }
+
+@test "upgrade.sh prints UPGRADE_NOTES diff when notes changed" {
+    local SRC="$TMPROOT/src"
+    mkdir -p "$SRC/deploy"
+    cd "$SRC"
+    git init -q
+    git config user.email ci@local
+    git config user.name ci
+    mkdir -p deploy
+    echo "# v1.0.0 notes" > deploy/UPGRADE_NOTES.md
+    echo "" > requirements.txt
+    git add .
+    git commit -q -m "c1"
+    git tag v1.0.0
+
+    cat > deploy/UPGRADE_NOTES.md <<EOF
+# Upgrade Notes
+
+## v1.1.0
+### Breaking
+- MCP_TOKEN_FILE renamed to MCP_TOKEN_STORE. Update your .env.
+EOF
+    git add .
+    git commit -qam "c2"
+    git tag v1.1.0
+
+    git clone -q "$SRC" "$APP_DIR"
+    git -C "$APP_DIR" checkout -q v1.0.0
+
+    run bash "$UPGRADE_SH" --app-dir="$APP_DIR" --source="$SRC" --dry-run v1.1.0
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"MCP_TOKEN_FILE"* ]] || [[ "$output" == *"UPGRADE_NOTES"* ]]
+}
