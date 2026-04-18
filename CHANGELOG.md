@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-04-19
+
 ### Added
 - `deploy/upgrade.sh`: end-to-end upgrade orchestration with pre-flight checks,
   `--dry-run`, `--rollback`, `--wheels-dir` offline install, and `--foreground`
@@ -42,5 +44,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Initial tagged release. See git history for details.
 
-[Unreleased]: https://github.com/algony-tony/mymcp/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/algony-tony/mymcp/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/algony-tony/mymcp/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/algony-tony/mymcp/releases/tag/v1.0.0
