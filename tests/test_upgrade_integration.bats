@@ -85,6 +85,63 @@ teardown() {
     [[ "$output" == *"--allow-branch"* ]]
 }
 
+@test "upgrade.sh --foreground end-to-end on mock (no systemctl, no pip)" {
+    # Set up a "source" repo
+    local SRC="$TMPROOT/src"
+    mkdir -p "$SRC"
+    cd "$SRC"
+    git init -q
+    git config user.email ci@local
+    git config user.name ci
+    echo "v1" > main.py
+    cat > requirements.txt <<EOF
+EOF
+    git add main.py requirements.txt
+    git commit -q -m "c1"
+    git tag v1.0.0
+    echo "v2" > main.py
+    git commit -qam "c2"
+    git tag v1.1.0
+
+    # Clone source into APP_DIR at v1.0.0
+    git clone -q "$SRC" "$APP_DIR"
+    git -C "$APP_DIR" checkout -q v1.0.0
+
+    # Provide stubs for systemctl and curl to make foreground path complete
+    local stubs="$TMPROOT/stubs"
+    mkdir -p "$stubs"
+    cat > "$stubs/systemctl" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+    chmod +x "$stubs/systemctl"
+    cat > "$stubs/curl" <<'EOF'
+#!/usr/bin/env bash
+# Fake /health 200
+exit 0
+EOF
+    chmod +x "$stubs/curl"
+    # Fake venv's pip
+    mkdir -p "$APP_DIR/venv/bin"
+    cat > "$APP_DIR/venv/bin/pip" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+    chmod +x "$APP_DIR/venv/bin/pip"
+
+    PATH="$stubs:$PATH" run bash "$UPGRADE_SH" \
+        --app-dir="$APP_DIR" --source="$SRC" --foreground --no-health-check v1.1.0
+    [ "$status" -eq 0 ]
+    run git -C "$APP_DIR" describe --tags
+    [ "$output" = "v1.1.0" ]
+    # Backup exists
+    run ls -d "${APP_DIR}.bak-"*
+    [ "$status" -eq 0 ]
+    # State file says done
+    run cat "$APP_DIR/.upgrade-state"
+    [[ "$output" == *'"step":"done"'* ]]
+}
+
 @test "upgrade.sh converts non-git APP_DIR and reaches backup step" {
     # Set up a "source" repo with two tags
     local SRC="$TMPROOT/src"

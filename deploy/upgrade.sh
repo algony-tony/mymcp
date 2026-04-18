@@ -279,6 +279,132 @@ if [ "$MODE" = "upgrade" ] && [ ! -d "$APP_DIR/.git" ]; then
     CURRENT_VERSION=$(detect_current_version "$APP_DIR")
 fi
 
-# --- Actual upgrade/rollback path continues in next task ---
-echo "upgrade execution not yet implemented; pre-flight passed." >&2
-exit 3
+# --------------------------------------------------------------------------
+# Rollback command (handled by --rollback flag; proper cascade in Task 17)
+# --------------------------------------------------------------------------
+if [ "$MODE" = "rollback" ]; then
+    echo "--rollback not yet implemented" >&2
+    exit 3
+fi
+
+# --------------------------------------------------------------------------
+# Detach unless --foreground
+# --------------------------------------------------------------------------
+if [ "$FOREGROUND" != 1 ] && [ "${MYMCP_DETACHED:-0}" != 1 ]; then
+    # Block --foreground when called from inside mymcp
+    :  # Detach implementation in Task 18; for now this branch is inert.
+fi
+
+# --------------------------------------------------------------------------
+# Acquire lock
+# --------------------------------------------------------------------------
+if ! acquire_lock "$APP_DIR"; then
+    echo "ERROR: another upgrade is in progress (lock held)" >&2
+    exit 7
+fi
+trap 'release_lock "$APP_DIR"' EXIT
+
+# --------------------------------------------------------------------------
+# EXIT trap — service-running invariant (final last-resort start)
+# --------------------------------------------------------------------------
+final_service_start() {
+    systemctl start "$SERVICE_NAME" 2>/dev/null || true
+}
+trap 'release_lock "$APP_DIR"; final_service_start' EXIT
+
+# --------------------------------------------------------------------------
+# Core upgrade steps
+# --------------------------------------------------------------------------
+BACKUP_DIR=""
+PREV_SHA=""
+if [ -d "$APP_DIR/.git" ]; then
+    PREV_SHA=$(git -C "$APP_DIR" rev-parse HEAD)
+fi
+
+step_backup() {
+    write_state "$APP_DIR" "backup" "$CURRENT_VERSION" "$TARGET_VERSION"
+    BACKUP_DIR=$(create_backup "$APP_DIR" "$CURRENT_VERSION" "$TARGET_VERSION")
+    echo ">>> Backup: $BACKUP_DIR"
+}
+
+step_stop_service() {
+    write_state "$APP_DIR" "stopping-service" "$CURRENT_VERSION" "$TARGET_VERSION"
+    systemctl stop "$SERVICE_NAME" 2>/dev/null || true
+}
+
+step_checkout() {
+    write_state "$APP_DIR" "checking-out-code" "$CURRENT_VERSION" "$TARGET_VERSION"
+    # Ensure remote reflects resolved source for remote-only targets
+    if [ -n "$SOURCE" ] && [ "$_SOURCE_KIND" != "git-local" ] || [ "$_SOURCE_KIND" = "git-local" ]; then
+        if git -C "$APP_DIR" remote get-url origin >/dev/null 2>&1; then
+            git -C "$APP_DIR" remote set-url origin "$SOURCE"
+        else
+            git -C "$APP_DIR" remote add origin "$SOURCE"
+        fi
+    fi
+    git -C "$APP_DIR" fetch --tags -q origin || true
+    git -C "$APP_DIR" checkout -q "$TARGET_VERSION"
+}
+
+step_install_deps() {
+    write_state "$APP_DIR" "installing-deps" "$CURRENT_VERSION" "$TARGET_VERSION"
+    local pip="$APP_DIR/venv/bin/pip"
+    if [ ! -x "$pip" ]; then
+        echo "ERROR: venv pip not executable at $pip" >&2
+        return 1
+    fi
+    if [ -n "$WHEELS_DIR" ]; then
+        "$pip" install -q --no-index --find-links="$WHEELS_DIR" -r "$APP_DIR/requirements.txt"
+    else
+        "$pip" install -q -r "$APP_DIR/requirements.txt"
+    fi
+}
+
+step_refresh_unit() {
+    write_state "$APP_DIR" "refreshing-unit" "$CURRENT_VERSION" "$TARGET_VERSION"
+    # If deploy/mymcp.service has changed since last run, the install.sh-generated
+    # /etc/systemd/system/mymcp.service may be stale. Compare and reload if needed.
+    if [ -f "$APP_DIR/deploy/mymcp.service" ] && [ -f "/etc/systemd/system/mymcp.service" ]; then
+        if ! diff -q "$APP_DIR/deploy/mymcp.service" "/etc/systemd/system/mymcp.service" >/dev/null 2>&1; then
+            echo "WARN: systemd unit file differs from shipped template."
+            echo "      Review /etc/systemd/system/mymcp.service after upgrade."
+        fi
+    fi
+}
+
+step_start_service() {
+    write_state "$APP_DIR" "starting-service" "$CURRENT_VERSION" "$TARGET_VERSION"
+    systemctl start "$SERVICE_NAME"
+}
+
+step_health() {
+    [ "$NO_HEALTH" = 1 ] && return 0
+    write_state "$APP_DIR" "health-check" "$CURRENT_VERSION" "$TARGET_VERSION"
+    wait_for_health "$APP_DIR" 30
+}
+
+write_state "$APP_DIR" "preflight" "$CURRENT_VERSION" "$TARGET_VERSION"
+
+if step_backup \
+   && step_stop_service \
+   && step_checkout \
+   && step_install_deps \
+   && step_refresh_unit \
+   && step_start_service \
+   && step_health; then
+    write_state "$APP_DIR" "done" "$CURRENT_VERSION" "$TARGET_VERSION"
+    # Write .install-info for audit / fallback version detection
+    printf '{"version":"%s","installed_at":"%s","upgraded_from":"%s"}\n' \
+        "$TARGET_VERSION" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$CURRENT_VERSION" \
+        > "$APP_DIR/.install-info"
+    prune_backups "$APP_DIR" "$KEEP_BACKUPS"
+    echo "=== Upgrade complete ==="
+    echo "  $CURRENT_VERSION → $TARGET_VERSION"
+    echo "  Backup: $BACKUP_DIR"
+    exit 0
+fi
+
+# Failure path — placeholder; Task 17 adds real rollback cascade
+echo "ERROR: upgrade step failed; rollback cascade not yet implemented" >&2
+write_state "$APP_DIR" "failed-manual-intervention" "$CURRENT_VERSION" "$TARGET_VERSION"
+exit 8
