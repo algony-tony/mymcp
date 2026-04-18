@@ -20,3 +20,35 @@ teardown() {
     [ "$status" -eq 0 ]
     [[ "$output" == *"ok"* ]]
 }
+
+# =========================================================================
+# State file helpers
+# =========================================================================
+
+@test "write_state: creates .upgrade-state with step field" {
+    write_state "$APP_DIR" "preflight" "v1.0.0" "v1.1.0"
+    [ -f "$APP_DIR/.upgrade-state" ]
+    run cat "$APP_DIR/.upgrade-state"
+    [[ "$output" == *'"step":"preflight"'* ]]
+    [[ "$output" == *'"from":"v1.0.0"'* ]]
+    [[ "$output" == *'"to":"v1.1.0"'* ]]
+}
+
+@test "write_state: updates step on second call, preserves from/to" {
+    write_state "$APP_DIR" "preflight" "v1.0.0" "v1.1.0"
+    write_state "$APP_DIR" "backup" "v1.0.0" "v1.1.0"
+    run cat "$APP_DIR/.upgrade-state"
+    [[ "$output" == *'"step":"backup"'* ]]
+}
+
+@test "read_state: returns JSON string for --status consumption" {
+    write_state "$APP_DIR" "installing-deps" "v1.0.0" "v1.1.0"
+    run read_state "$APP_DIR"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *'"step":"installing-deps"'* ]]
+}
+
+@test "read_state: returns empty and exits 1 when no state file" {
+    run read_state "$APP_DIR"
+    [ "$status" -eq 1 ]
+}

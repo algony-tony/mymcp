@@ -73,3 +73,35 @@ validate_app_dir() {
         *)  echo "ERROR: Install path must be absolute."; return 1 ;;
     esac
 }
+
+# ---------------------------------------------------------------------------
+# write_state app_dir step [from] [to]
+#   Atomically write JSON state file. Preserves started_at across calls.
+# ---------------------------------------------------------------------------
+write_state() {
+    local app_dir="$1" step="$2" from="${3:-}" to="${4:-}"
+    local state_file="$app_dir/.upgrade-state"
+    local tmp="$state_file.tmp.$$"
+    local now
+    now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    local started_at="$now"
+    if [ -f "$state_file" ]; then
+        local existing
+        existing=$(sed -n 's/.*"started_at":"\([^"]*\)".*/\1/p' "$state_file")
+        [ -n "$existing" ] && started_at="$existing"
+    fi
+    printf '{"pid":%d,"from":"%s","to":"%s","step":"%s","started_at":"%s","updated_at":"%s"}\n' \
+        "$$" "$from" "$to" "$step" "$started_at" "$now" > "$tmp"
+    mv -f "$tmp" "$state_file"
+}
+
+# ---------------------------------------------------------------------------
+# read_state app_dir
+#   Print the state file contents. Return 1 if no state file.
+# ---------------------------------------------------------------------------
+read_state() {
+    local app_dir="$1"
+    local state_file="$app_dir/.upgrade-state"
+    [ -f "$state_file" ] || return 1
+    cat "$state_file"
+}
