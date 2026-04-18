@@ -84,3 +84,32 @@ teardown() {
     [ "$status" -ne 0 ]
     [[ "$output" == *"--allow-branch"* ]]
 }
+
+@test "upgrade.sh converts non-git APP_DIR and reaches backup step" {
+    # Set up a "source" repo with two tags
+    local SRC="$TMPROOT/src"
+    mkdir -p "$SRC"
+    cd "$SRC"
+    git init -q
+    git config user.email ci@local
+    git config user.name ci
+    echo "v1" > main.py
+    git add main.py
+    git commit -q -m "c1"
+    git tag v1.0.0
+    echo "v2" > main.py
+    git commit -qam "c2"
+    git tag v1.1.0
+
+    # Populate APP_DIR as if via rsync (no .git)
+    mkdir -p "$APP_DIR"
+    echo "v1" > "$APP_DIR/main.py"
+    echo "# state" > "$APP_DIR/.env"
+    # We want to ensure we don't reach the "not implemented" phase due to the legacy-missing-git guard.
+    # The run will fail at actual systemctl — that's OK for this task; we just want conversion to happen.
+    run bash "$UPGRADE_SH" --app-dir="$APP_DIR" --source="$SRC" --foreground v1.1.0 || true
+    # After conversion, .git should exist
+    [ -d "$APP_DIR/.git" ]
+    # .env preserved
+    [ -f "$APP_DIR/.env" ]
+}

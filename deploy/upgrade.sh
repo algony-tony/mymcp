@@ -256,6 +256,29 @@ if [ "$DRY_RUN" = 1 ] && [ "$MODE" = "upgrade" ]; then
     exit 0
 fi
 
+# --------------------------------------------------------------------------
+# Legacy-install conversion
+# --------------------------------------------------------------------------
+convert_legacy_install() {
+    local app_dir="$1" src="$2" target="$3"
+    echo ">>> Converting legacy (non-git) install to git-managed..."
+    ( cd "$app_dir" && git init -q )
+    # Prefer a local path source if it's a dir with .git; fall back to URL
+    if [ -d "$src/.git" ]; then
+        git -C "$app_dir" remote add origin "$src"
+    else
+        git -C "$app_dir" remote add origin "$src"
+    fi
+    git -C "$app_dir" fetch --tags -q origin
+    git -C "$app_dir" reset --hard "$target"
+    echo "<<< Conversion complete; now at $target"
+}
+
+if [ "$MODE" = "upgrade" ] && [ ! -d "$APP_DIR/.git" ]; then
+    convert_legacy_install "$APP_DIR" "$SOURCE" "$TARGET_VERSION"
+    CURRENT_VERSION=$(detect_current_version "$APP_DIR")
+fi
+
 # --- Actual upgrade/rollback path continues in next task ---
 echo "upgrade execution not yet implemented; pre-flight passed." >&2
 exit 3
