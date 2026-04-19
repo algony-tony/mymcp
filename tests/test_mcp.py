@@ -104,11 +104,61 @@ async def test_call_tool_success(set_audit_info):
 
 
 @pytest.mark.anyio
+async def test_call_tool_success_audit_fields():
+    """Successful call must log result='ok' with all identity + timing fields."""
+    token = _current_audit_info.set({
+        "token_name": "client-x",
+        "role": "rw",
+        "ip": "10.1.2.3",
+    })
+    try:
+        with patch("mcp_server.log_tool_call") as mock_log:
+            await call_tool("bash_execute", {"command": "echo ok"})
+            mock_log.assert_called_once()
+            kwargs = mock_log.call_args.kwargs
+            assert kwargs["result"] == "ok"
+            assert kwargs["token_name"] == "client-x"
+            assert kwargs["role"] == "rw"
+            assert kwargs["ip"] == "10.1.2.3"
+            assert kwargs["tool"] == "bash_execute"
+            assert kwargs["duration_ms"] is not None
+            assert kwargs["duration_ms"] >= 0
+            assert kwargs["error_code"] is None
+            assert kwargs["error_message"] is None
+    finally:
+        _current_audit_info.reset(token)
+
+
+@pytest.mark.anyio
 async def test_call_tool_permission_denied(set_ro_audit_info):
     results = await call_tool("bash_execute", {"command": "echo no"})
     data = json.loads(results[0].text)
     assert data["success"] is False
     assert data["error"] == "PermissionDenied"
+
+
+@pytest.mark.anyio
+async def test_call_tool_permission_denied_audit_fields():
+    """Denied call must log result='denied' with reason, no duration."""
+    token = _current_audit_info.set({
+        "token_name": "ro-bot",
+        "role": "ro",
+        "ip": "192.168.0.1",
+    })
+    try:
+        with patch("mcp_server.log_tool_call") as mock_log:
+            await call_tool("write_file", {"file_path": "/tmp/x", "content": "y"})
+            kwargs = mock_log.call_args.kwargs
+            assert kwargs["result"] == "denied"
+            assert kwargs["token_name"] == "ro-bot"
+            assert kwargs["role"] == "ro"
+            assert kwargs["ip"] == "192.168.0.1"
+            assert kwargs["tool"] == "write_file"
+            assert kwargs["reason"] is not None
+            assert "write_file" in kwargs["reason"]
+            assert "rw" in kwargs["reason"]
+    finally:
+        _current_audit_info.reset(token)
 
 
 @pytest.mark.anyio
@@ -136,7 +186,18 @@ async def test_call_tool_bash_nonzero_audit(set_audit_info):
 
         kwargs = mock_log.call_args.kwargs
         assert kwargs["result"] == "error"
-        assert "ExitCode:42" in kwargs["error_code"]
+        assert kwargs["error_code"] == "ExitCode:42"
+        assert kwargs["duration_ms"] is not None
+
+
+@pytest.mark.anyio
+async def test_call_tool_bash_zero_exit_is_ok(set_audit_info):
+    """bash exit_code == 0 must log as 'ok', not error (boundary case)."""
+    with patch("mcp_server.log_tool_call") as mock_log:
+        await call_tool("bash_execute", {"command": "true"})
+        kwargs = mock_log.call_args.kwargs
+        assert kwargs["result"] == "ok"
+        assert kwargs["error_code"] is None
 
 
 @pytest.mark.anyio
@@ -253,5 +314,60 @@ async def test_call_tool_non_json_result(set_audit_info):
         with patch("mcp_server.log_tool_call") as mock_log:
             results = await call_tool("bash_execute", {"command": "echo x"})
             assert results[0].text == "plain text not json"
+            kwargs = mock_log.call_args.kwargs
+            assert kwargs["result"] == "ok"
+
+
+# ---------------------------------------------------------------------------
+# Missing / malformed fields — defaults from .get() calls must behave right
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_call_tool_contextvar_defaults_when_fields_missing():
+    """When audit contextvar dict is missing fields, audit log uses 'unknown'.
+
+    This kills mutations that change the .get() defaults on
+    token_name/role/ip in call_tool.
+    """
+    token = _current_audit_info.set({})  # empty dict — every .get() falls back
+    try:
+        with patch("mcp_server.log_tool_call") as mock_log:
+            # role defaults to "rw" per the get() default, so this call is allowed
+            await call_tool("bash_execute", {"command": "echo ok"})
+            kwargs = mock_log.call_args.kwargs
+            assert kwargs["token_name"] == "unknown"
+            assert kwargs["role"] == "rw"
+            assert kwargs["ip"] == "unknown"
+    finally:
+        _current_audit_info.reset(token)
+
+
+@pytest.mark.anyio
+async def test_call_tool_dispatch_result_without_success_field_is_ok(set_audit_info):
+    """A dispatch result dict lacking a 'success' key must default to ok.
+
+    Kills mutations flipping the default from True to False on
+    result_data.get('success', True).
+    """
+    with patch(
+        "mcp_server.dispatch_tool",
+        return_value=json.dumps({"content": "plain", "total_lines": 1, "truncated": False}),
+    ):
+        with patch("mcp_server.log_tool_call") as mock_log:
+            await call_tool("read_file", {"file_path": "/tmp/x"})
+            kwargs = mock_log.call_args.kwargs
+            assert kwargs["result"] == "ok"
+            assert kwargs["error_code"] is None
+
+
+@pytest.mark.anyio
+async def test_call_tool_dispatch_success_true_is_ok(set_audit_info):
+    """Explicit success=True must log as ok (not treated as error)."""
+    with patch(
+        "mcp_server.dispatch_tool",
+        return_value=json.dumps({"success": True, "bytes_written": 5}),
+    ):
+        with patch("mcp_server.log_tool_call") as mock_log:
+            await call_tool("write_file", {"file_path": "/tmp/y", "content": "hi"})
             kwargs = mock_log.call_args.kwargs
             assert kwargs["result"] == "ok"

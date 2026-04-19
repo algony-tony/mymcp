@@ -131,6 +131,26 @@ async def test_write_file_too_large():
     result = await write_file("/tmp/toobig.txt", big)
     assert result["success"] is False
     assert result["error"] == "FileTooLarge"
+    assert str(config.WRITE_FILE_MAX_BYTES + 1) in result["message"]
+    assert str(config.WRITE_FILE_MAX_BYTES) in result["message"]
+
+
+@pytest.mark.anyio
+async def test_write_file_exactly_at_max_succeeds(tmp_path):
+    """Content at exactly WRITE_FILE_MAX_BYTES should be accepted (<=, not <)."""
+    with patch("config.WRITE_FILE_MAX_BYTES", 100):
+        result = await write_file(str(tmp_path / "exact.txt"), "x" * 100)
+        assert result["success"] is True
+        assert result["bytes_written"] == 100
+
+
+@pytest.mark.anyio
+async def test_write_file_one_over_max_rejected(tmp_path):
+    """Content at MAX+1 must be rejected — kills off-by-one on > / >=."""
+    with patch("config.WRITE_FILE_MAX_BYTES", 100):
+        result = await write_file(str(tmp_path / "big.txt"), "x" * 101)
+        assert result["success"] is False
+        assert result["error"] == "FileTooLarge"
 
 
 @pytest.mark.anyio
@@ -167,6 +187,8 @@ async def test_edit_file_ambiguous_fails(tmp_path):
     result = await edit_file(str(f), "foo", "bar")
     assert result["success"] is False
     assert result["error"] == "AmbiguousMatch"
+    assert "3 times" in result["message"]
+    assert "replace_all" in result["message"]
 
 
 @pytest.mark.anyio
@@ -204,6 +226,29 @@ async def test_edit_file_old_string_too_large(tmp_path):
     assert result["success"] is False
     assert result["error"] == "FileTooLarge"
     assert "old_string" in result["message"]
+
+
+@pytest.mark.anyio
+async def test_edit_file_old_string_one_over_max_rejected(tmp_path):
+    """old_string at EDIT_STRING_MAX_BYTES+1 must be rejected (off-by-one)."""
+    f = tmp_path / "file.txt"
+    f.write_text("x" * 11)
+    with patch("config.EDIT_STRING_MAX_BYTES", 10):
+        result = await edit_file(str(f), "x" * 11, "new")
+        assert result["success"] is False
+        assert result["error"] == "FileTooLarge"
+
+
+@pytest.mark.anyio
+async def test_edit_file_new_string_one_over_max_rejected(tmp_path):
+    """new_string at EDIT_STRING_MAX_BYTES+1 must be rejected (off-by-one)."""
+    f = tmp_path / "file.txt"
+    f.write_text("hello")
+    with patch("config.EDIT_STRING_MAX_BYTES", 10):
+        result = await edit_file(str(f), "hello", "x" * 11)
+        assert result["success"] is False
+        assert result["error"] == "FileTooLarge"
+        assert "new_string" in result["message"]
 
 
 @pytest.mark.anyio

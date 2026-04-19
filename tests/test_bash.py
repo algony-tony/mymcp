@@ -35,6 +35,7 @@ async def test_timeout_kills_process():
     result = await run_bash_execute("sleep 10", timeout=1)
     assert result["timed_out"] is True
     assert result["exit_code"] == -1
+    assert "timed out after 1s" in result["stderr"]
 
 
 @pytest.mark.anyio
@@ -45,13 +46,16 @@ async def test_output_truncated_when_over_limit():
         max_output_bytes=1000,
     )
     assert "[TRUNCATED" in result["stdout"]
+    assert "showing first 1000 bytes" in result["stdout"]
+    assert "total 200001 bytes" in result["stdout"]
 
 
 @pytest.mark.anyio
 async def test_bad_working_dir_returns_error():
     result = await run_bash_execute("ls", working_dir="/nonexistent_dir_xyz_abc")
-    assert result.get("success") is False
-    assert "error" in result
+    assert result["success"] is False
+    assert result["error"] == "FileNotFoundError"
+    assert "/nonexistent_dir_xyz_abc" in result["message"]
 
 
 @pytest.mark.anyio
