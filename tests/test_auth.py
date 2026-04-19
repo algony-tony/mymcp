@@ -143,3 +143,48 @@ def test_get_store_creates_singleton(tmp_path):
             assert store is store2
     finally:
         auth._store = original
+
+
+# ---------------------------------------------------------------------------
+# Missing / malformed fields — verify the .get() defaults behave as specified
+# ---------------------------------------------------------------------------
+
+def test_validate_rejects_token_missing_enabled_field(tmp_path):
+    """A token entry without `enabled` must be rejected (default is False)."""
+    import json
+    path = tmp_path / "tokens.json"
+    data = {
+        "tokens": {
+            "tok_no_enabled_field": {
+                "name": "broken",
+                "created_at": "2026-01-01T00:00:00+00:00",
+                "last_used": None,
+                "role": "rw",
+            },
+        },
+        "admin_token": "adm_test",
+    }
+    path.write_text(json.dumps(data))
+    store = TokenStore(str(path), "adm_test")
+    assert store.validate("tok_no_enabled_field") is None
+
+
+def test_validate_rejects_token_with_enabled_false(tmp_path):
+    """A token with enabled=False must be rejected (explicit disable)."""
+    import json
+    path = tmp_path / "tokens.json"
+    data = {
+        "tokens": {
+            "tok_disabled": {
+                "name": "off",
+                "created_at": "2026-01-01T00:00:00+00:00",
+                "last_used": None,
+                "enabled": False,
+                "role": "rw",
+            },
+        },
+        "admin_token": "adm_test",
+    }
+    path.write_text(json.dumps(data))
+    store = TokenStore(str(path), "adm_test")
+    assert store.validate("tok_disabled") is None
