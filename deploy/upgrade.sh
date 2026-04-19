@@ -310,9 +310,11 @@ if [ "$MODE" = "upgrade" ] && [ "$FOREGROUND" = 1 ] && is_under_mymcp; then
     exit 11
 fi
 
+LEGACY_CONVERTED=0
 if [ "$MODE" = "upgrade" ] && [ ! -d "$APP_DIR/.git" ]; then
     convert_legacy_install "$APP_DIR" "$SOURCE" "$TARGET_VERSION"
     CURRENT_VERSION=$(detect_current_version "$APP_DIR")
+    LEGACY_CONVERTED=1
 fi
 
 # --------------------------------------------------------------------------
@@ -340,10 +342,18 @@ fi
 # Detach unless --foreground or already the detached runner
 # --------------------------------------------------------------------------
 if [ "$FOREGROUND" != 1 ] && [ "${MYMCP_DETACHED:-0}" != 1 ]; then
-    # Self-copy so git checkout inside the run can't corrupt our own file
-    COPY="/tmp/mymcp-upgrade-$$.sh"
+    # Self-copy so git checkout inside the run can't corrupt our own file.
+    # install_lib.sh is sourced on every entry, so it must be copied alongside
+    # upgrade.sh — otherwise the detached runner dies on its `source` line
+    # before it can even parse args. Both go into a per-invocation tempdir
+    # so concurrent runs don't clobber each other, and the trap cleans up
+    # the whole dir on exit.
+    COPYDIR=$(mktemp -d -t mymcp-upgrade-XXXXXX)
+    COPY="$COPYDIR/upgrade.sh"
     cp "$0" "$COPY"
+    cp "$SCRIPT_DIR/install_lib.sh" "$COPYDIR/install_lib.sh"
     chmod +x "$COPY"
+    export MYMCP_DETACH_COPYDIR="$COPYDIR"
     # Preserve flags and pass --foreground to the runner (it's already detached)
     DETACH_ARGS=( --foreground --app-dir="$APP_DIR" )
     [ -n "$SOURCE_FLAG" ]   && DETACH_ARGS+=( --source="$SOURCE_FLAG" )
@@ -351,7 +361,13 @@ if [ "$FOREGROUND" != 1 ] && [ "${MYMCP_DETACHED:-0}" != 1 ]; then
     [ "$KEEP_BACKUPS" != "3" ] && DETACH_ARGS+=( --keep-backups="$KEEP_BACKUPS" )
     [ "$PREFER_REMOTE" = 1 ] && DETACH_ARGS+=( --prefer-remote )
     [ "$ALLOW_BRANCH" = 1 ]  && DETACH_ARGS+=( --allow-branch )
-    [ "$FORCE" = 1 ]         && DETACH_ARGS+=( --force )
+    # Legacy conversion already moved the disk to TARGET in this parent
+    # process, so the detached runner would otherwise hit the same-version
+    # guard (upgrade.sh:205) and exit 5 without stopping/starting the service.
+    # Propagate --force so the runner re-runs deps + service restart.
+    if [ "$FORCE" = 1 ] || [ "$LEGACY_CONVERTED" = 1 ]; then
+        DETACH_ARGS+=( --force )
+    fi
     [ "$NO_HEALTH" = 1 ]     && DETACH_ARGS+=( --no-health-check )
     DETACH_ARGS+=( "$TARGET_VERSION" )
 
@@ -373,9 +389,9 @@ final_service_start() {
     systemctl start "$SERVICE_NAME" 2>/dev/null || true
 }
 
-# Detached runner cleans up its own /tmp copy on exit
+# Detached runner cleans up its /tmp copy dir on exit
 if [ "${MYMCP_DETACHED:-0}" = 1 ]; then
-    trap 'release_lock "$APP_DIR"; final_service_start; rm -f "$0"' EXIT
+    trap 'release_lock "$APP_DIR"; final_service_start; rm -rf "${MYMCP_DETACH_COPYDIR:-$(dirname "$0")}"' EXIT
 fi
 
 # --------------------------------------------------------------------------

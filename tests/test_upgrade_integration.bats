@@ -234,6 +234,94 @@ EOF
     [[ "$output" == *"started in background"* ]] || [[ "$output" == *"Upgrade"* ]]
 }
 
+@test "upgrade.sh legacy install + detached path actually restarts service" {
+    # Regression: before the fix, legacy conversion in the parent process
+    # pre-advanced the disk to TARGET; the detached runner then saw
+    # CURRENT == TARGET and exited 5 at the same-version guard WITHOUT
+    # running step_stop/step_start. The banner said "upgrade started" but
+    # nothing happened. This test reproduces that path and fails without
+    # the fix.
+
+    # Build a source git repo with v1.0.0 and v1.1.0
+    local SRC="$TMPROOT/src"
+    mkdir -p "$SRC"
+    cd "$SRC"
+    git init -q
+    git config user.email ci@local
+    git config user.name ci
+    echo "v1" > main.py
+    echo "" > requirements.txt
+    git add .
+    git commit -q -m "c1"
+    git tag v1.0.0
+    echo "v2" > main.py
+    git commit -qam "c2"
+    git tag v1.1.0
+
+    # APP_DIR is rsync-style (no .git), simulating a legacy install.
+    # Seed .install-info so detect_current_version reads "v1.0.0" (not "v1.1.0",
+    # which would short-circuit the parent's same-version check before we get
+    # into the detached path).
+    rsync -a --exclude='.git' "$SRC/" "$APP_DIR/"
+    cat > "$APP_DIR/.install-info" <<EOF
+{"version":"v1.0.0","mode":"rsync","installed_at":"2026-01-01T00:00:00Z"}
+EOF
+
+    # Fake venv pip so step_install_deps succeeds
+    mkdir -p "$APP_DIR/venv/bin"
+    cat > "$APP_DIR/venv/bin/pip" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+    chmod +x "$APP_DIR/venv/bin/pip"
+
+    # Stub systemctl — no real systemd in the test environment
+    local stubs="$TMPROOT/stubs"
+    mkdir -p "$stubs"
+    cat > "$stubs/systemctl" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+    chmod +x "$stubs/systemctl"
+
+    local logdir="$TMPROOT/logs"
+    MYMCP_FORCE_FALLBACK=1 MYMCP_LOG_DIR="$logdir" PATH="$stubs:$PATH" \
+        run bash "$UPGRADE_SH" --app-dir="$APP_DIR" --source="$SRC" \
+        --no-health-check v1.1.0
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"started in background"* ]]
+
+    # Poll for the detached runner to reach a terminal state.
+    # Pre-fix: state file never exists, loop times out → test fails.
+    local final_step=""
+    for _ in $(seq 1 30); do
+        if [ -f "$APP_DIR/.upgrade-state" ]; then
+            final_step=$(sed -n 's/.*"step":"\([^"]*\)".*/\1/p' "$APP_DIR/.upgrade-state")
+            case "$final_step" in
+                done|rolled-back|failed-manual-intervention) break ;;
+            esac
+        fi
+        sleep 1
+    done
+    [ "$final_step" = "done" ]
+
+    # The same-version guard must NOT have fired in the detached runner.
+    local log
+    log=$(ls -1t "$logdir"/upgrade-*.log 2>/dev/null | head -1)
+    [ -n "$log" ]
+    run grep -c "target is same version as current" "$log"
+    [ "$output" = "0" ]
+
+    # The upgrade actually completed.
+    run grep -c "Upgrade complete" "$log"
+    [ "$output" -ge 1 ]
+
+    # Disk is git-managed at v1.1.0
+    [ -d "$APP_DIR/.git" ]
+    run git -C "$APP_DIR" describe --tags
+    [ "$output" = "v1.1.0" ]
+}
+
 @test "upgrade.sh rejects --foreground when under mymcp" {
     MYMCP_FAKE_UNDER=1 run bash "$UPGRADE_SH" --app-dir="$APP_DIR" --foreground v1.0.0
     [ "$status" -ne 0 ]
