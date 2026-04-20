@@ -35,6 +35,7 @@ def ro_token(sec_store):
 @pytest.fixture
 def disabled_token(sec_store):
     token = sec_store.create_token("disabled", role="ro")
+    # TokenStore has no public disable-without-revoke API; direct mutation is intentional.
     with sec_store._lock:
         sec_store._data["tokens"][token]["enabled"] = False
         sec_store._save()
