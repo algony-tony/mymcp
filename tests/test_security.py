@@ -96,3 +96,49 @@ def protected_dirs(tmp_path):
     os.makedirs(audit_dir)
     with patch("config.PROTECTED_PATHS", [app_dir, audit_dir]):
         yield app_dir, audit_dir
+
+
+# ---------------------------------------------------------------------------
+# Category 1: Authentication Boundary
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_auth_no_header_returns_401(sec_client):
+    resp = await sec_client.post("/mcp", content=b"{}")
+    assert resp.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_auth_empty_token_after_bearer_returns_401(sec_client):
+    resp = await sec_client.post(
+        "/mcp", content=b"{}",
+        headers={"Authorization": "Bearer "},
+    )
+    assert resp.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_auth_no_bearer_prefix_returns_401(sec_client):
+    resp = await sec_client.post(
+        "/mcp", content=b"{}",
+        headers={"Authorization": "tok_whatever"},
+    )
+    assert resp.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_auth_admin_token_rejected_as_user_token(sec_client):
+    resp = await sec_client.post(
+        "/mcp", content=b"{}",
+        headers={"Authorization": "Bearer adm_sectest"},
+    )
+    assert resp.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_auth_disabled_token_returns_401(sec_client, disabled_token):
+    resp = await sec_client.post(
+        "/mcp", content=b"{}",
+        headers={"Authorization": f"Bearer {disabled_token}"},
+    )
+    assert resp.status_code == 401
