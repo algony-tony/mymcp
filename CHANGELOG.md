@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-04-20
+
+### Fixed
+- `upgrade.sh`: detached runner now survives legacy (rsync-mode) install
+  conversion. Two bugs were silently causing the post-conversion service
+  restart to never run, leaving the old in-memory process alive even
+  though the disk had advanced to the target version.
+  ([#3](https://github.com/algony-tony/mymcp/pull/3))
+  - The self-copy to `/tmp` only copied `upgrade.sh`, not `install_lib.sh`,
+    so the detached child died on its `source` line before parsing args.
+    Both files are now copied into a per-invocation `mktemp -d` directory.
+  - Legacy conversion in the parent pre-advanced the disk to the target,
+    so the detached runner re-detected `CURRENT == TARGET` and exited at
+    the same-version guard without running stop/install/start. The
+    parent now propagates `--force` through `DETACH_ARGS` after a legacy
+    conversion.
+
+### Changed
+- Release source archives now exclude dev-only paths (`tests/`, `docs/`,
+  `.github/`, `CLAUDE.md`, `pytest.ini`, `requirements-dev.txt`) via
+  `.gitattributes` `export-ignore`. The auto-generated "Source code
+  (tar.gz)" asset shrank from ~146 KB to ~32 KB. Forks/contributors
+  still get the full repo via `git clone`.
+  ([#4](https://github.com/algony-tony/mymcp/pull/4))
+
 ## [1.1.0] - 2026-04-19
 
 ### Added
