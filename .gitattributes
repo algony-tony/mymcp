@@ -1,0 +1,13 @@
+# Files marked `export-ignore` are excluded by `git archive`, including the
+# "Source code (zip|tar.gz)" assets that GitHub auto-generates for each
+# release. Keep deployment-relevant files; drop dev-only ones.
+
+tests              export-ignore
+docs               export-ignore
+.github            export-ignore
+.claude            export-ignore
+CLAUDE.md          export-ignore
+pytest.ini         export-ignore
+requirements-dev.txt export-ignore
+.gitignore         export-ignore
+.gitattributes     export-ignore
