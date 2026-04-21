@@ -276,3 +276,46 @@ async def test_path_traversal_exact_protected_dir_blocked(protected_dirs):
     result = await read_file(app_dir)
     assert result["success"] is False
     assert "protected" in result["message"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Category 4: Information Leakage
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_leakage_401_body_has_no_stack_trace(sec_client):
+    """A 401 response must not contain Python stack trace fragments."""
+    resp = await sec_client.post("/mcp", content=b"{}")
+    assert resp.status_code == 401
+    body = resp.text
+    assert "Traceback" not in body
+    assert 'File "' not in body
+
+
+@pytest.mark.anyio
+async def test_leakage_permission_denied_does_not_echo_token(sec_client, ro_token):
+    """PermissionDenied error response must not contain the caller's token value."""
+    data = await _call_with_token(
+        sec_client, ro_token,
+        _mcp_call_payload("bash_execute", {"command": "id"}),
+    )
+    response_text = json.dumps(data)
+    assert ro_token not in response_text
+
+
+@pytest.mark.anyio
+async def test_leakage_internal_error_has_no_traceback(sec_client, rw_token):
+    """An unhandled exception in a tool must return a generic InternalError message
+    with no stack trace in the MCP response."""
+    from unittest.mock import AsyncMock
+    with patch("mcp_server.dispatch_tool", new_callable=AsyncMock) as mock_dispatch:
+        mock_dispatch.side_effect = RuntimeError("intentional test error")
+        data = await _call_with_token(
+            sec_client, rw_token,
+            _mcp_call_payload("read_file", {"file_path": "/tmp/x"}),
+        )
+    result = json.loads(data["result"]["content"][0]["text"])
+    assert result["success"] is False
+    assert result["error"] == "InternalError"
+    assert "intentional test error" not in result.get("message", "")
+    assert "Traceback" not in json.dumps(data)
