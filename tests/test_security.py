@@ -219,3 +219,58 @@ async def test_privesc_ro_list_tools_excludes_write_tools(sec_client, ro_token):
     assert "read_file" in tool_names
     assert "glob" in tool_names
     assert "grep" in tool_names
+
+
+# ---------------------------------------------------------------------------
+# Category 3: Path Traversal
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_path_traversal_dotdot_into_protected_dir(protected_dirs):
+    """Path with ../ components that resolve into a protected dir must be blocked."""
+    from tools.files import read_file
+    app_dir, _ = protected_dirs
+    secret = os.path.join(app_dir, "secret.txt")
+    with open(secret, "w") as f:
+        f.write("SECRET")
+    parent = os.path.dirname(app_dir)
+    traversal = os.path.join(parent, "mymcp", "..", "mymcp", "secret.txt")
+    result = await read_file(traversal)
+    assert result["success"] is False
+    assert "protected" in result["message"].lower()
+
+
+@pytest.mark.anyio
+async def test_path_traversal_symlink_into_protected_dir(protected_dirs, tmp_path):
+    """A symlink outside the protected dir that points inside must be blocked."""
+    from tools.files import read_file
+    app_dir, _ = protected_dirs
+    secret = os.path.join(app_dir, "secret.txt")
+    with open(secret, "w") as f:
+        f.write("SECRET")
+    link = str(tmp_path / "sneaky_link")
+    os.symlink(secret, link)
+    result = await read_file(link)
+    assert result["success"] is False
+    assert "protected" in result["message"].lower()
+
+
+@pytest.mark.anyio
+async def test_path_traversal_null_byte_does_not_expose_content(sec_client, rw_token):
+    """A path with an embedded null byte must not return file contents; server must not crash."""
+    data = await _call_with_token(
+        sec_client, rw_token,
+        _mcp_call_payload("read_file", {"file_path": "/tmp/pentest_null\x00/etc/shadow"}),
+    )
+    result = json.loads(data["result"]["content"][0]["text"])
+    if result.get("success") is not False:
+        assert "root:" not in result.get("content", "")
+
+
+@pytest.mark.anyio
+async def test_path_traversal_exact_protected_dir_blocked(protected_dirs):
+    """Passing the exact protected directory path must be blocked."""
+    from tools.files import read_file
+    app_dir, _ = protected_dirs
+    result = await read_file(app_dir)
+    assert result["success"] is False
