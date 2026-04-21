@@ -217,3 +217,5 @@ async def test_privesc_ro_list_tools_excludes_write_tools(sec_client, ro_token):
     assert "write_file" not in tool_names
     assert "edit_file" not in tool_names
     assert "read_file" in tool_names
+    assert "glob" in tool_names
+    assert "grep" in tool_names
