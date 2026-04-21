@@ -142,3 +142,78 @@ async def test_auth_disabled_token_returns_401(sec_client, disabled_token):
         headers={"Authorization": f"Bearer {disabled_token}"},
     )
     assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Category 2: Privilege Escalation
+# ---------------------------------------------------------------------------
+
+def _mcp_call_payload(tool_name: str, arguments: dict) -> dict:
+    return {
+        "jsonrpc": "2.0", "id": 1,
+        "method": "tools/call",
+        "params": {"name": tool_name, "arguments": arguments},
+    }
+
+
+def _mcp_list_payload() -> dict:
+    return {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
+
+
+async def _call_with_token(client, token: str, payload: dict) -> dict:
+    resp = await client.post(
+        "/mcp", json=payload,
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+    )
+    assert resp.status_code == 200
+    return resp.json()
+
+
+@pytest.mark.anyio
+async def test_privesc_ro_cannot_bash_execute(sec_client, ro_token):
+    data = await _call_with_token(
+        sec_client, ro_token,
+        _mcp_call_payload("bash_execute", {"command": "id"}),
+    )
+    result = json.loads(data["result"]["content"][0]["text"])
+    assert result["success"] is False
+    assert result["error"] == "PermissionDenied"
+
+
+@pytest.mark.anyio
+async def test_privesc_ro_cannot_write_file(sec_client, ro_token, tmp_path):
+    data = await _call_with_token(
+        sec_client, ro_token,
+        _mcp_call_payload("write_file", {
+            "file_path": str(tmp_path / "evil.txt"),
+            "content": "x",
+        }),
+    )
+    result = json.loads(data["result"]["content"][0]["text"])
+    assert result["success"] is False
+    assert result["error"] == "PermissionDenied"
+
+
+@pytest.mark.anyio
+async def test_privesc_ro_cannot_edit_file(sec_client, ro_token, tmp_path):
+    data = await _call_with_token(
+        sec_client, ro_token,
+        _mcp_call_payload("edit_file", {
+            "file_path": str(tmp_path / "x.txt"),
+            "old_string": "a",
+            "new_string": "b",
+        }),
+    )
+    result = json.loads(data["result"]["content"][0]["text"])
+    assert result["success"] is False
+    assert result["error"] == "PermissionDenied"
+
+
+@pytest.mark.anyio
+async def test_privesc_ro_list_tools_excludes_write_tools(sec_client, ro_token):
+    data = await _call_with_token(sec_client, ro_token, _mcp_list_payload())
+    tool_names = {t["name"] for t in data["result"]["tools"]}
+    assert "bash_execute" not in tool_names
+    assert "write_file" not in tool_names
+    assert "edit_file" not in tool_names
+    assert "read_file" in tool_names
