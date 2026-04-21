@@ -234,7 +234,8 @@ async def test_path_traversal_dotdot_into_protected_dir(protected_dirs):
     with open(secret, "w") as f:
         f.write("SECRET")
     parent = os.path.dirname(app_dir)
-    traversal = os.path.join(parent, "mymcp", "..", "mymcp", "secret.txt")
+    dir_name = os.path.basename(app_dir)
+    traversal = os.path.join(parent, dir_name, "..", dir_name, "secret.txt")
     result = await read_file(traversal)
     assert result["success"] is False
     assert "protected" in result["message"].lower()
@@ -274,3 +275,4 @@ async def test_path_traversal_exact_protected_dir_blocked(protected_dirs):
     app_dir, _ = protected_dirs
     result = await read_file(app_dir)
     assert result["success"] is False
+    assert "protected" in result["message"].lower()
