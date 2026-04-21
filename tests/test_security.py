@@ -6,7 +6,7 @@ information leakage, HTTP layer. Uses ASGI transport (no live server needed).
 import json
 import os
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from httpx import AsyncClient, ASGITransport
 from auth import TokenStore
@@ -307,7 +307,6 @@ async def test_leakage_permission_denied_does_not_echo_token(sec_client, ro_toke
 async def test_leakage_internal_error_has_no_traceback(sec_client, rw_token):
     """An unhandled exception in a tool must return a generic InternalError message
     with no stack trace in the MCP response."""
-    from unittest.mock import AsyncMock
     with patch("mcp_server.dispatch_tool", new_callable=AsyncMock) as mock_dispatch:
         mock_dispatch.side_effect = RuntimeError("intentional test error")
         data = await _call_with_token(
@@ -317,5 +316,5 @@ async def test_leakage_internal_error_has_no_traceback(sec_client, rw_token):
     result = json.loads(data["result"]["content"][0]["text"])
     assert result["success"] is False
     assert result["error"] == "InternalError"
-    assert "intentional test error" not in result.get("message", "")
+    assert "intentional test error" not in json.dumps(data)
     assert "Traceback" not in json.dumps(data)
