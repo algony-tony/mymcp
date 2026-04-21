@@ -318,3 +318,38 @@ async def test_leakage_internal_error_has_no_traceback(sec_client, rw_token):
     assert result["error"] == "InternalError"
     assert "intentional test error" not in json.dumps(data)
     assert "Traceback" not in json.dumps(data)
+
+
+# ---------------------------------------------------------------------------
+# Category 5: HTTP Layer
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_http_oversized_authorization_header(sec_client):
+    """An Authorization header larger than 8KB must not crash the server."""
+    oversized_token = "Bearer " + "x" * 9000
+    resp = await sec_client.post(
+        "/mcp", content=b"{}",
+        headers={"Authorization": oversized_token},
+    )
+    assert resp.status_code in (400, 401)
+
+
+@pytest.mark.anyio
+async def test_http_bearer_token_with_newline_rejected(sec_client):
+    """A Bearer token containing a newline must be rejected."""
+    resp = await sec_client.post(
+        "/mcp", content=b"{}",
+        headers={"Authorization": "Bearer tok_valid\nX-Injected: evil"},
+    )
+    assert resp.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_http_bearer_token_with_null_byte_rejected(sec_client):
+    """A Bearer token containing a null byte must be rejected."""
+    resp = await sec_client.post(
+        "/mcp", content=b"{}",
+        headers={"Authorization": "Bearer tok_valid\x00extra"},
+    )
+    assert resp.status_code == 401
