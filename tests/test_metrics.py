@@ -56,6 +56,8 @@ def test_tool_duration_has_custom_buckets():
     m = reload_metrics()
     if not m.ENABLED:
         pytest.skip("prometheus_client not installed")
-    buckets = list(m.TOOL_DURATION._kwargs.get("buckets", []))
-    assert 0.01 in buckets
-    assert 30.0 in buckets
+    m.TOOL_DURATION.labels(tool="test_tool").observe(0.005)
+    samples = m.TOOL_DURATION.collect()[0].samples
+    bucket_bounds = {float(s.labels["le"]) for s in samples if s.name.endswith("_bucket")}
+    assert 0.01 in bucket_bounds
+    assert 30.0 in bucket_bounds
