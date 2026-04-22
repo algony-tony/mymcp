@@ -54,3 +54,5 @@ def _read_version() -> str:
 
 
 APP_VERSION: str = _read_version()
+
+METRICS_TOKEN: str = os.getenv("MCP_METRICS_TOKEN", "")

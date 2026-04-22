@@ -61,3 +61,12 @@ def test_tool_duration_has_custom_buckets():
     bucket_bounds = {float(s.labels["le"]) for s in samples if s.name.endswith("_bucket")}
     assert 0.01 in bucket_bounds
     assert 30.0 in bucket_bounds
+
+
+def test_metrics_token_defaults_to_empty():
+    import os
+    import importlib
+    import config
+    os.environ.pop("MCP_METRICS_TOKEN", None)
+    importlib.reload(config)
+    assert config.METRICS_TOKEN == ""
