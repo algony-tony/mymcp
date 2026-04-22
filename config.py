@@ -1,4 +1,5 @@
 import os
+import sys
 
 HOST = os.getenv("MCP_HOST", "0.0.0.0")
 PORT = int(os.getenv("MCP_PORT", "8765"))
@@ -34,8 +35,26 @@ AUDIT_MAX_BYTES = int(os.getenv("MCP_AUDIT_MAX_BYTES", str(10 * 1024 * 1024)))  
 AUDIT_BACKUP_COUNT = int(os.getenv("MCP_AUDIT_BACKUP_COUNT", "5"))
 
 # Protected paths (APP_DIR and AUDIT_LOG_DIR are always protected)
-APP_DIR = os.getenv("MCP_APP_DIR", "/opt/mymcp")
+_self = sys.modules[__name__]
+if not hasattr(_self, "APP_DIR"):
+    APP_DIR = os.getenv("MCP_APP_DIR", "/opt/mymcp")
 _extra = os.getenv("MCP_PROTECTED_PATHS", "")
 PROTECTED_PATHS: list[str] = [APP_DIR, AUDIT_LOG_DIR]
 if _extra.strip():
     PROTECTED_PATHS.extend(p.strip() for p in _extra.split(",") if p.strip())
+
+if not hasattr(_self, "_VERSION_FILE"):
+    _VERSION_FILE = os.path.join(os.path.dirname(__file__), "VERSION")
+
+
+def _read_version() -> str:
+    for path in [os.path.join(APP_DIR, "VERSION"), _VERSION_FILE]:
+        try:
+            with open(path) as f:
+                return f.read().strip()
+        except OSError:
+            pass
+    return "unknown"
+
+
+APP_VERSION: str = _read_version()
