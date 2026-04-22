@@ -79,7 +79,12 @@ app.include_router(admin_router)
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    return {"status": "ok", "version": config.APP_VERSION}
+
+
+@app.get("/version")
+async def version():
+    return {"version": config.APP_VERSION}
 
 
 if __name__ == "__main__":

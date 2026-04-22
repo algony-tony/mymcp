@@ -45,3 +45,60 @@ def test_read_version_strips_whitespace(tmp_path):
 def test_app_version_is_set():
     assert isinstance(config.APP_VERSION, str)
     assert config.APP_VERSION not in ("", "unknown")
+
+
+# ---------------------------------------------------------------------------
+# /version endpoint and /health version field
+# ---------------------------------------------------------------------------
+
+import pytest
+from httpx import AsyncClient, ASGITransport
+from unittest.mock import patch
+from auth import TokenStore
+
+
+@pytest.fixture
+def store_v(tmp_path):
+    return TokenStore(str(tmp_path / "tokens.json"), "adm_testadmin")
+
+
+@pytest.fixture
+def versioned_app(store_v):
+    import auth
+    original = auth._store
+    auth._store = store_v
+    try:
+        from main import app
+        yield app
+    finally:
+        auth._store = original
+
+
+@pytest.mark.anyio
+async def test_get_version_returns_200(versioned_app):
+    transport = ASGITransport(app=versioned_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch("config.APP_VERSION", "1.2.3"):
+            resp = await client.get("/version")
+    assert resp.status_code == 200
+    assert resp.json() == {"version": "1.2.3"}
+
+
+@pytest.mark.anyio
+async def test_get_version_no_auth_required(versioned_app):
+    transport = ASGITransport(app=versioned_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/version")
+    assert resp.status_code == 200
+
+
+@pytest.mark.anyio
+async def test_health_includes_version(versioned_app):
+    transport = ASGITransport(app=versioned_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch("config.APP_VERSION", "2.0.0"):
+            resp = await client.get("/health")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "ok"
+    assert body["version"] == "2.0.0"
