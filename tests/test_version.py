@@ -44,4 +44,4 @@ def test_read_version_strips_whitespace(tmp_path):
 
 def test_app_version_is_set():
     assert isinstance(config.APP_VERSION, str)
-    assert config.APP_VERSION != ""
+    assert config.APP_VERSION not in ("", "unknown")
