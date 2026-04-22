@@ -115,3 +115,81 @@ async def test_call_tool_no_error_when_metrics_disabled():
             from mcp_server import call_tool
             result = await call_tool("read_file", {"file_path": "/etc/hostname"})
     assert result is not None
+
+
+from httpx import AsyncClient, ASGITransport
+from auth import TokenStore
+from unittest.mock import patch
+
+
+@pytest.fixture
+def metrics_store(tmp_path):
+    return TokenStore(str(tmp_path / "tokens.json"), "adm_testadmin")
+
+
+@pytest.fixture
+def metrics_app(metrics_store):
+    import auth
+    original = auth._store
+    auth._store = metrics_store
+    try:
+        from main import app
+        yield app
+    finally:
+        auth._store = original
+
+
+@pytest.mark.anyio
+async def test_metrics_disabled_without_prometheus(metrics_app):
+    with patch("metrics.ENABLED", False):
+        transport = ASGITransport(app=metrics_app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get("/metrics")
+    assert resp.status_code == 503
+    assert "prometheus_client" in resp.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_metrics_disabled_without_token(metrics_app):
+    with patch("metrics.ENABLED", True), \
+         patch("config.METRICS_TOKEN", ""):
+        transport = ASGITransport(app=metrics_app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get("/metrics")
+    assert resp.status_code == 503
+    assert "MCP_METRICS_TOKEN" in resp.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_metrics_unauthorized_with_wrong_token(metrics_app):
+    with patch("metrics.ENABLED", True), \
+         patch("config.METRICS_TOKEN", "secret123"):
+        transport = ASGITransport(app=metrics_app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get(
+                "/metrics", headers={"Authorization": "Bearer wrongtoken"}
+            )
+    assert resp.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_metrics_returns_prometheus_text_with_valid_token(metrics_app):
+    import metrics as m
+    if not m.ENABLED:
+        pytest.skip("prometheus_client not installed")
+    with patch("config.METRICS_TOKEN", "secret123"):
+        transport = ASGITransport(app=metrics_app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get(
+                "/metrics", headers={"Authorization": "Bearer secret123"}
+            )
+    assert resp.status_code == 200
+    assert "mymcp_" in resp.text or "# HELP" in resp.text
+
+
+@pytest.mark.anyio
+async def test_metrics_does_not_break_health(metrics_app):
+    transport = ASGITransport(app=metrics_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/health")
+    assert resp.status_code == 200
