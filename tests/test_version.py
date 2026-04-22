@@ -1,7 +1,13 @@
 import pytest
+from httpx import AsyncClient, ASGITransport
 from unittest.mock import patch
+from auth import TokenStore
 import config
 
+
+# ---------------------------------------------------------------------------
+# config._read_version() unit tests
+# ---------------------------------------------------------------------------
 
 def test_read_version_app_dir_takes_priority(tmp_path):
     app_version_file = tmp_path / "VERSION"
@@ -48,14 +54,8 @@ def test_app_version_is_set():
 
 
 # ---------------------------------------------------------------------------
-# /version endpoint and /health version field
+# /version and /health endpoint tests
 # ---------------------------------------------------------------------------
-
-import pytest
-from httpx import AsyncClient, ASGITransport
-from unittest.mock import patch
-from auth import TokenStore
-
 
 @pytest.fixture
 def store_v(tmp_path):
@@ -86,10 +86,12 @@ async def test_get_version_returns_200(versioned_app):
 
 @pytest.mark.anyio
 async def test_get_version_no_auth_required(versioned_app):
+    """Endpoint is accessible without an Authorization header."""
     transport = ASGITransport(app=versioned_app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.get("/version")
     assert resp.status_code == 200
+    assert resp.json() == {"version": config.APP_VERSION}
 
 
 @pytest.mark.anyio
