@@ -488,6 +488,12 @@ if step_backup \
     printf '{"version":"%s","installed_at":"%s","upgraded_from":"%s"}\n' \
         "$TARGET_VERSION" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$CURRENT_VERSION" \
         > "$APP_DIR/.install-info"
+    # Write deployed version for /version endpoint
+    if [[ "$TARGET_VERSION" =~ ^v?[0-9]+\.[0-9]+\.[0-9] ]]; then
+        printf '%s\n' "${TARGET_VERSION#v}" > "$APP_DIR/VERSION"
+    else
+        git -C "$APP_DIR" describe --tags --always > "$APP_DIR/VERSION"
+    fi
     prune_backups "$APP_DIR" "$KEEP_BACKUPS"
     echo "=== Upgrade complete ==="
     echo "  $CURRENT_VERSION → $TARGET_VERSION"
