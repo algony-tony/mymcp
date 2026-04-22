@@ -230,6 +230,9 @@ async def call_tool(name: str, arguments: dict | None) -> list[types.TextContent
             error_message=f"Unhandled exception in {name}",
             duration_ms=duration_ms,
         )
+        if metrics.ENABLED:
+            metrics.TOOL_CALLS.labels(tool=name, role=role, result="error").inc()
+            metrics.TOOL_DURATION.labels(tool=name).observe(duration_ms / 1000)
         return [types.TextContent(type="text", text=json.dumps(error_data))]
 
     duration_ms = int((time.monotonic() - t0) * 1000)
