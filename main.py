@@ -12,8 +12,6 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-import sys
-
 import config
 import metrics
 from auth import admin_router, get_store
@@ -71,8 +69,7 @@ class MetricsMiddleware:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send):
-        _metrics = sys.modules.get("metrics", metrics)
-        if scope["type"] != "http" or not _metrics.ENABLED:
+        if scope["type"] != "http" or not metrics.ENABLED:
             await self.app(scope, receive, send)
             return
         status_code = 500
@@ -84,7 +81,7 @@ class MetricsMiddleware:
             await send(message)
 
         await self.app(scope, receive, send_wrapper)
-        _metrics.HTTP_REQUESTS.labels(
+        metrics.HTTP_REQUESTS.labels(
             path=scope.get("path", ""),
             method=scope.get("method", ""),
             status=str(status_code),
@@ -118,8 +115,7 @@ async def version():
 
 @app.get("/metrics")
 async def get_metrics(request: Request):
-    _metrics = sys.modules.get("metrics", metrics)
-    if not _metrics.ENABLED:
+    if not metrics.ENABLED:
         return JSONResponse(
             {"detail": "Metrics disabled: prometheus_client not installed"},
             status_code=503,

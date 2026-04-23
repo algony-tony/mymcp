@@ -4,28 +4,20 @@ import pytest
 
 
 def reload_metrics():
-    if "metrics" in sys.modules:
-        del sys.modules["metrics"]
-
-    # Clean up prometheus_client registry to avoid duplicates
+    import metrics as _m
     try:
         from prometheus_client import REGISTRY
-        # Get the current collectors before reloading
-        collectors_to_remove = []
         for collector in list(REGISTRY._collector_to_names.keys()):
             collector_name = getattr(collector, '_name', None)
             if collector_name and collector_name.startswith('mymcp_'):
-                collectors_to_remove.append(collector)
-
-        for collector in collectors_to_remove:
-            try:
-                REGISTRY.unregister(collector)
-            except Exception:
-                pass
+                try:
+                    REGISTRY.unregister(collector)
+                except Exception:
+                    pass
     except (ImportError, AttributeError):
         pass
-
-    return importlib.import_module("metrics")
+    importlib.reload(_m)
+    return _m
 
 
 def test_metrics_enabled_when_prometheus_installed():
