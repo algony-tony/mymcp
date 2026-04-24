@@ -9,10 +9,11 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 import config
+import metrics
 from auth import admin_router, get_store
 from mcp_server import server, session_manager, _current_audit_info
 
@@ -63,6 +64,32 @@ class McpAuthMiddleware:
         await self.app(scope, receive, send)
 
 
+class MetricsMiddleware:
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        if scope["type"] != "http" or not metrics.ENABLED:
+            await self.app(scope, receive, send)
+            return
+        status_code = 500
+
+        async def send_wrapper(message):
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = message["status"]
+            await send(message)
+
+        try:
+            await self.app(scope, receive, send_wrapper)
+        finally:
+            metrics.HTTP_REQUESTS.labels(
+                path=scope.get("path", ""),
+                method=scope.get("method", ""),
+                status=str(status_code),
+            ).inc()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     get_store()
@@ -70,16 +97,40 @@ async def lifespan(app: FastAPI):
         yield
 
 
-app = FastAPI(title="Linux MCP Server", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="Linux MCP Server", version=config.APP_VERSION, lifespan=lifespan)
 
 app.add_middleware(McpAuthMiddleware)
+app.add_middleware(MetricsMiddleware)
 
 app.include_router(admin_router)
 
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    return {"status": "ok", "version": config.APP_VERSION}
+
+
+@app.get("/version")
+async def version():
+    return {"version": config.APP_VERSION}
+
+
+@app.get("/metrics")
+async def get_metrics(request: Request):
+    if not metrics.ENABLED:
+        return JSONResponse(
+            {"detail": "Metrics disabled: prometheus_client not installed"},
+            status_code=503,
+        )
+    if not config.METRICS_TOKEN:
+        return JSONResponse(
+            {"detail": "Metrics disabled: MCP_METRICS_TOKEN not configured"},
+            status_code=503,
+        )
+    auth_header = request.headers.get("authorization", "")
+    if auth_header != f"Bearer {config.METRICS_TOKEN}":
+        return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+    return Response(content=metrics.generate_latest(), media_type=metrics.CONTENT_TYPE_LATEST)
 
 
 if __name__ == "__main__":

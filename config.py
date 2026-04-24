@@ -39,3 +39,20 @@ _extra = os.getenv("MCP_PROTECTED_PATHS", "")
 PROTECTED_PATHS: list[str] = [APP_DIR, AUDIT_LOG_DIR]
 if _extra.strip():
     PROTECTED_PATHS.extend(p.strip() for p in _extra.split(",") if p.strip())
+
+_VERSION_FILE = os.path.join(os.path.dirname(__file__), "VERSION")
+
+
+def _read_version() -> str:
+    for path in [os.path.join(APP_DIR, "VERSION"), _VERSION_FILE]:
+        try:
+            with open(path) as f:
+                return f.read().strip()
+        except OSError:
+            pass
+    return "unknown"
+
+
+APP_VERSION: str = _read_version()
+
+METRICS_TOKEN: str = os.getenv("MCP_METRICS_TOKEN", "")

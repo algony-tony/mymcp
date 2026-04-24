@@ -9,6 +9,7 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp import types
 
 import config
+import metrics
 from audit import log_tool_call
 from tools.bash import run_bash_execute
 from tools.files import read_file, write_file, edit_file, glob_files, grep_files
@@ -202,6 +203,8 @@ async def call_tool(name: str, arguments: dict | None) -> list[types.TextContent
             result="denied",
             reason=perm_err,
         )
+        if metrics.ENABLED:
+            metrics.TOOL_CALLS.labels(tool=name, role=role, result="denied").inc()
         error_result = json.dumps({"success": False, "error": "PermissionDenied", "message": perm_err})
         return [types.TextContent(type="text", text=error_result)]
 
@@ -229,6 +232,9 @@ async def call_tool(name: str, arguments: dict | None) -> list[types.TextContent
             error_message=f"Unhandled exception in {name}",
             duration_ms=duration_ms,
         )
+        if metrics.ENABLED:
+            metrics.TOOL_CALLS.labels(tool=name, role=role, result="error").inc()
+            metrics.TOOL_DURATION.labels(tool=name).observe(duration_ms / 1000)
         return [types.TextContent(type="text", text=json.dumps(error_data))]
 
     duration_ms = int((time.monotonic() - t0) * 1000)
@@ -276,6 +282,10 @@ async def call_tool(name: str, arguments: dict | None) -> list[types.TextContent
         error_message=error_message,
         duration_ms=duration_ms,
     )
+
+    if metrics.ENABLED:
+        metrics.TOOL_CALLS.labels(tool=name, role=role, result=result_status).inc()
+        metrics.TOOL_DURATION.labels(tool=name).observe(duration_ms / 1000)
 
     return [types.TextContent(type="text", text=result_json)]
 
