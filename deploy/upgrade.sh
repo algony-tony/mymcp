@@ -247,7 +247,7 @@ if [ "$MODE" = "upgrade" ] && [ -d "$APP_DIR/.git" ]; then
             echo "=== UPGRADE_NOTES.md changes from $CURRENT_VERSION to $TARGET_VERSION ==="
             echo "$notes_diff"
             echo "==============================================================="
-            if [ "$DRY_RUN" != 1 ] && [ "$AUTO_YES" != "true" ] && [ "$FORCE" != 1 ]; then
+            if [ "$DRY_RUN" != 1 ] && [ "${AUTO_YES:-false}" != "true" ] && [ "$FORCE" != 1 ]; then
                 read -rp "Proceed with upgrade? [y/N]: " ans
                 case "${ans,,}" in
                     y|yes) : ;;

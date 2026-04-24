@@ -427,3 +427,37 @@ EOF
     [ "$status" -eq 0 ]
     [[ "$output" == *"MCP_TOKEN_FILE"* ]] || [[ "$output" == *"UPGRADE_NOTES"* ]]
 }
+
+@test "upgrade.sh does not crash under set -u when AUTO_YES is unset" {
+    # Regression: upgrade.sh:250 referenced \$AUTO_YES unquoted; under set -u
+    # the prompt path (UPGRADE_NOTES.md diff) would abort with "unbound
+    # variable" when AUTO_YES was not exported by the caller.
+    local SRC="$TMPROOT/src"
+    mkdir -p "$SRC/deploy"
+    cd "$SRC"
+    git init -q
+    git config user.email ci@local
+    git config user.name ci
+    mkdir -p deploy
+    echo "# v1.0.0 notes" > deploy/UPGRADE_NOTES.md
+    echo "" > requirements.txt
+    git add .
+    git commit -q -m "c1"
+    git tag v1.0.0
+
+    echo "# v1.1.0 notes — changed" > deploy/UPGRADE_NOTES.md
+    git add .
+    git commit -qam "c2"
+    git tag v1.1.0
+
+    git clone -q "$SRC" "$APP_DIR"
+    git -C "$APP_DIR" checkout -q v1.0.0
+
+    # Deliberately unset AUTO_YES (setup exports it). Answer "n" so the
+    # prompt aborts cleanly without needing systemctl/pip.
+    unset AUTO_YES
+    run bash -c "echo n | bash '$UPGRADE_SH' --app-dir='$APP_DIR' --source='$SRC' v1.1.0"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Aborted"* ]]
+    [[ "$output" != *"unbound variable"* ]]
+}
