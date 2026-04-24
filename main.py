@@ -80,12 +80,14 @@ class MetricsMiddleware:
                 status_code = message["status"]
             await send(message)
 
-        await self.app(scope, receive, send_wrapper)
-        metrics.HTTP_REQUESTS.labels(
-            path=scope.get("path", ""),
-            method=scope.get("method", ""),
-            status=str(status_code),
-        ).inc()
+        try:
+            await self.app(scope, receive, send_wrapper)
+        finally:
+            metrics.HTTP_REQUESTS.labels(
+                path=scope.get("path", ""),
+                method=scope.get("method", ""),
+                status=str(status_code),
+            ).inc()
 
 
 @asynccontextmanager
@@ -95,7 +97,7 @@ async def lifespan(app: FastAPI):
         yield
 
 
-app = FastAPI(title="Linux MCP Server", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="Linux MCP Server", version=config.APP_VERSION, lifespan=lifespan)
 
 app.add_middleware(McpAuthMiddleware)
 app.add_middleware(MetricsMiddleware)
@@ -128,8 +130,7 @@ async def get_metrics(request: Request):
     auth_header = request.headers.get("authorization", "")
     if auth_header != f"Bearer {config.METRICS_TOKEN}":
         return JSONResponse({"detail": "Unauthorized"}, status_code=401)
-    from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
-    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
+    return Response(content=metrics.generate_latest(), media_type=metrics.CONTENT_TYPE_LATEST)
 
 
 if __name__ == "__main__":

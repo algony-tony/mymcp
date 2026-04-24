@@ -1,5 +1,5 @@
 try:
-    from prometheus_client import Counter, Histogram
+    from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
     ENABLED = True
     TOOL_CALLS = Counter(
         "mymcp_tool_calls_total",
@@ -20,3 +20,4 @@ try:
 except ImportError:
     ENABLED = False
     TOOL_CALLS = TOOL_DURATION = HTTP_REQUESTS = None
+    generate_latest = CONTENT_TYPE_LATEST = None

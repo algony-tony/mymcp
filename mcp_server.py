@@ -203,6 +203,8 @@ async def call_tool(name: str, arguments: dict | None) -> list[types.TextContent
             result="denied",
             reason=perm_err,
         )
+        if metrics.ENABLED:
+            metrics.TOOL_CALLS.labels(tool=name, role=role, result="denied").inc()
         error_result = json.dumps({"success": False, "error": "PermissionDenied", "message": perm_err})
         return [types.TextContent(type="text", text=error_result)]
 
