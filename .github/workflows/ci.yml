@@ -64,6 +64,9 @@ jobs:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/master'
     needs: test
+    concurrency:
+      group: mutation-master
+      cancel-in-progress: true
 
     steps:
       - uses: actions/checkout@v4
