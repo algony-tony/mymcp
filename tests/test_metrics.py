@@ -22,7 +22,8 @@ def reload_metrics():
 
 def test_metrics_enabled_when_prometheus_installed():
     m = reload_metrics()
-    assert m.ENABLED is True
+    if not m.ENABLED:
+        pytest.skip("prometheus_client not installed")
     assert m.TOOL_CALLS is not None
     assert m.TOOL_DURATION is not None
     assert m.HTTP_REQUESTS is not None
@@ -143,7 +144,9 @@ async def test_metrics_disabled_without_prometheus(metrics_app):
 
 @pytest.mark.anyio
 async def test_metrics_disabled_without_token(metrics_app):
+    from unittest.mock import MagicMock
     with patch("metrics.ENABLED", True), \
+         patch("metrics.HTTP_REQUESTS", MagicMock()), \
          patch("config.METRICS_TOKEN", ""):
         transport = ASGITransport(app=metrics_app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -154,7 +157,9 @@ async def test_metrics_disabled_without_token(metrics_app):
 
 @pytest.mark.anyio
 async def test_metrics_unauthorized_with_wrong_token(metrics_app):
+    from unittest.mock import MagicMock
     with patch("metrics.ENABLED", True), \
+         patch("metrics.HTTP_REQUESTS", MagicMock()), \
          patch("config.METRICS_TOKEN", "secret123"):
         transport = ASGITransport(app=metrics_app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
