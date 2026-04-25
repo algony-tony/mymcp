@@ -7,7 +7,7 @@
 # ---------------------------------------------------------------------------
 confirm() {
     local prompt="$1" default="${2:-Y}"
-    if [ "$AUTO_YES" = true ]; then
+    if [ "${AUTO_YES:-false}" = true ]; then
         [ "$default" = "Y" ] && return 0 || return 1
     fi
     if [ "$default" = "Y" ]; then
@@ -31,7 +31,7 @@ confirm() {
 # ---------------------------------------------------------------------------
 prompt_value() {
     local prompt="$1" default="$2"
-    if [ "$AUTO_YES" = true ]; then
+    if [ "${AUTO_YES:-false}" = true ]; then
         echo "$default"; return
     fi
     read -rp "${prompt} [${default}]: " value
