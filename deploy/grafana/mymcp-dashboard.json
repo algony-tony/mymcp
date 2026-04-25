@@ -228,7 +228,7 @@
       "id": 5,
       "type": "stat",
       "title": "Service Status",
-      "description": "Prometheus up{} for the mymcp scrape target. UP=1, DOWN=0.",
+      "description": "Prometheus up{} per instance. UP=1, DOWN=0. With Instance=All, every instance renders as its own block.",
       "gridPos": {
         "x": 18,
         "y": 1,
@@ -243,11 +243,12 @@
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
-          ]
+          ],
+          "values": true
         },
         "colorMode": "background",
         "graphMode": "none",
-        "textMode": "auto",
+        "textMode": "value_and_name",
         "orientation": "auto"
       },
       "fieldConfig": {
@@ -287,7 +288,7 @@
         {
           "refId": "A",
           "expr": "up{job=~\"mymcp.*\",instance=~\"$instance\"}",
-          "legendFormat": "Status"
+          "legendFormat": "{{instance}}"
         }
       ]
     },
@@ -588,7 +589,7 @@
         {
           "refId": "A",
           "expr": "process_resident_memory_bytes{job=~\"mymcp.*\",instance=~\"$instance\"}",
-          "legendFormat": "RSS Memory"
+          "legendFormat": "RSS {{instance}}"
         }
       ]
     },
@@ -641,7 +642,7 @@
         {
           "refId": "A",
           "expr": "rate(process_cpu_seconds_total{job=~\"mymcp.*\",instance=~\"$instance\"}[5m]) * 100",
-          "legendFormat": "CPU %"
+          "legendFormat": "CPU {{instance}}"
         }
       ]
     },
@@ -694,7 +695,7 @@
         {
           "refId": "A",
           "expr": "process_open_fds{job=~\"mymcp.*\",instance=~\"$instance\"}",
-          "legendFormat": "Open FDs"
+          "legendFormat": "FDs {{instance}}"
         }
       ]
     }
