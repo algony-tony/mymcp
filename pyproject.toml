@@ -37,6 +37,7 @@ dev = [
     "pytest>=8.0",
     "pytest-anyio",
     "pytest-benchmark",
+    "pytest-cov",
     "ruff>=0.6",
     "mypy>=1.11",
     "pre-commit>=3.7",

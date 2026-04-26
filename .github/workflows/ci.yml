@@ -1,44 +1,60 @@
 name: CI
 
 on:
-  push:
-    branches: [master]
   pull_request:
+  push:
     branches: [master]
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install lint tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff mypy pydantic pydantic-settings types-setuptools
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: mypy src/mymcp
+
   test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install dependencies
+      - name: Install package
         run: |
-          pip install --upgrade pip
-          pip install -r requirements-dev.txt
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
 
       - name: Run tests with coverage
         run: |
-          python -m pytest tests/ -v --cov=. --cov-branch --cov-report=term-missing --benchmark-disable
+          python -m pytest tests/ -v --cov=src/mymcp --cov-branch --cov-report=term-missing --benchmark-disable
 
       - name: Update coverage badges
         if: github.ref == 'refs/heads/master' && matrix.python-version == '3.12'
         run: |
-          # Extract line coverage
-          LINE_COV=$(python -m pytest tests/ --cov=. --cov-report=term -q --benchmark-disable 2>/dev/null | grep '^TOTAL' | awk '{print $NF}' | tr -d '%')
-          # Extract branch coverage
-          BRANCH_COV=$(python -m pytest tests/ --cov=. --cov-branch --cov-report=term -q --benchmark-disable 2>/dev/null | grep '^TOTAL' | awk '{print $NF}' | tr -d '%')
+          LINE_COV=$(python -m pytest tests/ --cov=src/mymcp --cov-report=term -q --benchmark-disable 2>/dev/null | grep '^TOTAL' | awk '{print $NF}' | tr -d '%')
+          BRANCH_COV=$(python -m pytest tests/ --cov=src/mymcp --cov-branch --cov-report=term -q --benchmark-disable 2>/dev/null | grep '^TOTAL' | awk '{print $NF}' | tr -d '%')
 
-          # Line coverage badge
           if [ "$LINE_COV" -ge 90 ]; then COLOR="brightgreen"
           elif [ "$LINE_COV" -ge 80 ]; then COLOR="green"
           elif [ "$LINE_COV" -ge 70 ]; then COLOR="yellowgreen"
@@ -46,7 +62,6 @@ jobs:
           else COLOR="red"; fi
           LINE_JSON="{\"schemaVersion\":1,\"label\":\"coverage\",\"message\":\"${LINE_COV}%\",\"color\":\"${COLOR}\"}"
 
-          # Branch coverage badge
           if [ "$BRANCH_COV" -ge 85 ]; then BCOLOR="brightgreen"
           elif [ "$BRANCH_COV" -ge 75 ]; then BCOLOR="green"
           elif [ "$BRANCH_COV" -ge 65 ]; then BCOLOR="yellowgreen"
@@ -54,11 +69,41 @@ jobs:
           else BCOLOR="red"; fi
           BRANCH_JSON="{\"schemaVersion\":1,\"label\":\"branch coverage\",\"message\":\"${BRANCH_COV}%\",\"color\":\"${BCOLOR}\"}"
 
-          # Push both to gist
           curl -s -X PATCH \
             -H "Authorization: token ${{ secrets.GIST_TOKEN }}" \
             -d "{\"files\":{\"mymcp-coverage.json\":{\"content\":$(echo "$LINE_JSON" | python -c 'import sys,json; print(json.dumps(sys.stdin.read()))')},\"mymcp-branch-coverage.json\":{\"content\":$(echo "$BRANCH_JSON" | python -c 'import sys,json; print(json.dumps(sys.stdin.read()))')}}}" \
             "https://api.github.com/gists/${{ secrets.GIST_ID }}"
+
+  bats:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install bats
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq bats
+      - name: Run legacy install/upgrade bats tests
+        run: |
+          bats tests/test_install.bats tests/test_upgrade.bats tests/test_upgrade_integration.bats
+
+  build:
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          python -m pip install --upgrade pip build
+          python -m build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/*
+          retention-days: 7
 
   mutation:
     runs-on: ubuntu-latest
@@ -70,16 +115,18 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
+      - name: Install package
         run: |
-          pip install --upgrade pip
-          pip install -r requirements-dev.txt
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
 
       - name: Run mutation testing
         run: |
@@ -89,9 +136,8 @@ jobs:
 
       - name: Update mutation badge
         run: |
-          # Parse mutmut results from sqlite cache (mutmut results text doesn't print killed count)
           SCORE=$(python -c "
-          import sqlite3, sys
+          import sqlite3
           try:
               conn = sqlite3.connect('.mutmut-cache')
               c = conn.cursor()
