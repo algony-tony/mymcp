@@ -4,7 +4,7 @@ import pytest
 
 
 def reload_metrics():
-    import metrics as _m
+    from mymcp import metrics as _m
     try:
         from prometheus_client import REGISTRY
         for collector in list(REGISTRY._collector_to_names.keys()):
@@ -67,12 +67,12 @@ def test_metrics_token_defaults_to_empty():
 
 @pytest.mark.anyio
 async def test_call_tool_increments_tool_calls_counter():
-    import metrics
+    from mymcp import metrics
     if not metrics.ENABLED:
         pytest.skip("prometheus_client not installed")
     from prometheus_client import Counter, Histogram, CollectorRegistry
     from unittest.mock import patch
-    import mcp_server
+    from mymcp import mcp_server
 
     registry = CollectorRegistry()
     fresh_calls = Counter(
@@ -102,8 +102,8 @@ async def test_call_tool_increments_tool_calls_counter():
 @pytest.mark.anyio
 async def test_call_tool_no_error_when_metrics_disabled():
     from unittest.mock import patch
-    with patch("metrics.ENABLED", False):
-        with patch("mcp_server._current_audit_info") as mock_cv:
+    with patch("mymcp.metrics.ENABLED", False):
+        with patch("mymcp.mcp_server._current_audit_info") as mock_cv:
             mock_cv.get.return_value = {"token_name": "t1", "role": "ro", "ip": "127.0.0.1"}
             from mymcp.mcp_server import call_tool
             result = await call_tool("read_file", {"file_path": "/etc/hostname"})
@@ -122,11 +122,11 @@ def metrics_store(tmp_path):
 
 @pytest.fixture
 def metrics_app(metrics_store):
-    import auth
+    from mymcp import auth
     original = auth._store
     auth._store = metrics_store
     try:
-        from main import app
+        from mymcp.server import create_app; app = create_app()
         yield app
     finally:
         auth._store = original
@@ -134,7 +134,7 @@ def metrics_app(metrics_store):
 
 @pytest.mark.anyio
 async def test_metrics_disabled_without_prometheus(metrics_app):
-    with patch("metrics.ENABLED", False):
+    with patch("mymcp.metrics.ENABLED", False):
         transport = ASGITransport(app=metrics_app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.get("/metrics")
@@ -145,9 +145,9 @@ async def test_metrics_disabled_without_prometheus(metrics_app):
 @pytest.mark.anyio
 async def test_metrics_disabled_without_token(metrics_app):
     from unittest.mock import MagicMock
-    with patch("metrics.ENABLED", True), \
-         patch("metrics.HTTP_REQUESTS", MagicMock()), \
-         patch("config.METRICS_TOKEN", ""):
+    with patch("mymcp.metrics.ENABLED", True), \
+         patch("mymcp.metrics.HTTP_REQUESTS", MagicMock()), \
+         patch("mymcp.config.METRICS_TOKEN", ""):
         transport = ASGITransport(app=metrics_app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.get("/metrics")
@@ -158,9 +158,9 @@ async def test_metrics_disabled_without_token(metrics_app):
 @pytest.mark.anyio
 async def test_metrics_unauthorized_with_wrong_token(metrics_app):
     from unittest.mock import MagicMock
-    with patch("metrics.ENABLED", True), \
-         patch("metrics.HTTP_REQUESTS", MagicMock()), \
-         patch("config.METRICS_TOKEN", "secret123"):
+    with patch("mymcp.metrics.ENABLED", True), \
+         patch("mymcp.metrics.HTTP_REQUESTS", MagicMock()), \
+         patch("mymcp.config.METRICS_TOKEN", "secret123"):
         transport = ASGITransport(app=metrics_app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.get(
@@ -171,10 +171,10 @@ async def test_metrics_unauthorized_with_wrong_token(metrics_app):
 
 @pytest.mark.anyio
 async def test_metrics_returns_prometheus_text_with_valid_token(metrics_app):
-    import metrics as m
+    from mymcp import metrics as m
     if not m.ENABLED:
         pytest.skip("prometheus_client not installed")
-    with patch("config.METRICS_TOKEN", "secret123"):
+    with patch("mymcp.config.METRICS_TOKEN", "secret123"):
         transport = ASGITransport(app=metrics_app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.get(

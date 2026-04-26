@@ -79,7 +79,7 @@ def set_audit_info():
         "role": "rw",
         "ip": "127.0.0.1",
     })
-    with patch("mcp_server.log_tool_call"):
+    with patch("mymcp.mcp_server.log_tool_call"):
         yield
     _current_audit_info.reset(token)
 
@@ -91,7 +91,7 @@ def set_ro_audit_info():
         "role": "ro",
         "ip": "127.0.0.1",
     })
-    with patch("mcp_server.log_tool_call"):
+    with patch("mymcp.mcp_server.log_tool_call"):
         yield
     _current_audit_info.reset(token)
 
@@ -112,7 +112,7 @@ async def test_call_tool_success_audit_fields():
         "ip": "10.1.2.3",
     })
     try:
-        with patch("mcp_server.log_tool_call") as mock_log:
+        with patch("mymcp.mcp_server.log_tool_call") as mock_log:
             await call_tool("bash_execute", {"command": "echo ok"})
             mock_log.assert_called_once()
             kwargs = mock_log.call_args.kwargs
@@ -146,7 +146,7 @@ async def test_call_tool_permission_denied_audit_fields():
         "ip": "192.168.0.1",
     })
     try:
-        with patch("mcp_server.log_tool_call") as mock_log:
+        with patch("mymcp.mcp_server.log_tool_call") as mock_log:
             await call_tool("write_file", {"file_path": "/tmp/x", "content": "y"})
             kwargs = mock_log.call_args.kwargs
             assert kwargs["result"] == "denied"
@@ -164,7 +164,7 @@ async def test_call_tool_permission_denied_audit_fields():
 @pytest.mark.anyio
 async def test_call_tool_tool_error_audit(set_audit_info):
     """Tool returning success:False should be logged with error details."""
-    with patch("mcp_server.log_tool_call") as mock_log:
+    with patch("mymcp.mcp_server.log_tool_call") as mock_log:
         results = await call_tool("read_file", {"file_path": "/nonexistent_xyz"})
         data = json.loads(results[0].text)
         assert data["success"] is False
@@ -179,7 +179,7 @@ async def test_call_tool_tool_error_audit(set_audit_info):
 @pytest.mark.anyio
 async def test_call_tool_bash_nonzero_audit(set_audit_info):
     """bash non-zero exit should be logged as error with exit code."""
-    with patch("mcp_server.log_tool_call") as mock_log:
+    with patch("mymcp.mcp_server.log_tool_call") as mock_log:
         results = await call_tool("bash_execute", {"command": "exit 42"})
         data = json.loads(results[0].text)
         assert data["exit_code"] == 42
@@ -193,7 +193,7 @@ async def test_call_tool_bash_nonzero_audit(set_audit_info):
 @pytest.mark.anyio
 async def test_call_tool_bash_zero_exit_is_ok(set_audit_info):
     """bash exit_code == 0 must log as 'ok', not error (boundary case)."""
-    with patch("mcp_server.log_tool_call") as mock_log:
+    with patch("mymcp.mcp_server.log_tool_call") as mock_log:
         await call_tool("bash_execute", {"command": "true"})
         kwargs = mock_log.call_args.kwargs
         assert kwargs["result"] == "ok"
@@ -203,7 +203,7 @@ async def test_call_tool_bash_zero_exit_is_ok(set_audit_info):
 @pytest.mark.anyio
 async def test_call_tool_bash_timeout_audit(set_audit_info):
     """bash timeout should be logged as error."""
-    with patch("mcp_server.log_tool_call") as mock_log:
+    with patch("mymcp.mcp_server.log_tool_call") as mock_log:
         results = await call_tool("bash_execute", {"command": "sleep 10", "timeout": 1})
         data = json.loads(results[0].text)
         assert data["timed_out"] is True
@@ -216,8 +216,8 @@ async def test_call_tool_bash_timeout_audit(set_audit_info):
 @pytest.mark.anyio
 async def test_call_tool_unhandled_exception(set_audit_info):
     """Unhandled exception in dispatch should return InternalError."""
-    with patch("mcp_server.dispatch_tool", side_effect=RuntimeError("boom")):
-        with patch("mcp_server.log_tool_call") as mock_log:
+    with patch("mymcp.mcp_server.dispatch_tool", side_effect=RuntimeError("boom")):
+        with patch("mymcp.mcp_server.log_tool_call") as mock_log:
             results = await call_tool("bash_execute", {"command": "echo x"})
             data = json.loads(results[0].text)
             assert data["success"] is False
@@ -231,7 +231,7 @@ async def test_call_tool_unhandled_exception(set_audit_info):
 @pytest.mark.anyio
 async def test_call_tool_null_arguments(set_audit_info):
     """arguments=None should be handled gracefully."""
-    with patch("mcp_server.log_tool_call"):
+    with patch("mymcp.mcp_server.log_tool_call"):
         results = await call_tool("glob", None)
         # glob with no pattern will likely error, but should not crash
         data = json.loads(results[0].text)
@@ -310,8 +310,8 @@ async def test_list_tools_rw_role():
 @pytest.mark.anyio
 async def test_call_tool_non_json_result(set_audit_info):
     """When dispatch_tool returns non-JSON, result_status should be 'ok'."""
-    with patch("mcp_server.dispatch_tool", return_value="plain text not json"):
-        with patch("mcp_server.log_tool_call") as mock_log:
+    with patch("mymcp.mcp_server.dispatch_tool", return_value="plain text not json"):
+        with patch("mymcp.mcp_server.log_tool_call") as mock_log:
             results = await call_tool("bash_execute", {"command": "echo x"})
             assert results[0].text == "plain text not json"
             kwargs = mock_log.call_args.kwargs
@@ -331,7 +331,7 @@ async def test_call_tool_contextvar_defaults_when_fields_missing():
     """
     token = _current_audit_info.set({})  # empty dict — every .get() falls back
     try:
-        with patch("mcp_server.log_tool_call") as mock_log:
+        with patch("mymcp.mcp_server.log_tool_call") as mock_log:
             # role defaults to "rw" per the get() default, so this call is allowed
             await call_tool("bash_execute", {"command": "echo ok"})
             kwargs = mock_log.call_args.kwargs
@@ -350,10 +350,10 @@ async def test_call_tool_dispatch_result_without_success_field_is_ok(set_audit_i
     result_data.get('success', True).
     """
     with patch(
-        "mcp_server.dispatch_tool",
+        "mymcp.mcp_server.dispatch_tool",
         return_value=json.dumps({"content": "plain", "total_lines": 1, "truncated": False}),
     ):
-        with patch("mcp_server.log_tool_call") as mock_log:
+        with patch("mymcp.mcp_server.log_tool_call") as mock_log:
             await call_tool("read_file", {"file_path": "/tmp/x"})
             kwargs = mock_log.call_args.kwargs
             assert kwargs["result"] == "ok"
@@ -364,10 +364,10 @@ async def test_call_tool_dispatch_result_without_success_field_is_ok(set_audit_i
 async def test_call_tool_dispatch_success_true_is_ok(set_audit_info):
     """Explicit success=True must log as ok (not treated as error)."""
     with patch(
-        "mcp_server.dispatch_tool",
+        "mymcp.mcp_server.dispatch_tool",
         return_value=json.dumps({"success": True, "bytes_written": 5}),
     ):
-        with patch("mcp_server.log_tool_call") as mock_log:
+        with patch("mymcp.mcp_server.log_tool_call") as mock_log:
             await call_tool("write_file", {"file_path": "/tmp/y", "content": "hi"})
             kwargs = mock_log.call_args.kwargs
             assert kwargs["result"] == "ok"

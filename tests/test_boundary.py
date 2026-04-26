@@ -202,7 +202,7 @@ class TestWriteFileBoundary:
     @pytest.mark.anyio
     async def test_content_exactly_max(self, tmp_path):
         """Content at exactly max bytes should succeed."""
-        with patch("config.WRITE_FILE_MAX_BYTES", 100):
+        with patch("mymcp.config.WRITE_FILE_MAX_BYTES", 100):
             content = "x" * 100
             path = str(tmp_path / "exact.txt")
             result = await write_file(path, content)
@@ -252,7 +252,7 @@ class TestEditFileBoundary:
     async def test_old_string_exactly_max_bytes(self, tmp_path):
         """old_string at exactly EDIT_STRING_MAX_BYTES should succeed."""
         f = tmp_path / "file.txt"
-        with patch("config.EDIT_STRING_MAX_BYTES", 10):
+        with patch("mymcp.config.EDIT_STRING_MAX_BYTES", 10):
             content = "x" * 10
             f.write_text(content)
             result = await edit_file(str(f), content, "replaced")

@@ -45,10 +45,10 @@ def disabled_token(sec_store):
 @pytest.fixture
 def sec_app(sec_store):
     """FastAPI app wired to sec_store with a fake MCP session_manager."""
-    import auth
+    from mymcp import auth
     original = auth._store
     auth._store = sec_store
-    from main import app
+    from mymcp.server import create_app; app = create_app()
     from starlette.responses import JSONResponse
 
     async def fake_handle_request(scope, receive, send):
@@ -74,7 +74,7 @@ def sec_app(sec_store):
         await JSONResponse({"jsonrpc": "2.0", "id": rpc_id, "result": result})(scope, receive, send)
 
     try:
-        with patch("main.session_manager") as mock_sm:
+        with patch("mymcp.server.session_manager") as mock_sm:
             mock_sm.handle_request = fake_handle_request
             yield app
     finally:
@@ -94,7 +94,7 @@ def protected_dirs(tmp_path):
     audit_dir = str(tmp_path / "audit")
     os.makedirs(app_dir)
     os.makedirs(audit_dir)
-    with patch("config.PROTECTED_PATHS", [app_dir, audit_dir]):
+    with patch("mymcp.config.PROTECTED_PATHS", [app_dir, audit_dir]):
         yield app_dir, audit_dir
 
 
@@ -307,7 +307,7 @@ async def test_leakage_permission_denied_does_not_echo_token(sec_client, ro_toke
 async def test_leakage_internal_error_has_no_traceback(sec_client, rw_token):
     """An unhandled exception in a tool must return a generic InternalError message
     with no stack trace in the MCP response."""
-    with patch("mcp_server.dispatch_tool", new_callable=AsyncMock) as mock_dispatch:
+    with patch("mymcp.mcp_server.dispatch_tool", new_callable=AsyncMock) as mock_dispatch:
         mock_dispatch.side_effect = RuntimeError("intentional test error")
         data = await _call_with_token(
             sec_client, rw_token,

@@ -138,7 +138,7 @@ async def test_write_file_too_large():
 @pytest.mark.anyio
 async def test_write_file_exactly_at_max_succeeds(tmp_path):
     """Content at exactly WRITE_FILE_MAX_BYTES should be accepted (<=, not <)."""
-    with patch("config.WRITE_FILE_MAX_BYTES", 100):
+    with patch("mymcp.config.WRITE_FILE_MAX_BYTES", 100):
         result = await write_file(str(tmp_path / "exact.txt"), "x" * 100)
         assert result["success"] is True
         assert result["bytes_written"] == 100
@@ -147,7 +147,7 @@ async def test_write_file_exactly_at_max_succeeds(tmp_path):
 @pytest.mark.anyio
 async def test_write_file_one_over_max_rejected(tmp_path):
     """Content at MAX+1 must be rejected — kills off-by-one on > / >=."""
-    with patch("config.WRITE_FILE_MAX_BYTES", 100):
+    with patch("mymcp.config.WRITE_FILE_MAX_BYTES", 100):
         result = await write_file(str(tmp_path / "big.txt"), "x" * 101)
         assert result["success"] is False
         assert result["error"] == "FileTooLarge"
@@ -221,7 +221,7 @@ async def test_edit_file_not_found():
 async def test_edit_file_old_string_too_large(tmp_path):
     f = tmp_path / "file.txt"
     f.write_text("hello")
-    with patch("config.EDIT_STRING_MAX_BYTES", 10):
+    with patch("mymcp.config.EDIT_STRING_MAX_BYTES", 10):
         result = await edit_file(str(f), "x" * 20, "new")
     assert result["success"] is False
     assert result["error"] == "FileTooLarge"
@@ -233,7 +233,7 @@ async def test_edit_file_old_string_one_over_max_rejected(tmp_path):
     """old_string at EDIT_STRING_MAX_BYTES+1 must be rejected (off-by-one)."""
     f = tmp_path / "file.txt"
     f.write_text("x" * 11)
-    with patch("config.EDIT_STRING_MAX_BYTES", 10):
+    with patch("mymcp.config.EDIT_STRING_MAX_BYTES", 10):
         result = await edit_file(str(f), "x" * 11, "new")
         assert result["success"] is False
         assert result["error"] == "FileTooLarge"
@@ -244,7 +244,7 @@ async def test_edit_file_new_string_one_over_max_rejected(tmp_path):
     """new_string at EDIT_STRING_MAX_BYTES+1 must be rejected (off-by-one)."""
     f = tmp_path / "file.txt"
     f.write_text("hello")
-    with patch("config.EDIT_STRING_MAX_BYTES", 10):
+    with patch("mymcp.config.EDIT_STRING_MAX_BYTES", 10):
         result = await edit_file(str(f), "hello", "x" * 11)
         assert result["success"] is False
         assert result["error"] == "FileTooLarge"
@@ -255,7 +255,7 @@ async def test_edit_file_new_string_one_over_max_rejected(tmp_path):
 async def test_edit_file_new_string_too_large(tmp_path):
     f = tmp_path / "file.txt"
     f.write_text("hello")
-    with patch("config.EDIT_STRING_MAX_BYTES", 10):
+    with patch("mymcp.config.EDIT_STRING_MAX_BYTES", 10):
         result = await edit_file(str(f), "hello", "x" * 20)
     assert result["success"] is False
     assert result["error"] == "FileTooLarge"
@@ -411,7 +411,7 @@ async def test_grep_no_matches(tmp_path):
 @pytest.mark.anyio
 async def test_glob_exception_returns_error(tmp_path):
     """glob_files should catch exceptions and return error dict."""
-    with patch("tools.files._glob_module.glob", side_effect=OSError("disk error")):
+    with patch("mymcp.tools.files._glob_module.glob", side_effect=OSError("disk error")):
         result = await glob_files("*.py", path=str(tmp_path))
     assert result["success"] is False
     assert result["error"] == "OSError"

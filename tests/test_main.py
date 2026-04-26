@@ -13,11 +13,11 @@ def store(tmp_path):
 @pytest.fixture
 def app_with_store(store):
     """Create a fresh FastAPI app with overridden token store."""
-    import auth
+    from mymcp import auth
     original_store = auth._store
     auth._store = store
     try:
-        from main import app
+        from mymcp.server import create_app; app = create_app()
         yield app
     finally:
         auth._store = original_store
@@ -48,9 +48,9 @@ async def test_health_endpoint(client):
 # ---------------------------------------------------------------------------
 
 def test_validate_token_missing_bearer(store):
-    from main import _validate_token
+    from mymcp.server import _validate_token
     from starlette.requests import Request
-    import auth
+    from mymcp import auth
     original = auth._store
     auth._store = store
     try:
@@ -64,9 +64,9 @@ def test_validate_token_missing_bearer(store):
 
 
 def test_validate_token_invalid_token(store):
-    from main import _validate_token
+    from mymcp.server import _validate_token
     from starlette.requests import Request
-    import auth
+    from mymcp import auth
     original = auth._store
     auth._store = store
     try:
@@ -84,9 +84,9 @@ def test_validate_token_invalid_token(store):
 
 
 def test_validate_token_valid_token(store):
-    from main import _validate_token
+    from mymcp.server import _validate_token
     from starlette.requests import Request
-    import auth
+    from mymcp import auth
     original = auth._store
     auth._store = store
     token = store.create_token("test-client", role="rw")
@@ -134,8 +134,8 @@ async def test_middleware_non_mcp_path_passes_through(client):
 @pytest.mark.anyio
 async def test_middleware_valid_token_forwards_to_mcp(store):
     """Valid token on /mcp should be forwarded to session_manager, not rejected."""
-    from main import app
-    import auth
+    from mymcp.server import create_app; app = create_app()
+    from mymcp import auth
 
     token = store.create_token("mcp-client", role="rw")
     original = auth._store
@@ -151,7 +151,7 @@ async def test_middleware_valid_token_forwards_to_mcp(store):
         await resp(scope, receive, send)
 
     try:
-        with patch("main.session_manager") as mock_sm:
+        with patch("mymcp.server.session_manager") as mock_sm:
             mock_sm.handle_request = fake_handle_request
             transport = ASGITransport(app=app)
             async with AsyncClient(transport=transport, base_url="http://test") as c:
@@ -169,9 +169,9 @@ async def test_middleware_valid_token_forwards_to_mcp(store):
 @pytest.mark.anyio
 async def test_middleware_sets_contextvar(store):
     """Verify the middleware sets _current_audit_info contextvar."""
-    from main import app
+    from mymcp.server import create_app; app = create_app()
     from mymcp.mcp_server import _current_audit_info
-    import auth
+    from mymcp import auth
 
     token = store.create_token("ctx-client", role="ro")
     original = auth._store
@@ -187,7 +187,7 @@ async def test_middleware_sets_contextvar(store):
         await resp(scope, receive, send)
 
     try:
-        with patch("main.session_manager") as mock_sm:
+        with patch("mymcp.server.session_manager") as mock_sm:
             mock_sm.handle_request = fake_handle_request
             transport = ASGITransport(app=app)
             async with AsyncClient(transport=transport, base_url="http://test") as c:

@@ -117,11 +117,11 @@ def test_create_token_invalid_role_raises(tmp_path):
 
 def test_get_store_raises_without_admin_token(tmp_path):
     """get_store() should raise RuntimeError when ADMIN_TOKEN is empty."""
-    import auth
+    from mymcp import auth
     original = auth._store
     auth._store = None  # Reset singleton
     try:
-        with patch("config.ADMIN_TOKEN", ""):
+        with patch("mymcp.config.ADMIN_TOKEN", ""):
             with pytest.raises(RuntimeError, match="MYMCP_ADMIN_TOKEN"):
                 auth.get_store()
     finally:
@@ -130,12 +130,12 @@ def test_get_store_raises_without_admin_token(tmp_path):
 
 def test_get_store_creates_singleton(tmp_path):
     """get_store() should create and return a TokenStore singleton."""
-    import auth
+    from mymcp import auth
     original = auth._store
     auth._store = None
     try:
-        with patch("config.ADMIN_TOKEN", "adm_test123"), \
-             patch("config.TOKEN_FILE", str(tmp_path / "tokens.json")):
+        with patch("mymcp.config.ADMIN_TOKEN", "adm_test123"), \
+             patch("mymcp.config.TOKEN_FILE", str(tmp_path / "tokens.json")):
             store = auth.get_store()
             assert store is not None
             # Second call returns same instance

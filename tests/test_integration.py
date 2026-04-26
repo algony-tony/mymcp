@@ -23,11 +23,11 @@ def store(tmp_path):
 def app_with_store(store):
     """Create a FastAPI app with overridden store and a fake session_manager
     that properly processes MCP JSON-RPC requests."""
-    import auth
+    from mymcp import auth
     original = auth._store
     auth._store = store
 
-    from main import app
+    from mymcp.server import create_app; app = create_app()
     from starlette.responses import JSONResponse
 
     async def fake_handle_request(scope, receive, send):
@@ -75,7 +75,7 @@ def app_with_store(store):
         await resp(scope, receive, send)
 
     try:
-        with patch("main.session_manager") as mock_sm:
+        with patch("mymcp.server.session_manager") as mock_sm:
             mock_sm.handle_request = fake_handle_request
             yield app
     finally:

@@ -73,7 +73,7 @@ async def test_bash_max_output_exactly_two_keeps_two():
 async def test_bash_max_output_above_hard_cap_clamps():
     """max_output_bytes above HARD_CAP must clamp to HARD_CAP."""
     with patch.multiple(
-        "config",
+        "mymcp.config",
         BASH_MAX_OUTPUT_BYTES_HARD=10,
     ):
         result = await run_bash_execute(
@@ -125,7 +125,7 @@ async def test_read_file_limit_exactly_max_accepts(tmp_path):
     """limit == MAX_LIMIT must not be clamped further."""
     f = tmp_path / "data.txt"
     f.write_text("only one line\n")
-    with patch("config.READ_FILE_MAX_LIMIT", 5):
+    with patch("mymcp.config.READ_FILE_MAX_LIMIT", 5):
         result = await read_file(str(f), limit=5)
         assert result["total_lines"] == 1
 
@@ -136,7 +136,7 @@ async def test_read_file_limit_above_max_clamps(tmp_path):
     content that limit becomes observable through truncation state."""
     f = tmp_path / "data.txt"
     f.write_text("\n".join(f"l{i}" for i in range(1, 11)))
-    with patch("config.READ_FILE_MAX_LIMIT", 3):
+    with patch("mymcp.config.READ_FILE_MAX_LIMIT", 3):
         result = await read_file(str(f), offset=1, limit=9999)
         # limit clamped to 3 → content should have only 3 lines
         lines = [l for l in result["content"].split("\n") if l]
@@ -211,7 +211,7 @@ async def test_grep_max_results_above_hard_cap_clamps(tmp_path):
     """max_results > GREP_MAX_RESULTS clamps to GREP_MAX_RESULTS."""
     # Create 5 matches, patch HARD cap to 2 → truncation at 2.
     (tmp_path / "f.txt").write_text("match\nmatch\nmatch\nmatch\nmatch\n")
-    with patch("config.GREP_MAX_RESULTS", 2):
+    with patch("mymcp.config.GREP_MAX_RESULTS", 2):
         result = await grep_files("match", path=str(tmp_path), max_results=10000)
         assert result["match_count"] == 5
         assert "[TRUNCATED" in result["results"]
