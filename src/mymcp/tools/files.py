@@ -3,7 +3,7 @@ import glob as _glob_module
 import os
 import shutil
 
-import config
+from mymcp import config
 
 
 def check_protected_path(file_path: str) -> str | None:

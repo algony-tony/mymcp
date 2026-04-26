@@ -85,7 +85,7 @@ def get_store() -> "TokenStore":
     Override in tests via app.dependency_overrides[get_store]."""
     global _store
     if _store is None:
-        import config
+        from mymcp import config
         if not config.ADMIN_TOKEN:
             raise RuntimeError("MCP_ADMIN_TOKEN environment variable is required")
         _store = TokenStore(config.TOKEN_FILE, config.ADMIN_TOKEN)

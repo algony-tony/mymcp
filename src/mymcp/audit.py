@@ -4,7 +4,7 @@ import logging.handlers
 import os
 from datetime import datetime, timezone
 
-import config
+from mymcp import config
 
 _logger: logging.Logger | None = None
 _setup_done = False

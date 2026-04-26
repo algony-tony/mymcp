@@ -1,5 +1,6 @@
 import asyncio
-import config
+
+from mymcp import config
 
 
 async def run_bash_execute(

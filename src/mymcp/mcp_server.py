@@ -8,11 +8,11 @@ from mcp.server import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp import types
 
-import config
-import metrics
-from audit import log_tool_call
-from tools.bash import run_bash_execute
-from tools.files import read_file, write_file, edit_file, glob_files, grep_files
+from mymcp import config
+from mymcp import metrics
+from mymcp.audit import log_tool_call
+from mymcp.tools.bash import run_bash_execute
+from mymcp.tools.files import read_file, write_file, edit_file, glob_files, grep_files
 
 logger = logging.getLogger("mymcp")
 
