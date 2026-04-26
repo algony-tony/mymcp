@@ -243,8 +243,7 @@
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
-          ],
-          "values": true
+          ]
         },
         "colorMode": "background",
         "graphMode": "none",
