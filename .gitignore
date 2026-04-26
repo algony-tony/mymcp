@@ -10,3 +10,4 @@ htmlcov/
 .venv/
 dist/
 *.egg-info/
+src/mymcp/_version.py
