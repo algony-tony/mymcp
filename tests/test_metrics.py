@@ -59,8 +59,8 @@ def test_tool_duration_has_custom_buckets():
 def test_metrics_token_defaults_to_empty():
     import os
     import importlib
-    import config
-    os.environ.pop("MCP_METRICS_TOKEN", None)
+    from mymcp import config
+    os.environ.pop("MYMCP_METRICS_TOKEN", None)
     importlib.reload(config)
     assert config.METRICS_TOKEN == ""
 
@@ -105,13 +105,13 @@ async def test_call_tool_no_error_when_metrics_disabled():
     with patch("metrics.ENABLED", False):
         with patch("mcp_server._current_audit_info") as mock_cv:
             mock_cv.get.return_value = {"token_name": "t1", "role": "ro", "ip": "127.0.0.1"}
-            from mcp_server import call_tool
+            from mymcp.mcp_server import call_tool
             result = await call_tool("read_file", {"file_path": "/etc/hostname"})
     assert result is not None
 
 
 from httpx import AsyncClient, ASGITransport
-from auth import TokenStore
+from mymcp.auth import TokenStore
 from unittest.mock import patch
 
 
@@ -152,7 +152,7 @@ async def test_metrics_disabled_without_token(metrics_app):
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.get("/metrics")
     assert resp.status_code == 503
-    assert "MCP_METRICS_TOKEN" in resp.json()["detail"]
+    assert "MYMCP_METRICS_TOKEN" in resp.json()["detail"]
 
 
 @pytest.mark.anyio

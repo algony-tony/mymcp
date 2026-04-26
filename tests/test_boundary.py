@@ -8,8 +8,8 @@ import os
 import pytest
 from unittest.mock import patch
 
-from tools.bash import run_bash_execute
-from tools.files import read_file, write_file, edit_file, glob_files, grep_files
+from mymcp.tools.bash import run_bash_execute
+from mymcp.tools.files import read_file, write_file, edit_file, glob_files, grep_files
 
 
 # ===========================================================================
@@ -63,7 +63,7 @@ class TestBashBoundary:
     @pytest.mark.anyio
     async def test_max_output_bytes_over_hard_cap(self):
         """max_output_bytes over hard cap should be clamped."""
-        import config
+        from mymcp import config
         result = await run_bash_execute(
             "echo hello",
             max_output_bytes=config.BASH_MAX_OUTPUT_BYTES_HARD + 1000,
@@ -138,7 +138,7 @@ class TestReadFileBoundary:
         """limit at MAX_LIMIT should be accepted."""
         f = tmp_path / "test.txt"
         f.write_text("line1\n")
-        import config
+        from mymcp import config
         result = await read_file(str(f), limit=config.READ_FILE_MAX_LIMIT)
         assert result["total_lines"] == 1
 
@@ -147,7 +147,7 @@ class TestReadFileBoundary:
         """limit over MAX_LIMIT should be clamped."""
         f = tmp_path / "test.txt"
         f.write_text("line1\n")
-        import config
+        from mymcp import config
         result = await read_file(str(f), limit=config.READ_FILE_MAX_LIMIT + 100)
         assert result["total_lines"] == 1
 
@@ -324,7 +324,7 @@ class TestGrepBoundary:
     @pytest.mark.anyio
     async def test_max_results_over_limit_clamped(self, tmp_path):
         """max_results over GREP_MAX_RESULTS should be clamped."""
-        import config
+        from mymcp import config
         (tmp_path / "f.txt").write_text("match\n")
         result = await grep_files(
             "match", path=str(tmp_path),

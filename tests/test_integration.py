@@ -10,8 +10,8 @@ import pytest
 from unittest.mock import patch
 
 from httpx import AsyncClient, ASGITransport
-from auth import TokenStore
-from mcp_server import _current_audit_info, call_tool, list_tools
+from mymcp.auth import TokenStore
+from mymcp.mcp_server import _current_audit_info, call_tool, list_tools
 
 
 @pytest.fixture

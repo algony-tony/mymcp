@@ -87,7 +87,7 @@ def get_store() -> "TokenStore":
     if _store is None:
         from mymcp import config
         if not config.ADMIN_TOKEN:
-            raise RuntimeError("MCP_ADMIN_TOKEN environment variable is required")
+            raise RuntimeError("MYMCP_ADMIN_TOKEN environment variable is required")
         _store = TokenStore(config.TOKEN_FILE, config.ADMIN_TOKEN)
     return _store
 

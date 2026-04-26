@@ -1,7 +1,7 @@
 import pytest
 from pathlib import Path
 from unittest.mock import patch
-from auth import TokenStore
+from mymcp.auth import TokenStore
 
 
 def make_store(tmp_path: Path) -> TokenStore:
@@ -122,7 +122,7 @@ def test_get_store_raises_without_admin_token(tmp_path):
     auth._store = None  # Reset singleton
     try:
         with patch("config.ADMIN_TOKEN", ""):
-            with pytest.raises(RuntimeError, match="MCP_ADMIN_TOKEN"):
+            with pytest.raises(RuntimeError, match="MYMCP_ADMIN_TOKEN"):
                 auth.get_store()
     finally:
         auth._store = original

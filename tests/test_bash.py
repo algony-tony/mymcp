@@ -1,5 +1,5 @@
 import pytest
-from tools.bash import run_bash_execute
+from mymcp.tools.bash import run_bash_execute
 
 
 @pytest.mark.anyio

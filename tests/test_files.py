@@ -5,7 +5,7 @@ import stat
 import pytest
 from unittest.mock import patch
 
-from tools.files import read_file, write_file, edit_file, glob_files, grep_files
+from mymcp.tools.files import read_file, write_file, edit_file, glob_files, grep_files
 
 
 # ---------------------------------------------------------------------------
@@ -126,7 +126,7 @@ async def test_write_file_creates_parent_dirs(tmp_path):
 
 @pytest.mark.anyio
 async def test_write_file_too_large():
-    import config
+    from mymcp import config
     big = "x" * (config.WRITE_FILE_MAX_BYTES + 1)
     result = await write_file("/tmp/toobig.txt", big)
     assert result["success"] is False

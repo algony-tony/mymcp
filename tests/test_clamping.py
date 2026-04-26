@@ -9,9 +9,9 @@ boundary inclusive <-> exclusive is observable.
 import pytest
 from unittest.mock import patch
 
-import config
-from tools.bash import run_bash_execute
-from tools.files import read_file, grep_files
+from mymcp import config
+from mymcp.tools.bash import run_bash_execute
+from mymcp.tools.files import read_file, grep_files
 
 
 # ---------------------------------------------------------------------------

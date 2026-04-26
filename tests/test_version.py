@@ -1,8 +1,8 @@
 import pytest
 from httpx import AsyncClient, ASGITransport
 from unittest.mock import patch
-from auth import TokenStore
-import config
+from mymcp.auth import TokenStore
+from mymcp import config
 
 
 # ---------------------------------------------------------------------------

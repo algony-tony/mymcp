@@ -1,7 +1,7 @@
 import pytest
 from httpx import AsyncClient, ASGITransport
 from fastapi import FastAPI
-from auth import TokenStore, get_store, admin_router
+from mymcp.auth import TokenStore, get_store, admin_router
 
 
 @pytest.fixture
@@ -86,7 +86,7 @@ async def test_missing_auth_header_returns_401(client):
 async def test_require_auth_missing_bearer(store):
     """require_auth should reject requests without Bearer prefix."""
     from fastapi import FastAPI, Depends
-    from auth import require_auth, get_store
+    from mymcp.auth import require_auth, get_store
 
     app2 = FastAPI()
 
@@ -104,7 +104,7 @@ async def test_require_auth_missing_bearer(store):
 @pytest.mark.anyio
 async def test_require_auth_invalid_token(store):
     from fastapi import FastAPI, Depends
-    from auth import require_auth, get_store
+    from mymcp.auth import require_auth, get_store
 
     app2 = FastAPI()
 
@@ -125,7 +125,7 @@ async def test_require_auth_invalid_token(store):
 @pytest.mark.anyio
 async def test_require_auth_valid_token(store):
     from fastapi import FastAPI, Depends
-    from auth import require_auth, get_store
+    from mymcp.auth import require_auth, get_store
 
     app2 = FastAPI()
 

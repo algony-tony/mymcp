@@ -9,8 +9,8 @@ import pytest
 from unittest.mock import AsyncMock, patch
 
 from httpx import AsyncClient, ASGITransport
-from auth import TokenStore
-from mcp_server import call_tool, list_tools
+from mymcp.auth import TokenStore
+from mymcp.mcp_server import call_tool, list_tools
 
 
 # ---------------------------------------------------------------------------
@@ -228,7 +228,7 @@ async def test_privesc_ro_list_tools_excludes_write_tools(sec_client, ro_token):
 @pytest.mark.anyio
 async def test_path_traversal_dotdot_into_protected_dir(protected_dirs):
     """Path with ../ components that resolve into a protected dir must be blocked."""
-    from tools.files import read_file
+    from mymcp.tools.files import read_file
     app_dir, _ = protected_dirs
     secret = os.path.join(app_dir, "secret.txt")
     with open(secret, "w") as f:
@@ -244,7 +244,7 @@ async def test_path_traversal_dotdot_into_protected_dir(protected_dirs):
 @pytest.mark.anyio
 async def test_path_traversal_symlink_into_protected_dir(protected_dirs, tmp_path):
     """A symlink outside the protected dir that points inside must be blocked."""
-    from tools.files import read_file
+    from mymcp.tools.files import read_file
     app_dir, _ = protected_dirs
     secret = os.path.join(app_dir, "secret.txt")
     with open(secret, "w") as f:
@@ -271,7 +271,7 @@ async def test_path_traversal_null_byte_does_not_expose_content(sec_client, rw_t
 @pytest.mark.anyio
 async def test_path_traversal_exact_protected_dir_blocked(protected_dirs):
     """Passing the exact protected directory path must be blocked."""
-    from tools.files import read_file
+    from mymcp.tools.files import read_file
     app_dir, _ = protected_dirs
     result = await read_file(app_dir)
     assert result["success"] is False

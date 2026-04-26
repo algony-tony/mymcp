@@ -2,7 +2,7 @@ import pytest
 import json
 from unittest.mock import patch, AsyncMock
 
-from mcp_server import dispatch_tool, call_tool, _current_audit_info, _extract_params
+from mymcp.mcp_server import dispatch_tool, call_tool, _current_audit_info, _extract_params
 
 
 @pytest.mark.anyio
@@ -276,7 +276,7 @@ def test_extract_params_keeps_normal_fields():
 @pytest.mark.anyio
 async def test_list_tools_ro_role():
     """list_tools should return only read tools for ro role."""
-    from mcp_server import list_tools, _current_audit_info, READ_TOOLS
+    from mymcp.mcp_server import list_tools, _current_audit_info, READ_TOOLS
     token = _current_audit_info.set({
         "token_name": "ro-user", "role": "ro", "ip": "127.0.0.1",
     })
@@ -291,7 +291,7 @@ async def test_list_tools_ro_role():
 @pytest.mark.anyio
 async def test_list_tools_rw_role():
     """list_tools should return all tools for rw role."""
-    from mcp_server import list_tools, _current_audit_info, ALL_TOOLS
+    from mymcp.mcp_server import list_tools, _current_audit_info, ALL_TOOLS
     token = _current_audit_info.set({
         "token_name": "rw-user", "role": "rw", "ip": "127.0.0.1",
     })

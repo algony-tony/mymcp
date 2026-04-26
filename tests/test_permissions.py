@@ -1,5 +1,5 @@
 import pytest
-from mcp_server import (
+from mymcp.mcp_server import (
     ALL_TOOLS,
     READ_TOOLS,
     WRITE_TOOLS,

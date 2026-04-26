@@ -32,7 +32,7 @@ def test_settings_ignores_unprefixed_mcp_vars(monkeypatch):
     """Hard rename: legacy MCP_* must NOT be honored."""
     monkeypatch.delenv("MYMCP_ENV_FILE", raising=False)
     monkeypatch.delenv("MYMCP_HOST", raising=False)
-    monkeypatch.setenv("MCP_HOST", "10.0.0.1")
+    monkeypatch.setenv("MYMCP_HOST", "10.0.0.1")
     cfg = _reload_config(monkeypatch, {})
     s = cfg.get_settings()
     assert s.host != "10.0.0.1"

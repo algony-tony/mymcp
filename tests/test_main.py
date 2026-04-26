@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import patch, MagicMock
 from httpx import AsyncClient, ASGITransport
 
-from auth import TokenStore
+from mymcp.auth import TokenStore
 
 
 @pytest.fixture
@@ -170,7 +170,7 @@ async def test_middleware_valid_token_forwards_to_mcp(store):
 async def test_middleware_sets_contextvar(store):
     """Verify the middleware sets _current_audit_info contextvar."""
     from main import app
-    from mcp_server import _current_audit_info
+    from mymcp.mcp_server import _current_audit_info
     import auth
 
     token = store.create_token("ctx-client", role="ro")

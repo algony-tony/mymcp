@@ -9,8 +9,8 @@ import asyncio
 import os
 import pytest
 
-from tools.files import read_file, write_file, edit_file, glob_files, grep_files
-from tools.bash import run_bash_execute
+from mymcp.tools.files import read_file, write_file, edit_file, glob_files, grep_files
+from mymcp.tools.bash import run_bash_execute
 
 
 def _run(coro):
