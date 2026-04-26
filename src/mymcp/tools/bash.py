@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import os
 import signal
 import threading
@@ -46,10 +47,8 @@ def shutdown_inflight_processes(grace_sec: int | None = None) -> None:
     for p in snapshot:
         if not _is_alive(p):
             continue
-        try:
+        with contextlib.suppress(ProcessLookupError, PermissionError):
             os.killpg(os.getpgid(p.pid), signal.SIGTERM)
-        except (ProcessLookupError, PermissionError):
-            pass
 
     deadline = time.monotonic() + max(0, grace_sec)
     while time.monotonic() < deadline:
@@ -60,10 +59,8 @@ def shutdown_inflight_processes(grace_sec: int | None = None) -> None:
     for p in snapshot:
         if not _is_alive(p):
             continue
-        try:
+        with contextlib.suppress(ProcessLookupError, PermissionError):
             os.killpg(os.getpgid(p.pid), signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            pass
 
 
 async def run_bash_execute(
@@ -104,18 +101,14 @@ async def run_bash_execute(
             stdout_bytes, stderr_bytes = await asyncio.wait_for(
                 proc.communicate(), timeout=float(timeout)
             )
-        except asyncio.TimeoutError:
-            try:
+        except TimeoutError:
+            with contextlib.suppress(ProcessLookupError, PermissionError):
                 os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-            except (ProcessLookupError, PermissionError):
-                pass
             try:
                 await asyncio.wait_for(proc.communicate(), timeout=2)
-            except asyncio.TimeoutError:
-                try:
+            except TimeoutError:
+                with contextlib.suppress(ProcessLookupError, PermissionError):
                     os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-                except (ProcessLookupError, PermissionError):
-                    pass
                 await proc.communicate()
             return {
                 "stdout": "",

@@ -1,4 +1,5 @@
 """mymcp — MCP server for Linux system control."""
+
 from importlib.metadata import PackageNotFoundError, version
 
 try:

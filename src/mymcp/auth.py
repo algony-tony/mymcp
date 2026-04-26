@@ -1,7 +1,7 @@
 import json
 import secrets
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -40,7 +40,7 @@ class TokenStore:
             info = self._data["tokens"].get(token)
             if info is None or not info.get("enabled", False):
                 return None
-            info["last_used"] = datetime.now(timezone.utc).isoformat()
+            info["last_used"] = datetime.now(UTC).isoformat()
             self._save()
             return dict(info)
 
@@ -51,7 +51,7 @@ class TokenStore:
         with self._lock:
             self._data["tokens"][token] = {
                 "name": name,
-                "created_at": datetime.now(timezone.utc).isoformat(),
+                "created_at": datetime.now(UTC).isoformat(),
                 "last_used": None,
                 "enabled": True,
                 "role": role,
@@ -86,6 +86,7 @@ def get_store() -> "TokenStore":
     global _store
     if _store is None:
         from mymcp import config
+
         if not config.ADMIN_TOKEN:
             raise RuntimeError("MYMCP_ADMIN_TOKEN environment variable is required")
         _store = TokenStore(config.TOKEN_FILE, config.ADMIN_TOKEN)
@@ -124,6 +125,7 @@ async def require_admin(
 # Admin router
 # ---------------------------------------------------------------------------
 
+
 class _CreateTokenRequest(BaseModel):
     name: str
     role: str = "ro"
@@ -143,7 +145,7 @@ async def create_token(
     try:
         token = store.create_token(body.name, role=body.role)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     return {"token": token, "name": body.name, "role": body.role}
 
 

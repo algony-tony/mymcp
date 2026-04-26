@@ -1,6 +1,7 @@
 """FastAPI app factory for mymcp. No module-level side effects."""
+
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 from fastapi import FastAPI
 from starlette.requests import Request
@@ -36,18 +37,21 @@ class McpAuthMiddleware:
         if scope["type"] == "http" and scope.get("path", "") == "/mcp":
             request = Request(scope, receive, send)
             error, token_info = _validate_token(request)
-            if error:
-                await error(scope, receive, send)
+            if error or token_info is None:
+                if error:
+                    await error(scope, receive, send)
                 return
 
             client = scope.get("client")
             ip = client[0] if client else "unknown"
 
-            cv_token = _current_audit_info.set({
-                "token_name": token_info.get("name", "unknown"),
-                "role": token_info.get("role", "rw"),
-                "ip": ip,
-            })
+            cv_token = _current_audit_info.set(
+                {
+                    "token_name": token_info.get("name", "unknown"),
+                    "role": token_info.get("role", "rw"),
+                    "ip": ip,
+                }
+            )
             try:
                 await session_manager.handle_request(scope, receive, send)
             finally:
@@ -87,6 +91,7 @@ def create_app() -> FastAPI:
 
     Side-effect-free: all configuration is read here, not at import time.
     """
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         get_store()

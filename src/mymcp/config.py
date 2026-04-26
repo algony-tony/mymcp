@@ -4,6 +4,7 @@ All settings come from MYMCP_-prefixed environment variables. An optional
 .env file can be loaded — discovery order: MYMCP_ENV_FILE env var,
 /etc/mymcp/.env, ./.env. Use get_settings() to retrieve the cached singleton.
 """
+
 import os
 from functools import lru_cache
 from pathlib import Path
@@ -125,6 +126,7 @@ def __getattr__(name: str):
         return get_protected_paths()
     if name == "APP_VERSION":
         from mymcp import __version__
+
         return __version__
     if name in _LEGACY_ATTRS:
         return getattr(get_settings(), _LEGACY_ATTRS[name])

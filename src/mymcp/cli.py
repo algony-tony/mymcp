@@ -1,4 +1,5 @@
 """mymcp CLI entry point."""
+
 from __future__ import annotations
 
 import argparse
@@ -20,13 +21,12 @@ def _configure_logging(level: str, fmt: str) -> None:
     handler = logging.StreamHandler(sys.stderr)
     if fmt == "json":
         from pythonjsonlogger import jsonlogger
+
         handler.setFormatter(
             jsonlogger.JsonFormatter("%(asctime)s %(levelname)s %(name)s %(message)s")
         )
     else:
-        handler.setFormatter(
-            logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
-        )
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
     root.addHandler(handler)
     root.setLevel(log_level)
 
@@ -76,6 +76,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
     _maybe_set_temp_tokens(args.with_metrics_token)
 
     from mymcp import config
+
     config.reset_settings_cache()
     s = config.get_settings()
 
@@ -85,11 +86,13 @@ def cmd_serve(args: argparse.Namespace) -> int:
     _install_signal_handlers()
 
     from mymcp.server import create_app
+
     app = create_app()
 
     rw = os.environ.pop("_MYMCP_TEMP_RW_TOKEN", "")
     if rw:
         from mymcp.auth import get_store
+
         store = get_store()
         with store._lock:  # noqa: SLF001
             store._data["tokens"][rw] = {
@@ -124,12 +127,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_serve.add_argument("--host", help="Override bind host")
     p_serve.add_argument("--port", type=int, help="Override bind port")
     p_serve.add_argument(
-        "--log-level", default="INFO",
+        "--log-level",
+        default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
     )
     p_serve.add_argument("--log-format", default="text", choices=["text", "json"])
     p_serve.add_argument(
-        "--with-metrics-token", action="store_true",
+        "--with-metrics-token",
+        action="store_true",
         help="In temp-token mode, also generate an ephemeral metrics token",
     )
     p_serve.set_defaults(func=cmd_serve)
@@ -143,4 +148,4 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    return args.func(args)
+    return int(args.func(args))

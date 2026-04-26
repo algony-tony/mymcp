@@ -4,15 +4,14 @@ import logging
 import time
 import traceback
 
+from mcp import types
 from mcp.server import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-from mcp import types
 
-from mymcp import config
-from mymcp import metrics
+from mymcp import config, metrics
 from mymcp.audit import log_tool_call
 from mymcp.tools.bash import run_bash_execute
-from mymcp.tools.files import read_file, write_file, edit_file, glob_files, grep_files
+from mymcp.tools.files import edit_file, glob_files, grep_files, read_file, write_file
 
 logger = logging.getLogger("mymcp")
 
@@ -21,7 +20,7 @@ logger = logging.getLogger("mymcp")
 # ---------------------------------------------------------------------------
 _current_audit_info: contextvars.ContextVar[dict] = contextvars.ContextVar(
     "_current_audit_info",
-    default={"token_name": "unknown", "role": "rw", "ip": "unknown"},
+    default={"token_name": "unknown", "role": "rw", "ip": "unknown"},  # noqa: B039
 )
 
 # ---------------------------------------------------------------------------
@@ -34,6 +33,7 @@ ALL_TOOLS: set[str] = READ_TOOLS | WRITE_TOOLS
 # ---------------------------------------------------------------------------
 # Tool definitions
 # ---------------------------------------------------------------------------
+
 
 def _build_tool_definitions() -> dict[str, types.Tool]:
     """Return all tool definitions keyed by name."""
@@ -48,9 +48,18 @@ def _build_tool_definitions() -> dict[str, types.Tool]:
                 "type": "object",
                 "properties": {
                     "command": {"type": "string", "description": "Shell command to run"},
-                    "timeout": {"type": "integer", "description": "Timeout seconds (default 30, max 600)"},
-                    "working_dir": {"type": "string", "description": "Working directory (default /)"},
-                    "max_output_bytes": {"type": "integer", "description": "Max stdout/stderr bytes each (default 102400)"},
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Timeout seconds (default 30, max 600)",
+                    },
+                    "working_dir": {
+                        "type": "string",
+                        "description": "Working directory (default /)",
+                    },
+                    "max_output_bytes": {
+                        "type": "integer",
+                        "description": "Max stdout/stderr bytes each (default 102400)",
+                    },
                 },
                 "required": ["command"],
             },
@@ -63,7 +72,10 @@ def _build_tool_definitions() -> dict[str, types.Tool]:
                 "properties": {
                     "file_path": {"type": "string", "description": "Absolute path to file"},
                     "offset": {"type": "integer", "description": "Start line 1-based (default 1)"},
-                    "limit": {"type": "integer", "description": "Lines to read (default 2000, max 10000)"},
+                    "limit": {
+                        "type": "integer",
+                        "description": "Lines to read (default 2000, max 10000)",
+                    },
                 },
                 "required": ["file_path"],
             },
@@ -82,14 +94,17 @@ def _build_tool_definitions() -> dict[str, types.Tool]:
         ),
         "edit_file": types.Tool(
             name="edit_file",
-            description="Replace a string in a file. old_string must be unique unless replace_all=true.",
+            description="Replace a string in a file. old_string must be unique unless replace_all=true.",  # noqa: E501
             inputSchema={
                 "type": "object",
                 "properties": {
                     "file_path": {"type": "string"},
                     "old_string": {"type": "string", "description": "String to find (max 1MB)"},
                     "new_string": {"type": "string", "description": "Replacement string (max 1MB)"},
-                    "replace_all": {"type": "boolean", "description": "Replace every occurrence (default false)"},
+                    "replace_all": {
+                        "type": "boolean",
+                        "description": "Replace every occurrence (default false)",
+                    },
                 },
                 "required": ["file_path", "old_string", "new_string"],
             },
@@ -108,21 +123,33 @@ def _build_tool_definitions() -> dict[str, types.Tool]:
         ),
         "grep": types.Tool(
             name="grep",
-            description="Search file contents with regex. Uses ripgrep if installed, else Python fallback.",
+            description="Search file contents with regex. Uses ripgrep if installed, else Python fallback.",  # noqa: E501
             inputSchema={
                 "type": "object",
                 "properties": {
                     "pattern": {"type": "string", "description": "Regex pattern"},
-                    "path": {"type": "string", "description": "File or directory to search (default /)"},
+                    "path": {
+                        "type": "string",
+                        "description": "File or directory to search (default /)",
+                    },
                     "glob": {"type": "string", "description": "File filter e.g. '*.log'"},
                     "output_mode": {
                         "type": "string",
                         "enum": ["content", "files", "count"],
                         "description": "Output mode (default content)",
                     },
-                    "context_lines": {"type": "integer", "description": "Lines of context (default 0)"},
-                    "max_results": {"type": "integer", "description": "Max matches (default 250, max 5000)"},
-                    "case_insensitive": {"type": "boolean", "description": "Case-insensitive (default false)"},
+                    "context_lines": {
+                        "type": "integer",
+                        "description": "Lines of context (default 0)",
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Max matches (default 250, max 5000)",
+                    },
+                    "case_insensitive": {
+                        "type": "boolean",
+                        "description": "Case-insensitive (default false)",
+                    },
                 },
                 "required": ["pattern"],
             },
@@ -136,12 +163,10 @@ _TOOL_DEFS = _build_tool_definitions()
 # Permission helpers
 # ---------------------------------------------------------------------------
 
+
 def filter_tools_by_role(role: str) -> list[types.Tool]:
     """Return tool definitions visible to the given role."""
-    if role == "rw":
-        allowed = ALL_TOOLS
-    else:
-        allowed = READ_TOOLS
+    allowed = ALL_TOOLS if role == "rw" else READ_TOOLS
     return [t for name, t in _TOOL_DEFS.items() if name in allowed]
 
 
@@ -205,7 +230,9 @@ async def call_tool(name: str, arguments: dict | None) -> list[types.TextContent
         )
         if metrics.ENABLED:
             metrics.TOOL_CALLS.labels(tool=name, role=role, result="denied").inc()
-        error_result = json.dumps({"success": False, "error": "PermissionDenied", "message": perm_err})
+        error_result = json.dumps(
+            {"success": False, "error": "PermissionDenied", "message": perm_err}
+        )
         return [types.TextContent(type="text", text=error_result)]
 
     # Execute tool
@@ -268,7 +295,11 @@ async def call_tool(name: str, arguments: dict | None) -> list[types.TextContent
     if result_status == "error":
         logger.warning(
             "Tool %s returned error: [%s] %s (token=%s, ip=%s)",
-            name, error_code, error_message, token_name, ip,
+            name,
+            error_code,
+            error_message,
+            token_name,
+            ip,
         )
 
     log_tool_call(
@@ -306,7 +337,9 @@ async def dispatch_tool(name: str, args: dict) -> str:
         result = await read_file(
             file_path=args["file_path"],
             offset=args.get("offset", 1),
-            limit=min(args.get("limit", config.READ_FILE_DEFAULT_LIMIT), config.READ_FILE_MAX_LIMIT),
+            limit=min(
+                args.get("limit", config.READ_FILE_DEFAULT_LIMIT), config.READ_FILE_MAX_LIMIT
+            ),
         )
     elif name == "write_file":
         result = await write_file(
