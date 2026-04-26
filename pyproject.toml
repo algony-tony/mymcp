@@ -85,6 +85,9 @@ no_implicit_optional = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--benchmark-disable"
+markers = [
+    "benchmark: marks tests as benchmarks (deselect with '-m \"not benchmark\"')",
+]
 
 [tool.mutmut]
 paths_to_mutate = "src/mymcp/auth.py,src/mymcp/audit.py,src/mymcp/config.py,src/mymcp/tools/bash.py,src/mymcp/tools/files.py,src/mymcp/mcp_server.py"
