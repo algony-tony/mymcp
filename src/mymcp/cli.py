@@ -46,12 +46,18 @@ def _install_signal_handlers() -> None:
 def _maybe_set_temp_tokens(with_metrics: bool) -> None:
     """When no env file is present and no admin token is configured, generate
     in-memory tokens and inject them via env vars before settings load."""
+    import tempfile
     from mymcp.config import _discover_env_file
 
     if _discover_env_file():
         return
     if os.environ.get("MYMCP_ADMIN_TOKEN"):
         return
+
+    if not os.environ.get("MYMCP_TOKEN_FILE"):
+        os.environ["MYMCP_TOKEN_FILE"] = os.path.join(
+            tempfile.gettempdir(), f"mymcp-temp-{os.getpid()}.json"
+        )
 
     admin = "tok_" + secrets.token_hex(16)
     rw = "tok_" + secrets.token_hex(16)
