@@ -1,10 +1,9 @@
-import pytest
 from mymcp.mcp_server import (
     ALL_TOOLS,
     READ_TOOLS,
     WRITE_TOOLS,
-    filter_tools_by_role,
     check_tool_permission,
+    filter_tools_by_role,
 )
 
 

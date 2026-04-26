@@ -47,6 +47,7 @@ def _maybe_set_temp_tokens(with_metrics: bool) -> None:
     """When no env file is present and no admin token is configured, generate
     in-memory tokens and inject them via env vars before settings load."""
     import tempfile
+
     from mymcp.config import _discover_env_file
 
     if _discover_env_file():

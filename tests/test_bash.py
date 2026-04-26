@@ -1,4 +1,5 @@
 import pytest
+
 from mymcp.tools.bash import run_bash_execute
 
 
@@ -41,7 +42,7 @@ async def test_timeout_kills_process():
 @pytest.mark.anyio
 async def test_output_truncated_when_over_limit():
     result = await run_bash_execute(
-        'python3 -c "print(\'x\' * 200000)"',
+        "python3 -c \"print('x' * 200000)\"",
         timeout=10,
         max_output_bytes=1000,
     )

@@ -1,16 +1,13 @@
-import asyncio
-import os
-import stat
-
-import pytest
 from unittest.mock import patch
 
-from mymcp.tools.files import read_file, write_file, edit_file, glob_files, grep_files
+import pytest
 
+from mymcp.tools.files import edit_file, glob_files, grep_files, read_file, write_file
 
 # ---------------------------------------------------------------------------
 # read_file
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.anyio
 async def test_read_file_basic(tmp_path):
@@ -99,6 +96,7 @@ async def test_read_file_limit_clamped(tmp_path):
 # write_file
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.anyio
 async def test_write_file_creates_file(tmp_path):
     path = str(tmp_path / "new.txt")
@@ -127,6 +125,7 @@ async def test_write_file_creates_parent_dirs(tmp_path):
 @pytest.mark.anyio
 async def test_write_file_too_large():
     from mymcp import config
+
     big = "x" * (config.WRITE_FILE_MAX_BYTES + 1)
     result = await write_file("/tmp/toobig.txt", big)
     assert result["success"] is False
@@ -169,6 +168,7 @@ async def test_write_file_permission_denied(tmp_path):
 # ---------------------------------------------------------------------------
 # edit_file
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.anyio
 async def test_edit_file_replaces_string(tmp_path):
@@ -292,6 +292,7 @@ async def test_edit_file_write_permission_denied(tmp_path):
 # glob
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.anyio
 async def test_glob_finds_files(tmp_path):
     (tmp_path / "a.py").write_text("a")
@@ -323,6 +324,7 @@ async def test_glob_empty_result(tmp_path):
 # ---------------------------------------------------------------------------
 # grep
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.anyio
 async def test_grep_content_mode(tmp_path):
@@ -408,6 +410,7 @@ async def test_grep_no_matches(tmp_path):
 # glob_files — exception path
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.anyio
 async def test_glob_exception_returns_error(tmp_path):
     """glob_files should catch exceptions and return error dict."""
@@ -421,6 +424,7 @@ async def test_glob_exception_returns_error(tmp_path):
 # ---------------------------------------------------------------------------
 # _grep_python fallback — full coverage
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.anyio
 async def test_grep_python_invalid_regex(tmp_path):
@@ -514,10 +518,12 @@ async def test_grep_python_truncates(tmp_path):
 # _grep_rg — explicit tests (only run if rg is available)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.anyio
 async def test_grep_rg_files_mode(tmp_path):
     """ripgrep files output_mode."""
     import shutil
+
     if not shutil.which("rg"):
         pytest.skip("ripgrep not installed")
     (tmp_path / "a.txt").write_text("target line\n")
@@ -530,6 +536,7 @@ async def test_grep_rg_files_mode(tmp_path):
 async def test_grep_rg_count_mode(tmp_path):
     """ripgrep count output_mode."""
     import shutil
+
     if not shutil.which("rg"):
         pytest.skip("ripgrep not installed")
     (tmp_path / "data.txt").write_text("apple\nbanana\napple pie\n")
@@ -541,6 +548,7 @@ async def test_grep_rg_count_mode(tmp_path):
 async def test_grep_rg_context_lines(tmp_path):
     """ripgrep with context lines."""
     import shutil
+
     if not shutil.which("rg"):
         pytest.skip("ripgrep not installed")
     f = tmp_path / "ctx.txt"
@@ -553,9 +561,10 @@ async def test_grep_rg_context_lines(tmp_path):
 async def test_grep_rg_timeout(tmp_path):
     """ripgrep timeout should return error."""
     import shutil
+
     if not shutil.which("rg"):
         pytest.skip("ripgrep not installed")
-    with patch("asyncio.wait_for", side_effect=asyncio.TimeoutError()):
+    with patch("asyncio.wait_for", side_effect=TimeoutError()):
         result = await grep_files("pattern", path=str(tmp_path))
     assert result["success"] is False
     assert result["error"] == "TimeoutError"

@@ -3,21 +3,20 @@
 Systematically tests edge cases for each tool function's parameters.
 """
 
-import asyncio
 import os
-import pytest
 from unittest.mock import patch
 
-from mymcp.tools.bash import run_bash_execute
-from mymcp.tools.files import read_file, write_file, edit_file, glob_files, grep_files
+import pytest
 
+from mymcp.tools.bash import run_bash_execute
+from mymcp.tools.files import edit_file, glob_files, grep_files, read_file, write_file
 
 # ===========================================================================
 # bash_execute boundaries
 # ===========================================================================
 
-class TestBashBoundary:
 
+class TestBashBoundary:
     @pytest.mark.anyio
     async def test_timeout_zero_clamped_to_1(self):
         """timeout=0 should be clamped to 1 (min)."""
@@ -64,6 +63,7 @@ class TestBashBoundary:
     async def test_max_output_bytes_over_hard_cap(self):
         """max_output_bytes over hard cap should be clamped."""
         from mymcp import config
+
         result = await run_bash_execute(
             "echo hello",
             max_output_bytes=config.BASH_MAX_OUTPUT_BYTES_HARD + 1000,
@@ -90,8 +90,8 @@ class TestBashBoundary:
 # read_file boundaries
 # ===========================================================================
 
-class TestReadFileBoundary:
 
+class TestReadFileBoundary:
     @pytest.mark.anyio
     async def test_offset_zero_clamped(self, tmp_path):
         """offset=0 should be clamped to 1."""
@@ -139,6 +139,7 @@ class TestReadFileBoundary:
         f = tmp_path / "test.txt"
         f.write_text("line1\n")
         from mymcp import config
+
         result = await read_file(str(f), limit=config.READ_FILE_MAX_LIMIT)
         assert result["total_lines"] == 1
 
@@ -148,6 +149,7 @@ class TestReadFileBoundary:
         f = tmp_path / "test.txt"
         f.write_text("line1\n")
         from mymcp import config
+
         result = await read_file(str(f), limit=config.READ_FILE_MAX_LIMIT + 100)
         assert result["total_lines"] == 1
 
@@ -189,8 +191,8 @@ class TestReadFileBoundary:
 # write_file boundaries
 # ===========================================================================
 
-class TestWriteFileBoundary:
 
+class TestWriteFileBoundary:
     @pytest.mark.anyio
     async def test_empty_content(self, tmp_path):
         """Writing empty content should succeed."""
@@ -228,8 +230,8 @@ class TestWriteFileBoundary:
 # edit_file boundaries
 # ===========================================================================
 
-class TestEditFileBoundary:
 
+class TestEditFileBoundary:
     @pytest.mark.anyio
     async def test_old_equals_new(self, tmp_path):
         """old_string == new_string — no-op replacement."""
@@ -263,8 +265,8 @@ class TestEditFileBoundary:
 # glob_files boundaries
 # ===========================================================================
 
-class TestGlobBoundary:
 
+class TestGlobBoundary:
     @pytest.mark.anyio
     async def test_empty_pattern(self, tmp_path):
         """Empty pattern."""
@@ -290,8 +292,8 @@ class TestGlobBoundary:
 # grep_files boundaries
 # ===========================================================================
 
-class TestGrepBoundary:
 
+class TestGrepBoundary:
     @pytest.mark.anyio
     async def test_empty_pattern(self, tmp_path):
         """Empty regex pattern — matches everything."""
@@ -325,9 +327,11 @@ class TestGrepBoundary:
     async def test_max_results_over_limit_clamped(self, tmp_path):
         """max_results over GREP_MAX_RESULTS should be clamped."""
         from mymcp import config
+
         (tmp_path / "f.txt").write_text("match\n")
         result = await grep_files(
-            "match", path=str(tmp_path),
+            "match",
+            path=str(tmp_path),
             max_results=config.GREP_MAX_RESULTS + 1000,
         )
         assert result["match_count"] >= 0

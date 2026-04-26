@@ -1,8 +1,9 @@
-import pytest
 import json
-from unittest.mock import patch, AsyncMock
+from unittest.mock import patch
 
-from mymcp.mcp_server import dispatch_tool, call_tool, _current_audit_info, _extract_params
+import pytest
+
+from mymcp.mcp_server import _current_audit_info, _extract_params, call_tool, dispatch_tool
 
 
 @pytest.mark.anyio
@@ -71,14 +72,17 @@ async def test_dispatch_unknown_tool():
 # call_tool — full pipeline (permission check + dispatch + audit)
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def set_audit_info():
     """Set contextvar and disable audit file logging for call_tool tests."""
-    token = _current_audit_info.set({
-        "token_name": "test-client",
-        "role": "rw",
-        "ip": "127.0.0.1",
-    })
+    token = _current_audit_info.set(
+        {
+            "token_name": "test-client",
+            "role": "rw",
+            "ip": "127.0.0.1",
+        }
+    )
     with patch("mymcp.mcp_server.log_tool_call"):
         yield
     _current_audit_info.reset(token)
@@ -86,11 +90,13 @@ def set_audit_info():
 
 @pytest.fixture
 def set_ro_audit_info():
-    token = _current_audit_info.set({
-        "token_name": "ro-client",
-        "role": "ro",
-        "ip": "127.0.0.1",
-    })
+    token = _current_audit_info.set(
+        {
+            "token_name": "ro-client",
+            "role": "ro",
+            "ip": "127.0.0.1",
+        }
+    )
     with patch("mymcp.mcp_server.log_tool_call"):
         yield
     _current_audit_info.reset(token)
@@ -106,11 +112,13 @@ async def test_call_tool_success(set_audit_info):
 @pytest.mark.anyio
 async def test_call_tool_success_audit_fields():
     """Successful call must log result='ok' with all identity + timing fields."""
-    token = _current_audit_info.set({
-        "token_name": "client-x",
-        "role": "rw",
-        "ip": "10.1.2.3",
-    })
+    token = _current_audit_info.set(
+        {
+            "token_name": "client-x",
+            "role": "rw",
+            "ip": "10.1.2.3",
+        }
+    )
     try:
         with patch("mymcp.mcp_server.log_tool_call") as mock_log:
             await call_tool("bash_execute", {"command": "echo ok"})
@@ -140,11 +148,13 @@ async def test_call_tool_permission_denied(set_ro_audit_info):
 @pytest.mark.anyio
 async def test_call_tool_permission_denied_audit_fields():
     """Denied call must log result='denied' with reason, no duration."""
-    token = _current_audit_info.set({
-        "token_name": "ro-bot",
-        "role": "ro",
-        "ip": "192.168.0.1",
-    })
+    token = _current_audit_info.set(
+        {
+            "token_name": "ro-bot",
+            "role": "ro",
+            "ip": "192.168.0.1",
+        }
+    )
     try:
         with patch("mymcp.mcp_server.log_tool_call") as mock_log:
             await call_tool("write_file", {"file_path": "/tmp/x", "content": "y"})
@@ -242,30 +252,40 @@ async def test_call_tool_null_arguments(set_audit_info):
 # _extract_params
 # ---------------------------------------------------------------------------
 
+
 def test_extract_params_omits_content():
-    params = _extract_params("write_file", {
-        "file_path": "/tmp/x",
-        "content": "a" * 10000,
-    })
+    params = _extract_params(
+        "write_file",
+        {
+            "file_path": "/tmp/x",
+            "content": "a" * 10000,
+        },
+    )
     assert params["file_path"] == "/tmp/x"
     assert "10000 chars" in params["content"]
 
 
 def test_extract_params_omits_old_new_string():
-    params = _extract_params("edit_file", {
-        "file_path": "/tmp/x",
-        "old_string": "abc",
-        "new_string": "def",
-    })
+    params = _extract_params(
+        "edit_file",
+        {
+            "file_path": "/tmp/x",
+            "old_string": "abc",
+            "new_string": "def",
+        },
+    )
     assert "3 chars" in params["old_string"]
     assert "3 chars" in params["new_string"]
 
 
 def test_extract_params_keeps_normal_fields():
-    params = _extract_params("bash_execute", {
-        "command": "ls -la",
-        "timeout": 30,
-    })
+    params = _extract_params(
+        "bash_execute",
+        {
+            "command": "ls -la",
+            "timeout": 30,
+        },
+    )
     assert params == {"command": "ls -la", "timeout": 30}
 
 
@@ -273,13 +293,19 @@ def test_extract_params_keeps_normal_fields():
 # list_tools — via _current_audit_info contextvar
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.anyio
 async def test_list_tools_ro_role():
     """list_tools should return only read tools for ro role."""
-    from mymcp.mcp_server import list_tools, _current_audit_info, READ_TOOLS
-    token = _current_audit_info.set({
-        "token_name": "ro-user", "role": "ro", "ip": "127.0.0.1",
-    })
+    from mymcp.mcp_server import READ_TOOLS, _current_audit_info, list_tools
+
+    token = _current_audit_info.set(
+        {
+            "token_name": "ro-user",
+            "role": "ro",
+            "ip": "127.0.0.1",
+        }
+    )
     try:
         tools = await list_tools()
         tool_names = {t.name for t in tools}
@@ -291,10 +317,15 @@ async def test_list_tools_ro_role():
 @pytest.mark.anyio
 async def test_list_tools_rw_role():
     """list_tools should return all tools for rw role."""
-    from mymcp.mcp_server import list_tools, _current_audit_info, ALL_TOOLS
-    token = _current_audit_info.set({
-        "token_name": "rw-user", "role": "rw", "ip": "127.0.0.1",
-    })
+    from mymcp.mcp_server import ALL_TOOLS, _current_audit_info, list_tools
+
+    token = _current_audit_info.set(
+        {
+            "token_name": "rw-user",
+            "role": "rw",
+            "ip": "127.0.0.1",
+        }
+    )
     try:
         tools = await list_tools()
         tool_names = {t.name for t in tools}
@@ -306,6 +337,7 @@ async def test_list_tools_rw_role():
 # ---------------------------------------------------------------------------
 # call_tool — JSON decode error path
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.anyio
 async def test_call_tool_non_json_result(set_audit_info):
@@ -321,6 +353,7 @@ async def test_call_tool_non_json_result(set_audit_info):
 # ---------------------------------------------------------------------------
 # Missing / malformed fields — defaults from .get() calls must behave right
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.anyio
 async def test_call_tool_contextvar_defaults_when_fields_missing():
@@ -349,25 +382,29 @@ async def test_call_tool_dispatch_result_without_success_field_is_ok(set_audit_i
     Kills mutations flipping the default from True to False on
     result_data.get('success', True).
     """
-    with patch(
-        "mymcp.mcp_server.dispatch_tool",
-        return_value=json.dumps({"content": "plain", "total_lines": 1, "truncated": False}),
+    with (
+        patch(
+            "mymcp.mcp_server.dispatch_tool",
+            return_value=json.dumps({"content": "plain", "total_lines": 1, "truncated": False}),
+        ),
+        patch("mymcp.mcp_server.log_tool_call") as mock_log,
     ):
-        with patch("mymcp.mcp_server.log_tool_call") as mock_log:
-            await call_tool("read_file", {"file_path": "/tmp/x"})
-            kwargs = mock_log.call_args.kwargs
-            assert kwargs["result"] == "ok"
-            assert kwargs["error_code"] is None
+        await call_tool("read_file", {"file_path": "/tmp/x"})
+        kwargs = mock_log.call_args.kwargs
+        assert kwargs["result"] == "ok"
+        assert kwargs["error_code"] is None
 
 
 @pytest.mark.anyio
 async def test_call_tool_dispatch_success_true_is_ok(set_audit_info):
     """Explicit success=True must log as ok (not treated as error)."""
-    with patch(
-        "mymcp.mcp_server.dispatch_tool",
-        return_value=json.dumps({"success": True, "bytes_written": 5}),
+    with (
+        patch(
+            "mymcp.mcp_server.dispatch_tool",
+            return_value=json.dumps({"success": True, "bytes_written": 5}),
+        ),
+        patch("mymcp.mcp_server.log_tool_call") as mock_log,
     ):
-        with patch("mymcp.mcp_server.log_tool_call") as mock_log:
-            await call_tool("write_file", {"file_path": "/tmp/y", "content": "hi"})
-            kwargs = mock_log.call_args.kwargs
-            assert kwargs["result"] == "ok"
+        await call_tool("write_file", {"file_path": "/tmp/y", "content": "hi"})
+        kwargs = mock_log.call_args.kwargs
+        assert kwargs["result"] == "ok"

@@ -1,6 +1,7 @@
 import os
-import pytest
 from unittest.mock import patch
+
+import pytest
 
 
 @pytest.fixture(autouse=True)
@@ -15,6 +16,7 @@ def mock_protected_paths(tmp_path):
 
 def test_check_protected_path_blocks_app_dir(mock_protected_paths):
     from mymcp.tools.files import check_protected_path
+
     app_dir, _ = mock_protected_paths
     err = check_protected_path(f"{app_dir}/config.py")
     assert err is not None
@@ -23,6 +25,7 @@ def test_check_protected_path_blocks_app_dir(mock_protected_paths):
 
 def test_check_protected_path_blocks_audit_dir(mock_protected_paths):
     from mymcp.tools.files import check_protected_path
+
     _, audit_dir = mock_protected_paths
     err = check_protected_path(f"{audit_dir}/audit.log")
     assert err is not None
@@ -30,12 +33,14 @@ def test_check_protected_path_blocks_audit_dir(mock_protected_paths):
 
 def test_check_protected_path_allows_normal_path(mock_protected_paths):
     from mymcp.tools.files import check_protected_path
+
     err = check_protected_path("/tmp/somefile.txt")
     assert err is None
 
 
 def test_check_protected_path_blocks_symlink(mock_protected_paths, tmp_path):
     from mymcp.tools.files import check_protected_path
+
     app_dir, _ = mock_protected_paths
     secret = os.path.join(app_dir, ".env")
     with open(secret, "w") as f:
@@ -48,6 +53,7 @@ def test_check_protected_path_blocks_symlink(mock_protected_paths, tmp_path):
 
 def test_check_protected_path_exact_dir(mock_protected_paths):
     from mymcp.tools.files import check_protected_path
+
     app_dir, _ = mock_protected_paths
     err = check_protected_path(app_dir)
     assert err is not None
@@ -56,6 +62,7 @@ def test_check_protected_path_exact_dir(mock_protected_paths):
 @pytest.mark.anyio
 async def test_read_file_rejects_protected_path(mock_protected_paths):
     from mymcp.tools.files import read_file
+
     app_dir, _ = mock_protected_paths
     secret = os.path.join(app_dir, ".env")
     with open(secret, "w") as f:
@@ -68,6 +75,7 @@ async def test_read_file_rejects_protected_path(mock_protected_paths):
 @pytest.mark.anyio
 async def test_write_file_rejects_protected_path(mock_protected_paths):
     from mymcp.tools.files import write_file
+
     app_dir, _ = mock_protected_paths
     result = await write_file(os.path.join(app_dir, "hack.py"), "evil code")
     assert result["success"] is False
@@ -76,6 +84,7 @@ async def test_write_file_rejects_protected_path(mock_protected_paths):
 @pytest.mark.anyio
 async def test_edit_file_rejects_protected_path(mock_protected_paths):
     from mymcp.tools.files import edit_file
+
     app_dir, _ = mock_protected_paths
     target = os.path.join(app_dir, "config.py")
     with open(target, "w") as f:
@@ -87,6 +96,7 @@ async def test_edit_file_rejects_protected_path(mock_protected_paths):
 @pytest.mark.anyio
 async def test_glob_filters_protected_paths(mock_protected_paths, tmp_path):
     from mymcp.tools.files import glob_files
+
     app_dir, _ = mock_protected_paths
     with open(os.path.join(app_dir, "secret.py"), "w") as f:
         f.write("")
@@ -104,6 +114,7 @@ async def test_glob_filters_protected_paths(mock_protected_paths, tmp_path):
 @pytest.mark.anyio
 async def test_grep_filters_protected_paths(mock_protected_paths, tmp_path):
     from mymcp.tools.files import grep_files
+
     app_dir, _ = mock_protected_paths
     with open(os.path.join(app_dir, "secret.py"), "w") as f:
         f.write("FINDME_SECRET")

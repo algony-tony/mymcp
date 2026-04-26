@@ -1,25 +1,27 @@
 import importlib
 
-import pytest
-
 
 def _reload_config(monkeypatch, env: dict[str, str]):
     for k, v in env.items():
         monkeypatch.setenv(k, v)
     import mymcp.config
+
     importlib.reload(mymcp.config)
     return mymcp.config
 
 
 def test_settings_reads_mymcp_prefixed_vars(monkeypatch, tmp_path):
     monkeypatch.delenv("MYMCP_ENV_FILE", raising=False)
-    cfg = _reload_config(monkeypatch, {
-        "MYMCP_HOST": "127.0.0.1",
-        "MYMCP_PORT": "9000",
-        "MYMCP_ADMIN_TOKEN": "tok_abc",
-        "MYMCP_AUDIT_ENABLED": "true",
-        "MYMCP_AUDIT_LOG_DIR": str(tmp_path),
-    })
+    cfg = _reload_config(
+        monkeypatch,
+        {
+            "MYMCP_HOST": "127.0.0.1",
+            "MYMCP_PORT": "9000",
+            "MYMCP_ADMIN_TOKEN": "tok_abc",
+            "MYMCP_AUDIT_ENABLED": "true",
+            "MYMCP_AUDIT_LOG_DIR": str(tmp_path),
+        },
+    )
     s = cfg.get_settings()
     assert s.host == "127.0.0.1"
     assert s.port == 9000
@@ -51,18 +53,24 @@ def test_settings_protected_paths_includes_log_dir(monkeypatch, tmp_path):
     monkeypatch.delenv("MYMCP_ENV_FILE", raising=False)
     log_dir = tmp_path / "audit"
     log_dir.mkdir()
-    cfg = _reload_config(monkeypatch, {
-        "MYMCP_AUDIT_LOG_DIR": str(log_dir),
-    })
+    cfg = _reload_config(
+        monkeypatch,
+        {
+            "MYMCP_AUDIT_LOG_DIR": str(log_dir),
+        },
+    )
     paths = cfg.get_protected_paths()
     assert str(log_dir) in paths
 
 
 def test_settings_extra_protected_paths(monkeypatch):
     monkeypatch.delenv("MYMCP_ENV_FILE", raising=False)
-    cfg = _reload_config(monkeypatch, {
-        "MYMCP_PROTECTED_PATHS": "/extra/one,/extra/two",
-    })
+    cfg = _reload_config(
+        monkeypatch,
+        {
+            "MYMCP_PROTECTED_PATHS": "/extra/one,/extra/two",
+        },
+    )
     paths = cfg.get_protected_paths()
     assert "/extra/one" in paths
     assert "/extra/two" in paths

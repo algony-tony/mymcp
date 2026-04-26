@@ -6,11 +6,11 @@ Compare: pytest tests/test_benchmark.py --benchmark-compare=baseline
 """
 
 import asyncio
-import os
+
 import pytest
 
-from mymcp.tools.files import read_file, write_file, edit_file, glob_files, grep_files
 from mymcp.tools.bash import run_bash_execute
+from mymcp.tools.files import edit_file, glob_files, grep_files, read_file, write_file
 
 
 def _run(coro):
@@ -62,6 +62,7 @@ def many_files(tmp_path):
 # read_file benchmarks
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.benchmark(group="read_file")
 def test_bench_read_small(benchmark, small_file):
     benchmark.pedantic(lambda: _run(read_file(small_file)), rounds=20)
@@ -84,6 +85,7 @@ def test_bench_read_large_with_pagination(benchmark, large_file):
 # write_file benchmarks
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.benchmark(group="write_file")
 def test_bench_write_small(benchmark, tmp_path):
     path = str(tmp_path / "bench_write.txt")
@@ -100,6 +102,7 @@ def test_bench_write_medium(benchmark, tmp_path):
 # ---------------------------------------------------------------------------
 # edit_file benchmarks
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.benchmark(group="edit_file")
 def test_bench_edit_single(benchmark, tmp_path):
@@ -131,6 +134,7 @@ def test_bench_edit_replace_all(benchmark, tmp_path):
 # glob_files benchmarks
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.benchmark(group="glob")
 def test_bench_glob_few_matches(benchmark, many_files):
     benchmark.pedantic(
@@ -151,6 +155,7 @@ def test_bench_glob_recursive(benchmark, many_files):
 # grep_files benchmarks
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.benchmark(group="grep")
 def test_bench_grep_small_dir(benchmark, many_files):
     benchmark.pedantic(
@@ -170,6 +175,7 @@ def test_bench_grep_with_glob_filter(benchmark, many_files):
 # ---------------------------------------------------------------------------
 # bash_execute benchmarks
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.benchmark(group="bash")
 def test_bench_bash_echo(benchmark):

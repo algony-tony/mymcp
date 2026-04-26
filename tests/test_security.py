@@ -3,19 +3,21 @@
 Covers: auth boundary, privilege escalation, path traversal,
 information leakage, HTTP layer. Uses ASGI transport (no live server needed).
 """
+
 import json
 import os
-import pytest
 from unittest.mock import AsyncMock, patch
 
-from httpx import AsyncClient, ASGITransport
+import pytest
+from httpx import ASGITransport, AsyncClient
+
 from mymcp.auth import TokenStore
 from mymcp.mcp_server import call_tool, list_tools
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def sec_store(tmp_path):
@@ -46,13 +48,17 @@ def disabled_token(sec_store):
 def sec_app(sec_store):
     """FastAPI app wired to sec_store with a fake MCP session_manager."""
     from mymcp import auth
+
     original = auth._store
     auth._store = sec_store
-    from mymcp.server import create_app; app = create_app()
+    from mymcp.server import create_app
+
+    app = create_app()
     from starlette.responses import JSONResponse
 
     async def fake_handle_request(scope, receive, send):
         from starlette.requests import Request
+
         request = Request(scope, receive, send)
         body = await request.body()
         try:
@@ -102,6 +108,7 @@ def protected_dirs(tmp_path):
 # Category 1: Authentication Boundary
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.anyio
 async def test_auth_no_header_returns_401(sec_client):
     resp = await sec_client.post("/mcp", content=b"{}")
@@ -111,7 +118,8 @@ async def test_auth_no_header_returns_401(sec_client):
 @pytest.mark.anyio
 async def test_auth_empty_token_after_bearer_returns_401(sec_client):
     resp = await sec_client.post(
-        "/mcp", content=b"{}",
+        "/mcp",
+        content=b"{}",
         headers={"Authorization": "Bearer "},
     )
     assert resp.status_code == 401
@@ -120,7 +128,8 @@ async def test_auth_empty_token_after_bearer_returns_401(sec_client):
 @pytest.mark.anyio
 async def test_auth_no_bearer_prefix_returns_401(sec_client):
     resp = await sec_client.post(
-        "/mcp", content=b"{}",
+        "/mcp",
+        content=b"{}",
         headers={"Authorization": "tok_whatever"},
     )
     assert resp.status_code == 401
@@ -129,7 +138,8 @@ async def test_auth_no_bearer_prefix_returns_401(sec_client):
 @pytest.mark.anyio
 async def test_auth_admin_token_rejected_as_user_token(sec_client):
     resp = await sec_client.post(
-        "/mcp", content=b"{}",
+        "/mcp",
+        content=b"{}",
         headers={"Authorization": "Bearer adm_sectest"},
     )
     assert resp.status_code == 401
@@ -138,7 +148,8 @@ async def test_auth_admin_token_rejected_as_user_token(sec_client):
 @pytest.mark.anyio
 async def test_auth_disabled_token_returns_401(sec_client, disabled_token):
     resp = await sec_client.post(
-        "/mcp", content=b"{}",
+        "/mcp",
+        content=b"{}",
         headers={"Authorization": f"Bearer {disabled_token}"},
     )
     assert resp.status_code == 401
@@ -148,9 +159,11 @@ async def test_auth_disabled_token_returns_401(sec_client, disabled_token):
 # Category 2: Privilege Escalation
 # ---------------------------------------------------------------------------
 
+
 def _mcp_call_payload(tool_name: str, arguments: dict) -> dict:
     return {
-        "jsonrpc": "2.0", "id": 1,
+        "jsonrpc": "2.0",
+        "id": 1,
         "method": "tools/call",
         "params": {"name": tool_name, "arguments": arguments},
     }
@@ -162,7 +175,8 @@ def _mcp_list_payload() -> dict:
 
 async def _call_with_token(client, token: str, payload: dict) -> dict:
     resp = await client.post(
-        "/mcp", json=payload,
+        "/mcp",
+        json=payload,
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
     )
     assert resp.status_code == 200
@@ -172,7 +186,8 @@ async def _call_with_token(client, token: str, payload: dict) -> dict:
 @pytest.mark.anyio
 async def test_privesc_ro_cannot_bash_execute(sec_client, ro_token):
     data = await _call_with_token(
-        sec_client, ro_token,
+        sec_client,
+        ro_token,
         _mcp_call_payload("bash_execute", {"command": "id"}),
     )
     result = json.loads(data["result"]["content"][0]["text"])
@@ -183,11 +198,15 @@ async def test_privesc_ro_cannot_bash_execute(sec_client, ro_token):
 @pytest.mark.anyio
 async def test_privesc_ro_cannot_write_file(sec_client, ro_token, tmp_path):
     data = await _call_with_token(
-        sec_client, ro_token,
-        _mcp_call_payload("write_file", {
-            "file_path": str(tmp_path / "evil.txt"),
-            "content": "x",
-        }),
+        sec_client,
+        ro_token,
+        _mcp_call_payload(
+            "write_file",
+            {
+                "file_path": str(tmp_path / "evil.txt"),
+                "content": "x",
+            },
+        ),
     )
     result = json.loads(data["result"]["content"][0]["text"])
     assert result["success"] is False
@@ -197,12 +216,16 @@ async def test_privesc_ro_cannot_write_file(sec_client, ro_token, tmp_path):
 @pytest.mark.anyio
 async def test_privesc_ro_cannot_edit_file(sec_client, ro_token, tmp_path):
     data = await _call_with_token(
-        sec_client, ro_token,
-        _mcp_call_payload("edit_file", {
-            "file_path": str(tmp_path / "x.txt"),
-            "old_string": "a",
-            "new_string": "b",
-        }),
+        sec_client,
+        ro_token,
+        _mcp_call_payload(
+            "edit_file",
+            {
+                "file_path": str(tmp_path / "x.txt"),
+                "old_string": "a",
+                "new_string": "b",
+            },
+        ),
     )
     result = json.loads(data["result"]["content"][0]["text"])
     assert result["success"] is False
@@ -225,10 +248,12 @@ async def test_privesc_ro_list_tools_excludes_write_tools(sec_client, ro_token):
 # Category 3: Path Traversal
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.anyio
 async def test_path_traversal_dotdot_into_protected_dir(protected_dirs):
     """Path with ../ components that resolve into a protected dir must be blocked."""
     from mymcp.tools.files import read_file
+
     app_dir, _ = protected_dirs
     secret = os.path.join(app_dir, "secret.txt")
     with open(secret, "w") as f:
@@ -245,6 +270,7 @@ async def test_path_traversal_dotdot_into_protected_dir(protected_dirs):
 async def test_path_traversal_symlink_into_protected_dir(protected_dirs, tmp_path):
     """A symlink outside the protected dir that points inside must be blocked."""
     from mymcp.tools.files import read_file
+
     app_dir, _ = protected_dirs
     secret = os.path.join(app_dir, "secret.txt")
     with open(secret, "w") as f:
@@ -260,7 +286,8 @@ async def test_path_traversal_symlink_into_protected_dir(protected_dirs, tmp_pat
 async def test_path_traversal_null_byte_does_not_expose_content(sec_client, rw_token):
     """A path with an embedded null byte must not return file contents; server must not crash."""
     data = await _call_with_token(
-        sec_client, rw_token,
+        sec_client,
+        rw_token,
         _mcp_call_payload("read_file", {"file_path": "/tmp/pentest_null\x00/etc/shadow"}),
     )
     result = json.loads(data["result"]["content"][0]["text"])
@@ -272,6 +299,7 @@ async def test_path_traversal_null_byte_does_not_expose_content(sec_client, rw_t
 async def test_path_traversal_exact_protected_dir_blocked(protected_dirs):
     """Passing the exact protected directory path must be blocked."""
     from mymcp.tools.files import read_file
+
     app_dir, _ = protected_dirs
     result = await read_file(app_dir)
     assert result["success"] is False
@@ -281,6 +309,7 @@ async def test_path_traversal_exact_protected_dir_blocked(protected_dirs):
 # ---------------------------------------------------------------------------
 # Category 4: Information Leakage
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.anyio
 async def test_leakage_401_body_has_no_stack_trace(sec_client):
@@ -296,7 +325,8 @@ async def test_leakage_401_body_has_no_stack_trace(sec_client):
 async def test_leakage_permission_denied_does_not_echo_token(sec_client, ro_token):
     """PermissionDenied error response must not contain the caller's token value."""
     data = await _call_with_token(
-        sec_client, ro_token,
+        sec_client,
+        ro_token,
         _mcp_call_payload("bash_execute", {"command": "id"}),
     )
     response_text = json.dumps(data)
@@ -310,7 +340,8 @@ async def test_leakage_internal_error_has_no_traceback(sec_client, rw_token):
     with patch("mymcp.mcp_server.dispatch_tool", new_callable=AsyncMock) as mock_dispatch:
         mock_dispatch.side_effect = RuntimeError("intentional test error")
         data = await _call_with_token(
-            sec_client, rw_token,
+            sec_client,
+            rw_token,
             _mcp_call_payload("read_file", {"file_path": "/tmp/x"}),
         )
     result = json.loads(data["result"]["content"][0]["text"])
@@ -324,12 +355,14 @@ async def test_leakage_internal_error_has_no_traceback(sec_client, rw_token):
 # Category 5: HTTP Layer
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.anyio
 async def test_http_oversized_authorization_header(sec_client):
     """An Authorization header larger than 8KB must not crash the server."""
     oversized_token = "Bearer " + "x" * 9000
     resp = await sec_client.post(
-        "/mcp", content=b"{}",
+        "/mcp",
+        content=b"{}",
         headers={"Authorization": oversized_token},
     )
     assert resp.status_code in (400, 401)
@@ -339,7 +372,8 @@ async def test_http_oversized_authorization_header(sec_client):
 async def test_http_bearer_token_with_newline_rejected(sec_client):
     """A Bearer token containing a newline must be rejected."""
     resp = await sec_client.post(
-        "/mcp", content=b"{}",
+        "/mcp",
+        content=b"{}",
         headers={"Authorization": "Bearer tok_valid\nX-Injected: evil"},
     )
     assert resp.status_code == 401
@@ -349,7 +383,8 @@ async def test_http_bearer_token_with_newline_rejected(sec_client):
 async def test_http_bearer_token_with_null_byte_rejected(sec_client):
     """A Bearer token containing a null byte must be rejected."""
     resp = await sec_client.post(
-        "/mcp", content=b"{}",
+        "/mcp",
+        content=b"{}",
         headers={"Authorization": "Bearer tok_valid\x00extra"},
     )
     assert resp.status_code == 401

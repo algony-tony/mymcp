@@ -6,17 +6,17 @@ Each clamp is exercised at/around its min and max bounds so that flipping a
 boundary inclusive <-> exclusive is observable.
 """
 
-import pytest
 from unittest.mock import patch
 
-from mymcp import config
-from mymcp.tools.bash import run_bash_execute
-from mymcp.tools.files import read_file, grep_files
+import pytest
 
+from mymcp.tools.bash import run_bash_execute
+from mymcp.tools.files import grep_files, read_file
 
 # ---------------------------------------------------------------------------
 # bash.run_bash_execute: timeout = min(max(1, timeout), 600)
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("raw_timeout", [-100, 0, 1])
@@ -52,6 +52,7 @@ async def test_bash_timeout_at_or_above_max_clamps(raw_timeout, expected_cap):
 # bash.run_bash_execute: max_output_bytes = min(max(1, n), HARD_CAP)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.anyio
 @pytest.mark.parametrize("raw_bytes", [-50, 0, 1])
 async def test_bash_max_output_at_or_below_one_clamps_to_one(raw_bytes):
@@ -77,7 +78,8 @@ async def test_bash_max_output_above_hard_cap_clamps():
         BASH_MAX_OUTPUT_BYTES_HARD=10,
     ):
         result = await run_bash_execute(
-            "echo hello_world", max_output_bytes=999_999,
+            "echo hello_world",
+            max_output_bytes=999_999,
         )
         assert "[TRUNCATED" in result["stdout"]
         assert "showing first 10 bytes" in result["stdout"]
@@ -86,6 +88,7 @@ async def test_bash_max_output_above_hard_cap_clamps():
 # ---------------------------------------------------------------------------
 # tools.files.read_file: offset = max(1, offset), limit = min(max(1, n), MAX)
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("raw_offset", [-10, 0, 1])
@@ -149,6 +152,7 @@ async def test_read_file_limit_above_max_clamps(tmp_path):
 #   Kills mutations flipping < to <= or > at this boundary.
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.anyio
 async def test_read_file_truncated_false_when_exact_fit(tmp_path):
     """offset=1, limit=3, total=3 → truncated is exactly False (no off-by-one)."""
@@ -183,6 +187,7 @@ async def test_read_file_truncated_false_when_reading_past_end(tmp_path):
 # grep.max_results = min(max(1, n), GREP_MAX_RESULTS) — actually observable
 # via truncation marker when file has more matches than the clamp.
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("raw_max", [-5, 0, 1])

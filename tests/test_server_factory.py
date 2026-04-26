@@ -9,24 +9,30 @@ def test_create_app_returns_fastapi_instance(monkeypatch, tmp_path):
     monkeypatch.delenv("MYMCP_ENV_FILE", raising=False)
 
     from mymcp import config
+
     config.reset_settings_cache()
 
     from mymcp.server import create_app
+
     app = create_app()
 
     from fastapi import FastAPI
+
     assert isinstance(app, FastAPI)
 
 
 def test_importing_server_does_not_configure_logging():
     """Importing mymcp.server must not call logging.basicConfig()."""
     import logging
+
     root = logging.getLogger()
     pre_handlers = list(root.handlers)
     pre_level = root.level
 
     import importlib
+
     import mymcp.server
+
     importlib.reload(mymcp.server)
 
     assert list(root.handlers) == pre_handlers

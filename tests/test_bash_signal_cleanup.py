@@ -1,4 +1,6 @@
 """SIGTERM to the parent must propagate to in-flight bash subprocesses."""
+
+import contextlib
 import os
 import signal
 import subprocess
@@ -7,9 +9,9 @@ import time
 
 import pytest
 
-
 pytestmark = pytest.mark.skipif(
-    sys.platform != "linux", reason="signal/process group test is Linux-only",
+    sys.platform != "linux",
+    reason="signal/process group test is Linux-only",
 )
 
 
@@ -34,10 +36,8 @@ def test_shutdown_inflight_processes_kills_running_child():
         assert p.poll() is not None, "child still alive after shutdown_inflight_processes"
     finally:
         if p.poll() is None:
-            try:
+            with contextlib.suppress(ProcessLookupError):
                 os.killpg(p.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
             p.wait(timeout=2)
 
 

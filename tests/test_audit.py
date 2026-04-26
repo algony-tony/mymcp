@@ -1,7 +1,7 @@
 import json
-import os
-import pytest
 from unittest.mock import patch
+
+import pytest
 
 
 @pytest.fixture(autouse=True)
@@ -14,6 +14,7 @@ def audit_config(tmp_path):
         AUDIT_BACKUP_COUNT=2,
     ):
         from mymcp import audit
+
         audit._logger = None
         audit._setup_done = False
         yield tmp_path
@@ -21,6 +22,7 @@ def audit_config(tmp_path):
 
 def test_log_tool_call_writes_json_line(audit_config):
     from mymcp import audit
+
     audit.log_tool_call(
         token_name="test-client",
         role="rw",
@@ -48,6 +50,7 @@ def test_log_tool_call_writes_json_line(audit_config):
 
 def test_log_denied_includes_reason(audit_config):
     from mymcp import audit
+
     audit.log_tool_call(
         token_name="readonly-bot",
         role="ro",
@@ -67,6 +70,7 @@ def test_log_denied_includes_reason(audit_config):
 
 def test_log_error_includes_reason(audit_config):
     from mymcp import audit
+
     audit.log_tool_call(
         token_name="client",
         role="rw",
@@ -85,6 +89,7 @@ def test_log_error_includes_reason(audit_config):
 
 def test_log_error_includes_error_code_and_message(audit_config):
     from mymcp import audit
+
     audit.log_tool_call(
         token_name="client",
         role="ro",
@@ -115,6 +120,7 @@ def test_audit_disabled_writes_nothing(tmp_path):
         AUDIT_BACKUP_COUNT=2,
     ):
         from mymcp import audit
+
         audit._logger = None
         audit._setup_done = False
         audit.log_tool_call(
@@ -131,6 +137,7 @@ def test_audit_disabled_writes_nothing(tmp_path):
 
 def test_multiple_entries_are_separate_lines(audit_config):
     from mymcp import audit
+
     for i in range(3):
         audit.log_tool_call(
             token_name=f"client-{i}",
