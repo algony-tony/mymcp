@@ -70,8 +70,8 @@
     {
       "id": 2,
       "type": "stat",
-      "title": "Total Calls",
-      "description": "Total tool calls over the selected time range (uses Grafana's $__range, follows the time picker).",
+      "title": "Tool Calls",
+      "description": "Total mymcp_tool_calls_total over the selected time range (uses Grafana's $__range, follows the time picker). MCP handshake/listTools traffic is NOT counted - this is dispatched tool invocations only.",
       "gridPos": {
         "x": 0,
         "y": 1,
@@ -119,8 +119,8 @@
     {
       "id": 3,
       "type": "stat",
-      "title": "Error Rate",
-      "description": "Share of tool calls returning result=\"error\" over the last 5 minutes. Threshold turns red above 5%.",
+      "title": "Tool Error Rate",
+      "description": "Share of mymcp_tool_calls_total with result=\"error\" over the last 5 minutes. Threshold turns red above 5%. HTTP 4xx/5xx are not part of this; see HTTP panels for that.",
       "gridPos": {
         "x": 6,
         "y": 1,
@@ -173,8 +173,8 @@
     {
       "id": 4,
       "type": "stat",
-      "title": "p95 Latency",
-      "description": "p95 of mymcp_tool_duration_seconds across all tools (5m window). Threshold turns red above 1000 ms.",
+      "title": "Tool p95 Latency",
+      "description": "p95 of mymcp_tool_duration_seconds across all tools (5m window). Threshold turns red above 1000 ms. This is dispatch+execution time only, not HTTP RTT.",
       "gridPos": {
         "x": 12,
         "y": 1,
