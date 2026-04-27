@@ -70,8 +70,8 @@
     {
       "id": 2,
       "type": "stat",
-      "title": "Total Calls",
-      "description": "Total tool calls over the selected time range (uses Grafana's $__range, follows the time picker).",
+      "title": "Tool Calls",
+      "description": "Total mymcp_tool_calls_total over the selected time range (uses Grafana's $__range, follows the time picker). MCP handshake/listTools traffic is NOT counted - this is dispatched tool invocations only.",
       "gridPos": {
         "x": 0,
         "y": 1,
@@ -119,8 +119,8 @@
     {
       "id": 3,
       "type": "stat",
-      "title": "Error Rate",
-      "description": "Share of tool calls returning result=\"error\" over the last 5 minutes. Threshold turns red above 5%.",
+      "title": "Tool Error Rate",
+      "description": "Share of mymcp_tool_calls_total with result=\"error\" over the last 5 minutes. Threshold turns red above 5%. HTTP 4xx/5xx are not part of this; see HTTP panels for that.",
       "gridPos": {
         "x": 6,
         "y": 1,
@@ -173,8 +173,8 @@
     {
       "id": 4,
       "type": "stat",
-      "title": "p95 Latency",
-      "description": "p95 of mymcp_tool_duration_seconds across all tools (5m window). Threshold turns red above 1000 ms.",
+      "title": "Tool p95 Latency",
+      "description": "p95 of mymcp_tool_duration_seconds across all tools (5m window). Threshold turns red above 1000 ms. This is dispatch+execution time only, not HTTP RTT.",
       "gridPos": {
         "x": 12,
         "y": 1,
@@ -228,7 +228,7 @@
       "id": 5,
       "type": "stat",
       "title": "Service Status",
-      "description": "Prometheus up{} for the mymcp scrape target. UP=1, DOWN=0.",
+      "description": "Prometheus up{} per instance. UP=1, DOWN=0. With Instance=All, every instance renders as its own block.",
       "gridPos": {
         "x": 18,
         "y": 1,
@@ -247,7 +247,7 @@
         },
         "colorMode": "background",
         "graphMode": "none",
-        "textMode": "auto",
+        "textMode": "value_and_name",
         "orientation": "auto"
       },
       "fieldConfig": {
@@ -287,7 +287,7 @@
         {
           "refId": "A",
           "expr": "up{job=~\"mymcp.*\",instance=~\"$instance\"}",
-          "legendFormat": "Status"
+          "legendFormat": "{{instance}}"
         }
       ]
     },
@@ -588,7 +588,7 @@
         {
           "refId": "A",
           "expr": "process_resident_memory_bytes{job=~\"mymcp.*\",instance=~\"$instance\"}",
-          "legendFormat": "RSS Memory"
+          "legendFormat": "RSS {{instance}}"
         }
       ]
     },
@@ -641,7 +641,7 @@
         {
           "refId": "A",
           "expr": "rate(process_cpu_seconds_total{job=~\"mymcp.*\",instance=~\"$instance\"}[5m]) * 100",
-          "legendFormat": "CPU %"
+          "legendFormat": "CPU {{instance}}"
         }
       ]
     },
@@ -694,7 +694,7 @@
         {
           "refId": "A",
           "expr": "process_open_fds{job=~\"mymcp.*\",instance=~\"$instance\"}",
-          "legendFormat": "Open FDs"
+          "legendFormat": "FDs {{instance}}"
         }
       ]
     }
