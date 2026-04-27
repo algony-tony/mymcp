@@ -195,6 +195,100 @@ def cmd_install_service(args: argparse.Namespace) -> int:
     return 0
 
 
+def _resolve_env_path() -> str:
+    from mymcp.config import _discover_env_file
+    p = _discover_env_file()
+    if not p:
+        print(
+            "error: no .env file found (set MYMCP_ENV_FILE or run install-service first)",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    return p
+
+
+def cmd_token_list(_args: argparse.Namespace) -> int:
+    env_path = _resolve_env_path()
+    os.environ["MYMCP_ENV_FILE"] = env_path
+    from mymcp import config
+    config.reset_settings_cache()
+    from mymcp.auth import TokenStore
+    s = config.get_settings()
+
+    print(f"admin token:   {'set' if s.admin_token else 'NOT SET'}")
+    print(f"metrics token: {'set' if s.metrics_token else 'disabled (empty)'}")
+    print()
+    if not s.token_file or not os.path.exists(s.token_file):
+        print("(no tokens.json yet)")
+        return 0
+    store = TokenStore(s.token_file, s.admin_token)
+    tokens = store.list_tokens()
+    if not tokens:
+        print("(no ro/rw tokens)")
+        return 0
+    for t, info in tokens.items():
+        marker = "x" if info.get("enabled", True) else " "
+        print(f"[{marker}] {info.get('role','rw'):2}  {info.get('name','-'):20}  {t}")
+    return 0
+
+
+def cmd_token_add(args: argparse.Namespace) -> int:
+    env_path = _resolve_env_path()
+    os.environ["MYMCP_ENV_FILE"] = env_path
+    from mymcp.config import get_settings, reset_settings_cache
+    reset_settings_cache()
+    s = get_settings()
+    from mymcp.auth import TokenStore
+    store = TokenStore(s.token_file, s.admin_token)
+    new = store.create_token(args.name, role=args.role)
+    print(new)
+    return 0
+
+
+def cmd_token_revoke(args: argparse.Namespace) -> int:
+    env_path = _resolve_env_path()
+    os.environ["MYMCP_ENV_FILE"] = env_path
+    from mymcp.config import get_settings, reset_settings_cache
+    reset_settings_cache()
+    s = get_settings()
+    from mymcp.auth import TokenStore
+    store = TokenStore(s.token_file, s.admin_token)
+    if store.revoke_token(args.token):
+        print(f"revoked {args.token}")
+        return 0
+    print(f"not found: {args.token}", file=sys.stderr)
+    return 1
+
+
+def _rotate_in_env(env_path: str, key: str) -> str:
+    from mymcp.deploy.setup import make_token, update_env_file
+    new = make_token()
+    update_env_file(env_path, {key: new})
+    return new
+
+
+def cmd_token_rotate_admin(_args: argparse.Namespace) -> int:
+    env_path = _resolve_env_path()
+    new = _rotate_in_env(env_path, "MYMCP_ADMIN_TOKEN")
+    print(new)
+    return 0
+
+
+def cmd_token_rotate_metrics(_args: argparse.Namespace) -> int:
+    env_path = _resolve_env_path()
+    new = _rotate_in_env(env_path, "MYMCP_METRICS_TOKEN")
+    print(new)
+    return 0
+
+
+def cmd_token_disable_metrics(_args: argparse.Namespace) -> int:
+    env_path = _resolve_env_path()
+    from mymcp.deploy.setup import update_env_file
+    update_env_file(env_path, {"MYMCP_METRICS_TOKEN": ""})
+    print("metrics endpoint disabled.")
+    return 0
+
+
 def cmd_uninstall_service(args: argparse.Namespace) -> int:
     if not _require_root():
         return 2
@@ -284,6 +378,30 @@ def build_parser() -> argparse.ArgumentParser:
         "--purge", action="store_true", help="Also delete config-dir and log-dir"
     )
     p_uninst.set_defaults(func=cmd_uninstall_service)
+
+    p_token = sub.add_parser("token", help="Manage tokens")
+    p_token_sub = p_token.add_subparsers(dest="token_cmd", required=True)
+
+    p_tok_list = p_token_sub.add_parser("list")
+    p_tok_list.set_defaults(func=cmd_token_list)
+
+    p_tok_add = p_token_sub.add_parser("add")
+    p_tok_add.add_argument("--name", required=True)
+    p_tok_add.add_argument("--role", choices=["ro", "rw"], required=True)
+    p_tok_add.set_defaults(func=cmd_token_add)
+
+    p_tok_rev = p_token_sub.add_parser("revoke")
+    p_tok_rev.add_argument("token")
+    p_tok_rev.set_defaults(func=cmd_token_revoke)
+
+    p_tok_ra = p_token_sub.add_parser("rotate-admin")
+    p_tok_ra.set_defaults(func=cmd_token_rotate_admin)
+
+    p_tok_rm = p_token_sub.add_parser("rotate-metrics")
+    p_tok_rm.set_defaults(func=cmd_token_rotate_metrics)
+
+    p_tok_dm = p_token_sub.add_parser("disable-metrics")
+    p_tok_dm.set_defaults(func=cmd_token_disable_metrics)
 
     return parser
 
