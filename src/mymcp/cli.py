@@ -289,6 +289,74 @@ def cmd_token_disable_metrics(_args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_migrate_from_legacy(args: argparse.Namespace) -> int:
+    if not _require_root():
+        return 2
+    from pathlib import Path
+
+    from mymcp.deploy import migrate as mig
+    from mymcp.deploy import service, setup
+
+    legacy = Path(args.legacy_dir)
+    if not mig.legacy_dir_present(legacy):
+        print(f"error: no legacy install at {legacy} (.env missing).", file=sys.stderr)
+        return 2
+
+    new_cfg = Path("/etc/mymcp")
+    new_env = new_cfg / ".env"
+    new_tokens = new_cfg / "tokens.json"
+
+    src_text = (legacy / ".env").read_text()
+    rewritten = mig.rewrite_env_keys(src_text)
+
+    plan_lines = [
+        f"  rewrite {legacy / '.env'} → {new_env} (MCP_*→MYMCP_*)",
+        f"  copy   {legacy / 'tokens.json'} → {new_tokens}",
+        "  install systemd unit /etc/systemd/system/mymcp.service",
+        "  systemctl daemon-reload && systemctl restart mymcp",
+    ]
+    if args.dry_run:
+        print("[dry-run] would do:")
+        for line in plan_lines:
+            print(line)
+        return 0
+
+    setup.ensure_directory(new_cfg, mode=0o750)
+    new_env.write_text(rewritten)
+    os.chmod(new_env, 0o600)
+    mig.copy_tokens(legacy, new_tokens)
+
+    if not service.systemd_available():
+        print("warning: systemd not detected; skipping unit install.", file=sys.stderr)
+    else:
+        exec_path = service.resolve_mymcp_executable()
+        unit = service.render_service_unit(
+            service_user="root",
+            env_file=str(new_env),
+            exec_start=f"{exec_path} serve --env-file {new_env}",
+        )
+        service.write_systemd_unit(unit)
+        service.stop_service(check=False)
+        service.daemon_reload()
+        service.enable_service()
+    print("Migration complete. Verify the new service then remove the old install:")
+    print("  sudo systemctl status mymcp")
+    print(f"  sudo rm -rf {legacy}")
+    return 0
+
+
+def cmd_doctor(_args: argparse.Namespace) -> int:
+    import platform
+    import shutil as _sh
+
+    from mymcp.deploy import service
+    print(f"python:    {platform.python_version()}")
+    print(f"mymcp:     {__version__}")
+    print(f"ripgrep:   {'ok' if _sh.which('rg') else 'missing'}")
+    print(f"systemd:   {'ok' if service.systemd_available() else 'unavailable'}")
+    return 0
+
+
 def cmd_uninstall_service(args: argparse.Namespace) -> int:
     if not _require_root():
         return 2
@@ -402,6 +470,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_tok_dm = p_token_sub.add_parser("disable-metrics")
     p_tok_dm.set_defaults(func=cmd_token_disable_metrics)
+
+    p_mig = sub.add_parser(
+        "migrate-from-legacy", help="Migrate a /opt/mymcp 1.x install to 2.0"
+    )
+    p_mig.add_argument("--legacy-dir", default="/opt/mymcp")
+    p_mig.add_argument("--dry-run", action="store_true")
+    p_mig.set_defaults(func=cmd_migrate_from_legacy)
+
+    p_doc = sub.add_parser("doctor", help="System diagnostics")
+    p_doc.set_defaults(func=cmd_doctor)
 
     return parser
 
