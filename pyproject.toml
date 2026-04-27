@@ -1,4 +1,101 @@
+[build-system]
+requires = ["setuptools>=64", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mymcp"
+dynamic = ["version"]
+description = "Linux system control MCP server over Streamable HTTP with Bearer token auth"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+authors = [{name = "algony-tony", email = "txzhu1010@gmail.com"}]
+keywords = ["mcp", "model-context-protocol", "linux", "remote-control", "fastapi"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: POSIX :: Linux",
+    "Topic :: System :: Systems Administration",
+    "Framework :: FastAPI",
+]
+dependencies = [
+    "mcp>=1.0.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "python-multipart>=0.0.9",
+    "httpx>=0.27.0",
+    "anyio>=4.0.0",
+    "prometheus-client>=0.20.0",
+    "pydantic-settings>=2.0",
+    "python-json-logger>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-anyio",
+    "pytest-benchmark",
+    "pytest-cov",
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "pre-commit>=3.7",
+    "mutmut",
+    "build",
+]
+
+[project.urls]
+Homepage = "https://github.com/algony-tony/mymcp"
+Repository = "https://github.com/algony-tony/mymcp"
+Issues = "https://github.com/algony-tony/mymcp/issues"
+Changelog = "https://github.com/algony-tony/mymcp/blob/master/CHANGELOG.md"
+
+[project.scripts]
+mymcp = "mymcp.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+mymcp = ["deploy/templates/*.in"]
+
+[tool.setuptools_scm]
+write_to = "src/mymcp/_version.py"
+fallback_version = "0.0.0+unknown"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM"]
+ignore = ["B008"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["E741", "SIM117", "SIM115", "E402"]
+"tests/loadtest/**" = ["E741", "SIM115"]
+"tests/pentest.py" = ["E741", "SIM115"]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["src/mymcp"]
+strict = false
+warn_unused_ignores = true
+warn_return_any = true
+no_implicit_optional = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--benchmark-disable"
+markers = [
+    "benchmark: marks tests as benchmarks (deselect with '-m \"not benchmark\"')",
+]
+
 [tool.mutmut]
-paths_to_mutate = "auth.py,audit.py,config.py,tools/bash.py,tools/files.py,mcp_server.py"
+paths_to_mutate = "src/mymcp/auth.py,src/mymcp/audit.py,src/mymcp/config.py,src/mymcp/tools/bash.py,src/mymcp/tools/files.py,src/mymcp/mcp_server.py"
 tests_dir = "tests/"
 runner = "python3 -m pytest tests/ -x -q --tb=no --no-header --benchmark-disable"

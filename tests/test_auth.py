@@ -1,7 +1,9 @@
-import pytest
 from pathlib import Path
 from unittest.mock import patch
-from auth import TokenStore
+
+import pytest
+
+from mymcp.auth import TokenStore
 
 
 def make_store(tmp_path: Path) -> TokenStore:
@@ -86,6 +88,7 @@ def test_create_token_with_rw_role(tmp_path):
 def test_backward_compat_missing_role_defaults_rw(tmp_path):
     """Tokens without a role field (from older versions) default to rw."""
     import json
+
     path = tmp_path / "tokens.json"
     old_data = {
         "tokens": {
@@ -115,14 +118,16 @@ def test_create_token_invalid_role_raises(tmp_path):
 # get_store() singleton
 # ---------------------------------------------------------------------------
 
+
 def test_get_store_raises_without_admin_token(tmp_path):
     """get_store() should raise RuntimeError when ADMIN_TOKEN is empty."""
-    import auth
+    from mymcp import auth
+
     original = auth._store
     auth._store = None  # Reset singleton
     try:
-        with patch("config.ADMIN_TOKEN", ""):
-            with pytest.raises(RuntimeError, match="MCP_ADMIN_TOKEN"):
+        with patch("mymcp.config.ADMIN_TOKEN", ""):
+            with pytest.raises(RuntimeError, match="MYMCP_ADMIN_TOKEN"):
                 auth.get_store()
     finally:
         auth._store = original
@@ -130,12 +135,15 @@ def test_get_store_raises_without_admin_token(tmp_path):
 
 def test_get_store_creates_singleton(tmp_path):
     """get_store() should create and return a TokenStore singleton."""
-    import auth
+    from mymcp import auth
+
     original = auth._store
     auth._store = None
     try:
-        with patch("config.ADMIN_TOKEN", "adm_test123"), \
-             patch("config.TOKEN_FILE", str(tmp_path / "tokens.json")):
+        with (
+            patch("mymcp.config.ADMIN_TOKEN", "adm_test123"),
+            patch("mymcp.config.TOKEN_FILE", str(tmp_path / "tokens.json")),
+        ):
             store = auth.get_store()
             assert store is not None
             # Second call returns same instance
@@ -149,9 +157,11 @@ def test_get_store_creates_singleton(tmp_path):
 # Missing / malformed fields — verify the .get() defaults behave as specified
 # ---------------------------------------------------------------------------
 
+
 def test_validate_rejects_token_missing_enabled_field(tmp_path):
     """A token entry without `enabled` must be rejected (default is False)."""
     import json
+
     path = tmp_path / "tokens.json"
     data = {
         "tokens": {
@@ -172,6 +182,7 @@ def test_validate_rejects_token_missing_enabled_field(tmp_path):
 def test_validate_rejects_token_with_enabled_false(tmp_path):
     """A token with enabled=False must be rejected (explicit disable)."""
     import json
+
     path = tmp_path / "tokens.json"
     data = {
         "tokens": {

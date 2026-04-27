@@ -1,8 +1,9 @@
-import pytest
-from unittest.mock import patch, MagicMock
-from httpx import AsyncClient, ASGITransport
+from unittest.mock import patch
 
-from auth import TokenStore
+import pytest
+from httpx import ASGITransport, AsyncClient
+
+from mymcp.auth import TokenStore
 
 
 @pytest.fixture
@@ -13,11 +14,14 @@ def store(tmp_path):
 @pytest.fixture
 def app_with_store(store):
     """Create a fresh FastAPI app with overridden token store."""
-    import auth
+    from mymcp import auth
+
     original_store = auth._store
     auth._store = store
     try:
-        from main import app
+        from mymcp.server import create_app
+
+        app = create_app()
         yield app
     finally:
         auth._store = original_store
@@ -34,6 +38,7 @@ async def client(app_with_store):
 # /health endpoint
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.anyio
 async def test_health_endpoint(client):
     resp = await client.get("/health")
@@ -47,10 +52,13 @@ async def test_health_endpoint(client):
 # _validate_token
 # ---------------------------------------------------------------------------
 
+
 def test_validate_token_missing_bearer(store):
-    from main import _validate_token
     from starlette.requests import Request
-    import auth
+
+    from mymcp import auth
+    from mymcp.server import _validate_token
+
     original = auth._store
     auth._store = store
     try:
@@ -64,14 +72,17 @@ def test_validate_token_missing_bearer(store):
 
 
 def test_validate_token_invalid_token(store):
-    from main import _validate_token
     from starlette.requests import Request
-    import auth
+
+    from mymcp import auth
+    from mymcp.server import _validate_token
+
     original = auth._store
     auth._store = store
     try:
         scope = {
-            "type": "http", "method": "GET",
+            "type": "http",
+            "method": "GET",
             "headers": [(b"authorization", b"Bearer tok_invalid")],
             "query_string": b"",
         }
@@ -84,15 +95,18 @@ def test_validate_token_invalid_token(store):
 
 
 def test_validate_token_valid_token(store):
-    from main import _validate_token
     from starlette.requests import Request
-    import auth
+
+    from mymcp import auth
+    from mymcp.server import _validate_token
+
     original = auth._store
     auth._store = store
     token = store.create_token("test-client", role="rw")
     try:
         scope = {
-            "type": "http", "method": "GET",
+            "type": "http",
+            "method": "GET",
             "headers": [(b"authorization", f"Bearer {token}".encode())],
             "query_string": b"",
         }
@@ -108,6 +122,7 @@ def test_validate_token_valid_token(store):
 # ---------------------------------------------------------------------------
 # McpAuthMiddleware
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.anyio
 async def test_middleware_no_token_on_mcp(client):
@@ -134,8 +149,10 @@ async def test_middleware_non_mcp_path_passes_through(client):
 @pytest.mark.anyio
 async def test_middleware_valid_token_forwards_to_mcp(store):
     """Valid token on /mcp should be forwarded to session_manager, not rejected."""
-    from main import app
-    import auth
+    from mymcp.server import create_app
+
+    app = create_app()
+    from mymcp import auth
 
     token = store.create_token("mcp-client", role="rw")
     original = auth._store
@@ -147,11 +164,12 @@ async def test_middleware_valid_token_forwards_to_mcp(store):
         nonlocal forwarded
         forwarded = True
         from starlette.responses import JSONResponse
+
         resp = JSONResponse({"ok": True})
         await resp(scope, receive, send)
 
     try:
-        with patch("main.session_manager") as mock_sm:
+        with patch("mymcp.server.session_manager") as mock_sm:
             mock_sm.handle_request = fake_handle_request
             transport = ASGITransport(app=app)
             async with AsyncClient(transport=transport, base_url="http://test") as c:
@@ -169,9 +187,11 @@ async def test_middleware_valid_token_forwards_to_mcp(store):
 @pytest.mark.anyio
 async def test_middleware_sets_contextvar(store):
     """Verify the middleware sets _current_audit_info contextvar."""
-    from main import app
-    from mcp_server import _current_audit_info
-    import auth
+    from mymcp.server import create_app
+
+    app = create_app()
+    from mymcp import auth
+    from mymcp.mcp_server import _current_audit_info
 
     token = store.create_token("ctx-client", role="ro")
     original = auth._store
@@ -183,15 +203,16 @@ async def test_middleware_sets_contextvar(store):
         info = _current_audit_info.get()
         captured.update(info)
         from starlette.responses import JSONResponse
+
         resp = JSONResponse({"ok": True})
         await resp(scope, receive, send)
 
     try:
-        with patch("main.session_manager") as mock_sm:
+        with patch("mymcp.server.session_manager") as mock_sm:
             mock_sm.handle_request = fake_handle_request
             transport = ASGITransport(app=app)
             async with AsyncClient(transport=transport, base_url="http://test") as c:
-                resp = await c.post(
+                await c.post(
                     "/mcp",
                     headers={"Authorization": f"Bearer {token}"},
                 )

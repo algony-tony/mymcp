@@ -25,97 +25,114 @@ A Python MCP server that exposes full Linux system control to AI clients (Claude
 - Python 3.11+
 - `ripgrep` (`rg`) — optional but recommended for faster `grep` tool (falls back to Python regex)
 
-## Quick Deploy
+## Install
+
+Requires Python 3.11+ on Linux.
 
 ```bash
-git clone https://github.com/algony-tony/mymcp.git
-cd mymcp
-sudo bash deploy/install.sh
+pipx install mymcp
 ```
 
-The install script will:
-- Find a suitable Python 3.11+ binary automatically
-- Install `ripgrep` if missing (dnf/apt/yum/pacman)
-- Create a venv at `/opt/mymcp/venv` with all dependencies
-- Install a systemd service (`mymcp`) with auto-restart
-
-Then:
+Plain `pip` works too (a venv is recommended):
 
 ```bash
-# 1. Set your admin token
-sudo vim /opt/mymcp/.env
+python3 -m venv ~/.local/share/mymcp-env
+~/.local/share/mymcp-env/bin/pip install mymcp
+ln -s ~/.local/share/mymcp-env/bin/mymcp ~/.local/bin/mymcp
+```
 
-# 2. Start the service
+### Quick try (foreground, no system service)
+
+```bash
+mymcp serve
+```
+
+`mymcp` prints a temporary admin and rw token to stderr, listens on
+`127.0.0.1:8765`, and discards both tokens on exit.
+
+### Production install (systemd)
+
+```bash
+sudo mymcp install-service --yes
 sudo systemctl start mymcp
-
-# 3. Check logs
-journalctl -u mymcp -f
 ```
 
-## Upgrading
+This writes `/etc/mymcp/.env`, generates an admin token (printed once),
+optionally generates a metrics token, installs `/etc/systemd/system/mymcp.service`,
+sets up logrotate for `/var/log/mymcp/audit.log`, and (by default) installs
+`ripgrep` for fast file search.
 
-Once installed, use `deploy/upgrade.sh` to switch versions. It detaches into
-the background by default so you can trigger upgrades from anywhere —
-including through mymcp's own `bash_execute` tool.
+Useful flags: `--port 9000`, `--bind 127.0.0.1`, `--config-dir`, `--log-dir`,
+`--service-user mymcp` (run as a restricted user), `--no-metrics`,
+`--no-audit`, `--skip-ripgrep`.
+
+### Upgrade
 
 ```bash
-# Check current and available versions
-sudo /opt/mymcp/deploy/upgrade.sh --current
-sudo /opt/mymcp/deploy/upgrade.sh --list
-
-# Upgrade to a specific tag (recommended)
-sudo /opt/mymcp/deploy/upgrade.sh v1.1.0
-
-# Upgrade to latest tag
-sudo /opt/mymcp/deploy/upgrade.sh --latest
-
-# Preview without changes
-sudo /opt/mymcp/deploy/upgrade.sh --dry-run v1.1.0
-
-# Check status of an in-progress upgrade
-sudo /opt/mymcp/deploy/upgrade.sh --status
-sudo /opt/mymcp/deploy/upgrade.sh --logs -f
-
-# Revert to most recent backup (if something went wrong)
-sudo /opt/mymcp/deploy/upgrade.sh --rollback
+pipx upgrade mymcp
+sudo systemctl restart mymcp
 ```
 
-**Air-gapped / offline upgrade**: prepare a wheels directory on a connected machine:
+### Air-gapped install
+
+Each GitHub Release ships a `mymcp-X.Y.Z-offline-bundle.tar.gz` containing
+all wheels and ripgrep binaries:
 
 ```bash
-pip download -r requirements.txt -d /tmp/wheels
-# Copy /tmp/wheels to the target host, then:
-sudo /opt/mymcp/deploy/upgrade.sh --wheels-dir=/path/to/wheels v1.1.0
+tar xzf mymcp-2.0.0-offline-bundle.tar.gz
+cd mymcp-2.0.0-offline-bundle
+sudo ./install-offline.sh
+sudo mymcp install-service --yes
 ```
 
-**Upgrading via an MCP client (Claude Code, etc.)**: ask the client to run
-the upgrade command above through its `bash_execute` tool. The script
-detaches automatically; the MCP service will be unavailable for ~2 minutes.
-Reconnect your client when the service returns.
+## Upgrading from 1.x to 2.0
+
+Breaking changes:
+- Environment variable prefix renamed: `MCP_*` → `MYMCP_*` (no compat shim).
+- Install layout: `/opt/mymcp/` (1.x) → `/etc/mymcp/` (2.0). Code is now
+  managed by `pipx`, not unpacked into `/opt/mymcp/`.
+- Install method: `git clone + deploy/install.sh` → `pipx install mymcp`.
+
+One-line migration:
+
+```bash
+pipx install mymcp
+sudo mymcp migrate-from-legacy
+sudo rm -rf /opt/mymcp     # after verifying the new service is healthy
+```
+
+`mymcp migrate-from-legacy` reads `/opt/mymcp/.env`, rewrites `MCP_*` keys to
+`MYMCP_*`, copies `tokens.json`, installs the new systemd unit, and restarts
+the service. Pass `--dry-run` to see what it would do without making changes.
+
+The legacy `deploy/install.sh` and `deploy/upgrade.sh` scripts remain in the
+repository through the 2.0.x lifecycle for users who can't migrate yet.
 
 ## Configuration
 
-Edit `/opt/mymcp/.env`. See `.env.example` for all available settings.
+`mymcp install-service` writes `/etc/mymcp/.env`. The `serve` command also
+honors `--env-file PATH`, `MYMCP_ENV_FILE`, and (in dev) `./.env`.
 
 ### Core
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MCP_ADMIN_TOKEN` | *(required)* | Admin token for managing user tokens |
-| `MCP_HOST` | `0.0.0.0` | Bind address |
-| `MCP_PORT` | `8765` | Listen port |
-| `MCP_TOKEN_FILE` | `/opt/mymcp/tokens.json` | Token store path |
-| `MCP_APP_DIR` | `/opt/mymcp` | Application directory (auto-protected) |
-| `MCP_PROTECTED_PATHS` | *(empty)* | Additional protected paths, comma-separated |
+| `MYMCP_ADMIN_TOKEN` | *(required for /admin)* | Admin token for managing user tokens |
+| `MYMCP_METRICS_TOKEN` | *(empty = disabled)* | Bearer for `/metrics` endpoint |
+| `MYMCP_HOST` | `0.0.0.0` | Bind address |
+| `MYMCP_PORT` | `8765` | Listen port |
+| `MYMCP_TOKEN_FILE` | `/etc/mymcp/tokens.json` | Token store path |
+| `MYMCP_PROTECTED_PATHS` | *(empty)* | Additional protected paths, comma-separated |
+| `MYMCP_SHUTDOWN_GRACE_SEC` | `5` | Seconds to wait for in-flight bash children on SIGTERM |
 
 ### Audit Logging
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MCP_AUDIT_ENABLED` | `false` | Enable audit logging |
-| `MCP_AUDIT_LOG_DIR` | `/var/log/mymcp` | Audit log directory (auto-protected) |
-| `MCP_AUDIT_MAX_BYTES` | `10485760` | Max audit log file size before rotation (10MB) |
-| `MCP_AUDIT_BACKUP_COUNT` | `5` | Number of rotated log files to keep |
+| `MYMCP_AUDIT_ENABLED` | `false` | Enable audit logging |
+| `MYMCP_AUDIT_LOG_DIR` | `/var/log/mymcp` | Audit log directory (auto-protected) |
+| `MYMCP_AUDIT_MAX_BYTES` | `10485760` | Max audit log file size before rotation (10MB) |
+| `MYMCP_AUDIT_BACKUP_COUNT` | `5` | Number of rotated log files to keep |
 
 ### Tool Limits
 
@@ -123,44 +140,46 @@ All limits are configurable via environment variables. Default values work well 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MCP_BASH_MAX_OUTPUT_BYTES` | `102400` | bash stdout/stderr default cap (100KB) |
-| `MCP_BASH_MAX_OUTPUT_BYTES_HARD` | `1048576` | bash output hard cap (1MB) |
-| `MCP_READ_FILE_DEFAULT_LIMIT` | `2000` | read_file default lines per request |
-| `MCP_READ_FILE_MAX_LIMIT` | `50000` | read_file max lines per request |
-| `MCP_READ_FILE_MAX_LINE_BYTES` | `32768` | Max bytes per line before truncation (32KB) |
-| `MCP_WRITE_FILE_MAX_BYTES` | `10485760` | write_file max size (10MB) |
-| `MCP_EDIT_STRING_MAX_BYTES` | `1048576` | edit_file max old/new string size (1MB) |
-| `MCP_GLOB_MAX_RESULTS` | `1000` | Max file paths returned by glob |
-| `MCP_GREP_DEFAULT_MAX_RESULTS` | `500` | grep default max matches |
-| `MCP_GREP_MAX_RESULTS` | `5000` | grep hard max matches |
+| `MYMCP_BASH_MAX_OUTPUT_BYTES` | `102400` | bash stdout/stderr default cap (100KB) |
+| `MYMCP_BASH_MAX_OUTPUT_BYTES_HARD` | `1048576` | bash output hard cap (1MB) |
+| `MYMCP_READ_FILE_DEFAULT_LIMIT` | `2000` | read_file default lines per request |
+| `MYMCP_READ_FILE_MAX_LIMIT` | `50000` | read_file max lines per request |
+| `MYMCP_READ_FILE_MAX_LINE_BYTES` | `32768` | Max bytes per line before truncation (32KB) |
+| `MYMCP_WRITE_FILE_MAX_BYTES` | `10485760` | write_file max size (10MB) |
+| `MYMCP_EDIT_STRING_MAX_BYTES` | `1048576` | edit_file max old/new string size (1MB) |
+| `MYMCP_GLOB_MAX_RESULTS` | `1000` | Max file paths returned by glob |
+| `MYMCP_GREP_DEFAULT_MAX_RESULTS` | `500` | grep default max matches |
+| `MYMCP_GREP_MAX_RESULTS` | `5000` | grep hard max matches |
 
 ## Managing Tokens
 
-Use the admin API to create tokens for clients. All admin endpoints require `Authorization: Bearer <MCP_ADMIN_TOKEN>`.
+The `mymcp token` subcommands operate on the local token store directly (no
+admin API call required). They read `/etc/mymcp/.env` by default; use
+`MYMCP_ENV_FILE=...` to point elsewhere.
 
 ```bash
-# Create a read-only token (default)
-curl -X POST http://localhost:8765/admin/tokens \
-  -H "Authorization: Bearer <ADMIN_TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{"name": "my-claude-desktop"}'
-# → {"token": "tok_abc123...", "name": "my-claude-desktop", "role": "ro"}
+# List all tokens (admin/metrics state + ro/rw entries)
+sudo mymcp token list
+
+# Create a read-only token
+sudo mymcp token add --name my-claude-desktop --role ro
 
 # Create a read-write token
-curl -X POST http://localhost:8765/admin/tokens \
-  -H "Authorization: Bearer <ADMIN_TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{"name": "my-admin-client", "role": "rw"}'
-# → {"token": "tok_def456...", "name": "my-admin-client", "role": "rw"}
+sudo mymcp token add --name my-admin-client --role rw
 
-# List all tokens
-curl http://localhost:8765/admin/tokens \
-  -H "Authorization: Bearer <ADMIN_TOKEN>"
+# Revoke
+sudo mymcp token revoke tok_abc123
 
-# Revoke a token
-curl -X DELETE http://localhost:8765/admin/tokens/tok_abc123 \
-  -H "Authorization: Bearer <ADMIN_TOKEN>"
+# Rotate the admin or metrics token (rewrites .env)
+sudo mymcp token rotate-admin
+sudo mymcp token rotate-metrics
+
+# Disable the /metrics endpoint by emptying the metrics token
+sudo mymcp token disable-metrics
 ```
+
+The HTTP `/admin/*` API still works for clients that need to manage tokens
+remotely; it requires `Authorization: Bearer <MYMCP_ADMIN_TOKEN>`.
 
 ## Connecting Clients
 
@@ -206,7 +225,7 @@ claude mcp add linux-server \
 
 ### Audit Log
 
-When enabled (`MCP_AUDIT_ENABLED=true`), all tool invocations are logged to `<MCP_AUDIT_LOG_DIR>/audit.log` in JSON Lines format:
+When enabled (`MYMCP_AUDIT_ENABLED=true`), all tool invocations are logged to `<MYMCP_AUDIT_LOG_DIR>/audit.log` in JSON Lines format:
 
 ```json
 {"ts":"2026-04-10T15:30:22Z","token_name":"my-client","role":"rw","ip":"203.0.113.5","tool":"bash_execute","params":{"command":"apt update"},"result":"ok","duration_ms":1523}
@@ -215,7 +234,7 @@ When enabled (`MCP_AUDIT_ENABLED=true`), all tool invocations are logged to `<MC
 Error entries include `error_code` and `error_message`:
 
 ```json
-{"ts":"2026-04-10T15:31:00Z","token_name":"ro-client","role":"ro","ip":"203.0.113.5","tool":"read_file","params":{"file_path":"/opt/mymcp/main.py"},"result":"error","error_code":"ProtectedPath","error_message":"Access denied: path is within protected directory /opt/mymcp","duration_ms":0}
+{"ts":"2026-04-10T15:31:00Z","token_name":"ro-client","role":"ro","ip":"203.0.113.5","tool":"read_file","params":{"file_path":"/var/log/mymcp/audit.log"},"result":"error","error_code":"ProtectedPath","error_message":"Access denied: path is within protected directory","duration_ms":0}
 ```
 
 Logs rotate automatically (default 10MB with 5 backups).
@@ -232,7 +251,7 @@ journalctl -u mymcp -f
 
 MCP automatically protects its own installation directory and audit log directory from access via file tools (`read_file`, `write_file`, `edit_file`, `glob`, `grep`). This prevents AI clients from reading tokens, modifying server code, or tampering with audit logs.
 
-Add extra protected paths via `MCP_PROTECTED_PATHS=/path/one,/path/two`.
+Add extra protected paths via `MYMCP_PROTECTED_PATHS=/path/one,/path/two`.
 
 Note: `bash_execute` is not subject to path protection — use `ro` tokens for untrusted clients.
 
@@ -255,8 +274,8 @@ python -m pytest tests/test_benchmark.py --benchmark-save=baseline
 python -m mutmut run
 python -m mutmut results
 
-# Run load tests (start server first: python main.py)
-export MCP_TEST_TOKEN=<your-rw-token>
+# Run load tests (start server first: mymcp serve)
+export MYMCP_TEST_TOKEN=<your-rw-token>
 locust -f tests/loadtest/locustfile.py --host http://localhost:8765
 ```
 

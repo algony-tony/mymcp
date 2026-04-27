@@ -1,0 +1,14 @@
+[Unit]
+Description=MyMCP Server
+After=network.target
+
+[Service]
+Type=simple
+User={service_user}
+EnvironmentFile={env_file}
+ExecStart={exec_start}
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

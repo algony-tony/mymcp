@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - unreleased
+
+### Breaking changes
+- Environment variables: `MCP_*` → `MYMCP_*` (no compat). Migrate with `mymcp migrate-from-legacy`.
+- Install layout: code via `pipx`; config moved from `/opt/mymcp/` to `/etc/mymcp/`.
+- Install method: `pipx install mymcp` replaces `git clone + deploy/install.sh`.
+- `MCP_APP_DIR` is removed. Protected paths now derive from the audit log dir + `MYMCP_PROTECTED_PATHS` only.
+
+### Added
+- `mymcp` CLI with subcommands: `serve`, `install-service`, `uninstall-service`,
+  `token list/add/revoke/rotate-admin/rotate-metrics/disable-metrics`,
+  `migrate-from-legacy`, `doctor`, `version`.
+- `pipx install mymcp` workflow with `setuptools-scm`-derived versions.
+- pydantic-settings-based config with typed defaults.
+- Bash subprocess SIGTERM cleanup: in-flight bash children get TERM/KILL with
+  configurable grace via `MYMCP_SHUTDOWN_GRACE_SEC`.
+- Offline bundle (`mymcp-X.Y.Z-offline-bundle.tar.gz`) attached to GitHub Releases
+  for air-gapped installs.
+- ruff + mypy + pre-commit configuration; CI matrix on Python 3.11/3.12/3.13.
+- Tag-triggered release workflow: build wheel + offline bundle, publish to PyPI
+  via OIDC Trusted Publisher, attach artifacts to GitHub Release.
+
+### Changed
+- `main.py` split into `src/mymcp/server.py` (FastAPI factory, no import
+  side-effects) and `src/mymcp/cli.py` (argparse + logging + signal handlers).
+- Logging is configured at CLI entry, not module import. Supports `--log-level`
+  and `--log-format text|json`.
+
+### Removed
+- `VERSION`, `requirements.txt`, `requirements-dev.txt` (replaced by `pyproject.toml`).
+- The flat-layout source files at the repo root.
+
+### Deprecated
+- `deploy/install.sh` and `deploy/upgrade.sh` remain in-repo through the 2.0.x
+  series for 1.x users; new installs should use the `mymcp` CLI.
+
 ## [1.1.1] - 2026-04-20
 
 ### Fixed

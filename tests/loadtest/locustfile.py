@@ -14,12 +14,11 @@ Usage:
               --headless -u 10 -r 2 --run-time 60s
 """
 
-import json
+import contextlib
 import os
 import tempfile
 
-from locust import HttpUser, task, between
-
+from locust import HttpUser, between, task
 
 TEST_TOKEN = os.environ.get("MCP_TEST_TOKEN", "")
 ADMIN_TOKEN = os.environ.get("MCP_ADMIN_TOKEN", "")
@@ -69,18 +68,14 @@ class ReadUser(HttpUser):
     wait_time = between(0.5, 2)
 
     def on_start(self):
-        self._tmpfile = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".txt", delete=False
-        )
+        self._tmpfile = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False)
         self._tmpfile.write("\n".join(f"line {i}" for i in range(100)))
         self._tmpfile.close()
         self._tmpdir = os.path.dirname(self._tmpfile.name)
 
     def on_stop(self):
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(self._tmpfile.name)
-        except OSError:
-            pass
 
     @task(5)
     def read_file(self):
@@ -135,10 +130,13 @@ class WriteUser(HttpUser):
         path = os.path.join(self._tmpdir, f"write_{self._counter}.txt")
         self.client.post(
             "/mcp",
-            json=_mcp_request("write_file", {
-                "file_path": path,
-                "content": f"content written by locust iteration {self._counter}",
-            }),
+            json=_mcp_request(
+                "write_file",
+                {
+                    "file_path": path,
+                    "content": f"content written by locust iteration {self._counter}",
+                },
+            ),
             headers=_mcp_headers(),
             name="/mcp [write_file]",
         )
@@ -148,20 +146,26 @@ class WriteUser(HttpUser):
         path = os.path.join(self._tmpdir, "editable.txt")
         self.client.post(
             "/mcp",
-            json=_mcp_request("write_file", {
-                "file_path": path,
-                "content": "original_value in the file",
-            }),
+            json=_mcp_request(
+                "write_file",
+                {
+                    "file_path": path,
+                    "content": "original_value in the file",
+                },
+            ),
             headers=_mcp_headers(),
             name="/mcp [write_file setup]",
         )
         self.client.post(
             "/mcp",
-            json=_mcp_request("edit_file", {
-                "file_path": path,
-                "old_string": "original_value",
-                "new_string": "edited_value",
-            }),
+            json=_mcp_request(
+                "edit_file",
+                {
+                    "file_path": path,
+                    "old_string": "original_value",
+                    "new_string": "edited_value",
+                },
+            ),
             headers=_mcp_headers(),
             name="/mcp [edit_file]",
         )

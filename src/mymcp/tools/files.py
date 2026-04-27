@@ -3,7 +3,7 @@ import glob as _glob_module
 import os
 import shutil
 
-import config
+from mymcp import config
 
 
 def check_protected_path(file_path: str) -> str | None:
@@ -24,6 +24,7 @@ def _filter_protected(paths: list[str]) -> list[str]:
 # ---------------------------------------------------------------------------
 # read_file
 # ---------------------------------------------------------------------------
+
 
 async def read_file(
     file_path: str,
@@ -86,6 +87,7 @@ async def read_file(
 # write_file
 # ---------------------------------------------------------------------------
 
+
 async def write_file(file_path: str, content: str) -> dict:
     err = check_protected_path(file_path)
     if err:
@@ -121,6 +123,7 @@ async def write_file(file_path: str, content: str) -> dict:
 # edit_file
 # ---------------------------------------------------------------------------
 
+
 async def edit_file(
     file_path: str,
     old_string: str,
@@ -132,21 +135,37 @@ async def edit_file(
         return {"success": False, "error": "ProtectedPath", "message": err}
 
     if len(old_string.encode("utf-8")) > config.EDIT_STRING_MAX_BYTES:
-        return {"success": False, "error": "FileTooLarge", "message": "old_string exceeds 1MB limit"}
+        return {
+            "success": False,
+            "error": "FileTooLarge",
+            "message": "old_string exceeds 1MB limit",
+        }
     if len(new_string.encode("utf-8")) > config.EDIT_STRING_MAX_BYTES:
-        return {"success": False, "error": "FileTooLarge", "message": "new_string exceeds 1MB limit"}
+        return {
+            "success": False,
+            "error": "FileTooLarge",
+            "message": "new_string exceeds 1MB limit",
+        }
 
     try:
-        with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+        with open(file_path, encoding="utf-8", errors="replace") as f:
             content = f.read()
     except FileNotFoundError:
-        return {"success": False, "error": "FileNotFoundError", "message": f"File not found: {file_path}"}
+        return {
+            "success": False,
+            "error": "FileNotFoundError",
+            "message": f"File not found: {file_path}",
+        }
     except PermissionError as e:
         return {"success": False, "error": "PermissionError", "message": str(e)}
 
     count = content.count(old_string)
     if count == 0:
-        return {"success": False, "error": "StringNotFound", "message": "old_string not found in file"}
+        return {
+            "success": False,
+            "error": "StringNotFound",
+            "message": "old_string not found in file",
+        }
     if count > 1 and not replace_all:
         return {
             "success": False,
@@ -176,6 +195,7 @@ async def edit_file(
 # glob_files
 # ---------------------------------------------------------------------------
 
+
 async def glob_files(pattern: str, path: str = "/") -> dict:
     try:
         base = os.path.abspath(path)
@@ -200,6 +220,7 @@ async def glob_files(pattern: str, path: str = "/") -> dict:
 # grep_files
 # ---------------------------------------------------------------------------
 
+
 async def grep_files(
     pattern: str,
     path: str = "/",
@@ -211,8 +232,12 @@ async def grep_files(
 ) -> dict:
     max_results = min(max(1, max_results), config.GREP_MAX_RESULTS)
     if shutil.which("rg"):
-        return await _grep_rg(pattern, path, glob, output_mode, context_lines, max_results, case_insensitive)
-    return await _grep_python(pattern, path, glob, output_mode, context_lines, max_results, case_insensitive)
+        return await _grep_rg(
+            pattern, path, glob, output_mode, context_lines, max_results, case_insensitive
+        )
+    return await _grep_python(
+        pattern, path, glob, output_mode, context_lines, max_results, case_insensitive
+    )
 
 
 async def _grep_rg(
@@ -239,7 +264,7 @@ async def _grep_rg(
         )
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=60)
         lines = stdout.decode("utf-8", errors="replace").splitlines()
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return {"success": False, "error": "TimeoutError", "message": "grep timed out after 60s"}
 
     filtered = []
@@ -260,8 +285,8 @@ async def _grep_rg(
 async def _grep_python(
     pattern, path, glob_pattern, output_mode, context_lines, max_results, case_insensitive
 ) -> dict:
-    import re
     import fnmatch
+    import re
 
     flags = re.IGNORECASE if case_insensitive else 0
     try:
@@ -279,14 +304,14 @@ async def _grep_python(
                     continue
                 files_to_search.append(os.path.join(root, fname))
 
-    matches = []
+    matches: list[str] = []
     for fpath in files_to_search:
         if check_protected_path(fpath) is not None:
             continue
         if len(matches) >= max_results and output_mode == "content":
             break
         try:
-            with open(fpath, "r", encoding="utf-8", errors="replace") as f:
+            with open(fpath, encoding="utf-8", errors="replace") as f:
                 lines = f.readlines()
         except (PermissionError, IsADirectoryError, OSError):
             continue

@@ -5,13 +5,13 @@ Uses a patched session_manager to avoid needing a real MCP task group.
 """
 
 import json
-import os
-import pytest
 from unittest.mock import patch
 
-from httpx import AsyncClient, ASGITransport
-from auth import TokenStore
-from mcp_server import _current_audit_info, call_tool, list_tools
+import pytest
+from httpx import ASGITransport, AsyncClient
+
+from mymcp.auth import TokenStore
+from mymcp.mcp_server import call_tool, list_tools
 
 
 @pytest.fixture
@@ -23,16 +23,20 @@ def store(tmp_path):
 def app_with_store(store):
     """Create a FastAPI app with overridden store and a fake session_manager
     that properly processes MCP JSON-RPC requests."""
-    import auth
+    from mymcp import auth
+
     original = auth._store
     auth._store = store
 
-    from main import app
+    from mymcp.server import create_app
+
+    app = create_app()
     from starlette.responses import JSONResponse
 
     async def fake_handle_request(scope, receive, send):
         """Simulate MCP session_manager: parse JSON-RPC, dispatch to call_tool/list_tools."""
         from starlette.requests import Request
+
         request = Request(scope, receive, send)
         body = await request.body()
         try:
@@ -48,34 +52,26 @@ def app_with_store(store):
 
         if method == "tools/list":
             tools = await list_tools()
-            result = {
-                "tools": [
-                    {"name": t.name, "description": t.description}
-                    for t in tools
-                ]
-            }
+            result = {"tools": [{"name": t.name, "description": t.description} for t in tools]}
         elif method == "tools/call":
             tool_name = params.get("name", "")
             arguments = params.get("arguments", {})
             content_items = await call_tool(tool_name, arguments)
-            result = {
-                "content": [
-                    {"type": item.type, "text": item.text}
-                    for item in content_items
-                ]
-            }
+            result = {"content": [{"type": item.type, "text": item.text} for item in content_items]}
         else:
             result = {"error": f"Unknown method: {method}"}
 
-        resp = JSONResponse({
-            "jsonrpc": "2.0",
-            "id": rpc_id,
-            "result": result,
-        })
+        resp = JSONResponse(
+            {
+                "jsonrpc": "2.0",
+                "id": rpc_id,
+                "result": result,
+            }
+        )
         await resp(scope, receive, send)
 
     try:
-        with patch("main.session_manager") as mock_sm:
+        with patch("mymcp.server.session_manager") as mock_sm:
             mock_sm.handle_request = fake_handle_request
             yield app
     finally:
@@ -124,6 +120,7 @@ async def _mcp_call(client, token: str, payload: dict) -> dict:
 # Auth -> Tool -> Response chain
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.anyio
 async def test_no_token_returns_401(client):
     resp = await client.post("/mcp", json=_make_mcp_list_tools())
@@ -148,7 +145,8 @@ async def test_rw_token_can_read_file(client, store, tmp_path):
     f.write_text("integration test content\n")
 
     data = await _mcp_call(
-        client, token,
+        client,
+        token,
         _make_mcp_request("read_file", {"file_path": str(f)}),
     )
     content_items = data["result"]["content"]
@@ -173,7 +171,8 @@ async def test_ro_token_denied_write_tool(client, store):
     """ro token calling write tool should get permission denied."""
     token = store.create_token("ro-client", role="ro")
     data = await _mcp_call(
-        client, token,
+        client,
+        token,
         _make_mcp_request("bash_execute", {"command": "echo pwned"}),
     )
     content_items = data["result"]["content"]
@@ -190,18 +189,23 @@ async def test_rw_token_write_and_read(client, store, tmp_path):
 
     # Write
     write_data = await _mcp_call(
-        client, token,
-        _make_mcp_request("write_file", {
-            "file_path": target,
-            "content": "hello from integration test",
-        }),
+        client,
+        token,
+        _make_mcp_request(
+            "write_file",
+            {
+                "file_path": target,
+                "content": "hello from integration test",
+            },
+        ),
     )
     write_result = json.loads(write_data["result"]["content"][0]["text"])
     assert write_result["success"] is True
 
     # Read back
     read_data = await _mcp_call(
-        client, token,
+        client,
+        token,
         _make_mcp_request("read_file", {"file_path": target}),
     )
     read_result = json.loads(read_data["result"]["content"][0]["text"])
@@ -216,28 +220,37 @@ async def test_rw_token_edit_file(client, store, tmp_path):
 
     # Write
     await _mcp_call(
-        client, token,
-        _make_mcp_request("write_file", {
-            "file_path": target,
-            "content": "old_value in file",
-        }),
+        client,
+        token,
+        _make_mcp_request(
+            "write_file",
+            {
+                "file_path": target,
+                "content": "old_value in file",
+            },
+        ),
     )
 
     # Edit
     edit_data = await _mcp_call(
-        client, token,
-        _make_mcp_request("edit_file", {
-            "file_path": target,
-            "old_string": "old_value",
-            "new_string": "new_value",
-        }),
+        client,
+        token,
+        _make_mcp_request(
+            "edit_file",
+            {
+                "file_path": target,
+                "old_string": "old_value",
+                "new_string": "new_value",
+            },
+        ),
     )
     edit_result = json.loads(edit_data["result"]["content"][0]["text"])
     assert edit_result["success"] is True
 
     # Read back
     read_data = await _mcp_call(
-        client, token,
+        client,
+        token,
         _make_mcp_request("read_file", {"file_path": target}),
     )
     read_result = json.loads(read_data["result"]["content"][0]["text"])
@@ -253,7 +266,8 @@ async def test_rw_token_glob_and_grep(client, store, tmp_path):
 
     # Glob
     glob_data = await _mcp_call(
-        client, token,
+        client,
+        token,
         _make_mcp_request("glob", {"pattern": "*.py", "path": str(tmp_path)}),
     )
     glob_result = json.loads(glob_data["result"]["content"][0]["text"])
@@ -261,7 +275,8 @@ async def test_rw_token_glob_and_grep(client, store, tmp_path):
 
     # Grep
     grep_data = await _mcp_call(
-        client, token,
+        client,
+        token,
         _make_mcp_request("grep", {"pattern": "import", "path": str(tmp_path)}),
     )
     grep_result = json.loads(grep_data["result"]["content"][0]["text"])
@@ -271,6 +286,7 @@ async def test_rw_token_glob_and_grep(client, store, tmp_path):
 # ---------------------------------------------------------------------------
 # Admin API integration
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.anyio
 async def test_admin_create_and_use_token(client, store):
@@ -296,7 +312,8 @@ async def test_admin_revoke_and_reject(client, store):
 
     # Verify it works first
     resp1 = await client.post(
-        "/mcp", json=_make_mcp_list_tools(),
+        "/mcp",
+        json=_make_mcp_list_tools(),
         headers=_mcp_headers(token),
     )
     assert resp1.status_code == 200
@@ -310,7 +327,8 @@ async def test_admin_revoke_and_reject(client, store):
 
     # Should now be rejected
     resp2 = await client.post(
-        "/mcp", json=_make_mcp_list_tools(),
+        "/mcp",
+        json=_make_mcp_list_tools(),
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp2.status_code == 401

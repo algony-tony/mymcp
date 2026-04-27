@@ -6,17 +6,17 @@ Each clamp is exercised at/around its min and max bounds so that flipping a
 boundary inclusive <-> exclusive is observable.
 """
 
-import pytest
 from unittest.mock import patch
 
-import config
-from tools.bash import run_bash_execute
-from tools.files import read_file, grep_files
+import pytest
 
+from mymcp.tools.bash import run_bash_execute
+from mymcp.tools.files import grep_files, read_file
 
 # ---------------------------------------------------------------------------
 # bash.run_bash_execute: timeout = min(max(1, timeout), 600)
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("raw_timeout", [-100, 0, 1])
@@ -52,6 +52,7 @@ async def test_bash_timeout_at_or_above_max_clamps(raw_timeout, expected_cap):
 # bash.run_bash_execute: max_output_bytes = min(max(1, n), HARD_CAP)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.anyio
 @pytest.mark.parametrize("raw_bytes", [-50, 0, 1])
 async def test_bash_max_output_at_or_below_one_clamps_to_one(raw_bytes):
@@ -73,11 +74,12 @@ async def test_bash_max_output_exactly_two_keeps_two():
 async def test_bash_max_output_above_hard_cap_clamps():
     """max_output_bytes above HARD_CAP must clamp to HARD_CAP."""
     with patch.multiple(
-        "config",
+        "mymcp.config",
         BASH_MAX_OUTPUT_BYTES_HARD=10,
     ):
         result = await run_bash_execute(
-            "echo hello_world", max_output_bytes=999_999,
+            "echo hello_world",
+            max_output_bytes=999_999,
         )
         assert "[TRUNCATED" in result["stdout"]
         assert "showing first 10 bytes" in result["stdout"]
@@ -86,6 +88,7 @@ async def test_bash_max_output_above_hard_cap_clamps():
 # ---------------------------------------------------------------------------
 # tools.files.read_file: offset = max(1, offset), limit = min(max(1, n), MAX)
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("raw_offset", [-10, 0, 1])
@@ -125,7 +128,7 @@ async def test_read_file_limit_exactly_max_accepts(tmp_path):
     """limit == MAX_LIMIT must not be clamped further."""
     f = tmp_path / "data.txt"
     f.write_text("only one line\n")
-    with patch("config.READ_FILE_MAX_LIMIT", 5):
+    with patch("mymcp.config.READ_FILE_MAX_LIMIT", 5):
         result = await read_file(str(f), limit=5)
         assert result["total_lines"] == 1
 
@@ -136,7 +139,7 @@ async def test_read_file_limit_above_max_clamps(tmp_path):
     content that limit becomes observable through truncation state."""
     f = tmp_path / "data.txt"
     f.write_text("\n".join(f"l{i}" for i in range(1, 11)))
-    with patch("config.READ_FILE_MAX_LIMIT", 3):
+    with patch("mymcp.config.READ_FILE_MAX_LIMIT", 3):
         result = await read_file(str(f), offset=1, limit=9999)
         # limit clamped to 3 → content should have only 3 lines
         lines = [l for l in result["content"].split("\n") if l]
@@ -148,6 +151,7 @@ async def test_read_file_limit_above_max_clamps(tmp_path):
 # read_file.truncated: (offset - 1 + limit) < total_lines
 #   Kills mutations flipping < to <= or > at this boundary.
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.anyio
 async def test_read_file_truncated_false_when_exact_fit(tmp_path):
@@ -184,6 +188,7 @@ async def test_read_file_truncated_false_when_reading_past_end(tmp_path):
 # via truncation marker when file has more matches than the clamp.
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.anyio
 @pytest.mark.parametrize("raw_max", [-5, 0, 1])
 async def test_grep_max_results_at_or_below_one_clamps_to_one(tmp_path, raw_max):
@@ -211,7 +216,7 @@ async def test_grep_max_results_above_hard_cap_clamps(tmp_path):
     """max_results > GREP_MAX_RESULTS clamps to GREP_MAX_RESULTS."""
     # Create 5 matches, patch HARD cap to 2 → truncation at 2.
     (tmp_path / "f.txt").write_text("match\nmatch\nmatch\nmatch\nmatch\n")
-    with patch("config.GREP_MAX_RESULTS", 2):
+    with patch("mymcp.config.GREP_MAX_RESULTS", 2):
         result = await grep_files("match", path=str(tmp_path), max_results=10000)
         assert result["match_count"] == 5
         assert "[TRUNCATED" in result["results"]
