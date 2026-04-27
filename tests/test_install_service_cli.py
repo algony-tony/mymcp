@@ -3,6 +3,7 @@
 System-side calls (systemctl, useradd, ripgrep install) are patched. File
 writes go to tmp_path. The point: verify the orchestration calls the right
 helpers in the right order with the right arguments."""
+
 from unittest.mock import MagicMock
 
 import pytest
@@ -15,6 +16,7 @@ def mocked_root(monkeypatch):
 
 def _run_cli(*args):
     from mymcp.cli import main
+
     return main(list(args))
 
 
@@ -30,10 +32,12 @@ def test_install_service_writes_files_and_unit(tmp_path, mocked_root, monkeypatc
     cfg = tmp_path / "mymcp"
     log = tmp_path / "mymcp-log"
     monkeypatch.setattr(
-        "mymcp.deploy.service.systemd_available", lambda: True,
+        "mymcp.deploy.service.systemd_available",
+        lambda: True,
     )
     monkeypatch.setattr(
-        "mymcp.deploy.service.resolve_mymcp_executable", lambda: "/usr/bin/mymcp",
+        "mymcp.deploy.service.resolve_mymcp_executable",
+        lambda: "/usr/bin/mymcp",
     )
     monkeypatch.setattr("mymcp.deploy.service.daemon_reload", lambda: None)
     monkeypatch.setattr("mymcp.deploy.service.enable_service", lambda *a, **kw: None)
@@ -50,13 +54,18 @@ def test_install_service_writes_files_and_unit(tmp_path, mocked_root, monkeypatc
 
     rc = _run_cli(
         "install-service",
-        "--config-dir", str(cfg),
-        "--log-dir", str(log),
-        "--port", "9999",
-        "--bind", "127.0.0.1",
+        "--config-dir",
+        str(cfg),
+        "--log-dir",
+        str(log),
+        "--port",
+        "9999",
+        "--bind",
+        "127.0.0.1",
         "--no-metrics",
         "--enable-audit",
-        "--service-user", "root",
+        "--service-user",
+        "root",
         "--skip-ripgrep",
         "--yes",
     )
@@ -87,8 +96,10 @@ def test_uninstall_service_calls_stop_disable(monkeypatch, mocked_root):
         lambda *a, **kw: calls.append(("disable", a, kw)),
     )
     monkeypatch.setattr("mymcp.deploy.service.daemon_reload", lambda: calls.append(("reload",)))
-    import mymcp.deploy.service as svc
     from pathlib import Path
+
+    import mymcp.deploy.service as svc
+
     fake_unit = MagicMock(spec=Path)
     fake_unit.exists.return_value = True
     fake_unit.unlink = lambda: calls.append(("unlink-unit",))

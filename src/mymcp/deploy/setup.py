@@ -1,4 +1,5 @@
 """Builders + writers for the install-service config bootstrap step."""
+
 from __future__ import annotations
 
 import json

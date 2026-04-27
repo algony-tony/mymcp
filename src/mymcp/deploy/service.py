@@ -1,4 +1,5 @@
 """Systemd unit rendering and side-effectful service install helpers."""
+
 from __future__ import annotations
 
 import os
@@ -87,7 +88,9 @@ def ensure_service_user(username: str) -> None:
         pass
     subprocess.run(
         ["useradd", "-r", "-s", "/usr/sbin/nologin", username],
-        check=True, capture_output=True, text=True,
+        check=True,
+        capture_output=True,
+        text=True,
     )
 
 

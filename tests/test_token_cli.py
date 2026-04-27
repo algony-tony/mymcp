@@ -1,10 +1,12 @@
 """Tests for `mymcp token list/add/revoke/rotate-admin/rotate-metrics/disable-metrics`."""
+
 import json
 import os
 
 
 def _run(*args, env_file: str | None = None):
     from mymcp.cli import main
+
     if env_file:
         os.environ["MYMCP_ENV_FILE"] = env_file
     return main(list(args))
@@ -15,9 +17,7 @@ def _bootstrap(tmp_path):
     env = tmp_path / ".env"
     tok = tmp_path / "tokens.json"
     env.write_text(
-        "MYMCP_ADMIN_TOKEN=adm_initial\n"
-        "MYMCP_METRICS_TOKEN=met_initial\n"
-        f"MYMCP_TOKEN_FILE={tok}\n"
+        f"MYMCP_ADMIN_TOKEN=adm_initial\nMYMCP_METRICS_TOKEN=met_initial\nMYMCP_TOKEN_FILE={tok}\n"
     )
     tok.write_text(json.dumps({"tokens": {}, "admin_token": "adm_initial"}))
     return env, tok
@@ -25,8 +25,7 @@ def _bootstrap(tmp_path):
 
 def test_token_add_creates_rw_token(tmp_path, capsys):
     env, tok = _bootstrap(tmp_path)
-    rc = _run("token", "add", "--name", "laptop", "--role", "rw",
-              env_file=str(env))
+    rc = _run("token", "add", "--name", "laptop", "--role", "rw", env_file=str(env))
     assert rc == 0
     out = capsys.readouterr().out
     assert "tok_" in out
@@ -48,8 +47,11 @@ def test_token_revoke_removes(tmp_path):
     env, tok = _bootstrap(tmp_path)
     body = json.loads(tok.read_text())
     body["tokens"]["tok_xxx"] = {
-        "name": "old", "role": "ro", "enabled": True,
-        "created_at": "x", "last_used": None,
+        "name": "old",
+        "role": "ro",
+        "enabled": True,
+        "created_at": "x",
+        "last_used": None,
     }
     tok.write_text(json.dumps(body))
 

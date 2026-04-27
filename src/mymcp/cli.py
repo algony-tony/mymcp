@@ -197,6 +197,7 @@ def cmd_install_service(args: argparse.Namespace) -> int:
 
 def _resolve_env_path() -> str:
     from mymcp.config import _discover_env_file
+
     p = _discover_env_file()
     if not p:
         print(
@@ -211,8 +212,10 @@ def cmd_token_list(_args: argparse.Namespace) -> int:
     env_path = _resolve_env_path()
     os.environ["MYMCP_ENV_FILE"] = env_path
     from mymcp import config
+
     config.reset_settings_cache()
     from mymcp.auth import TokenStore
+
     s = config.get_settings()
 
     print(f"admin token:   {'set' if s.admin_token else 'NOT SET'}")
@@ -228,7 +231,7 @@ def cmd_token_list(_args: argparse.Namespace) -> int:
         return 0
     for t, info in tokens.items():
         marker = "x" if info.get("enabled", True) else " "
-        print(f"[{marker}] {info.get('role','rw'):2}  {info.get('name','-'):20}  {t}")
+        print(f"[{marker}] {info.get('role', 'rw'):2}  {info.get('name', '-'):20}  {t}")
     return 0
 
 
@@ -236,9 +239,11 @@ def cmd_token_add(args: argparse.Namespace) -> int:
     env_path = _resolve_env_path()
     os.environ["MYMCP_ENV_FILE"] = env_path
     from mymcp.config import get_settings, reset_settings_cache
+
     reset_settings_cache()
     s = get_settings()
     from mymcp.auth import TokenStore
+
     store = TokenStore(s.token_file, s.admin_token)
     new = store.create_token(args.name, role=args.role)
     print(new)
@@ -249,9 +254,11 @@ def cmd_token_revoke(args: argparse.Namespace) -> int:
     env_path = _resolve_env_path()
     os.environ["MYMCP_ENV_FILE"] = env_path
     from mymcp.config import get_settings, reset_settings_cache
+
     reset_settings_cache()
     s = get_settings()
     from mymcp.auth import TokenStore
+
     store = TokenStore(s.token_file, s.admin_token)
     if store.revoke_token(args.token):
         print(f"revoked {args.token}")
@@ -262,6 +269,7 @@ def cmd_token_revoke(args: argparse.Namespace) -> int:
 
 def _rotate_in_env(env_path: str, key: str) -> str:
     from mymcp.deploy.setup import make_token, update_env_file
+
     new = make_token()
     update_env_file(env_path, {key: new})
     return new
@@ -284,6 +292,7 @@ def cmd_token_rotate_metrics(_args: argparse.Namespace) -> int:
 def cmd_token_disable_metrics(_args: argparse.Namespace) -> int:
     env_path = _resolve_env_path()
     from mymcp.deploy.setup import update_env_file
+
     update_env_file(env_path, {"MYMCP_METRICS_TOKEN": ""})
     print("metrics endpoint disabled.")
     return 0
@@ -350,6 +359,7 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
     import shutil as _sh
 
     from mymcp.deploy import service
+
     print(f"python:    {platform.python_version()}")
     print(f"mymcp:     {__version__}")
     print(f"ripgrep:   {'ok' if _sh.which('rg') else 'missing'}")
@@ -361,6 +371,7 @@ def cmd_uninstall_service(args: argparse.Namespace) -> int:
     if not _require_root():
         return 2
     from mymcp.deploy import service
+
     if not service.systemd_available():
         print("error: systemd does not appear to be running.", file=sys.stderr)
         return 2
@@ -373,6 +384,7 @@ def cmd_uninstall_service(args: argparse.Namespace) -> int:
     service.daemon_reload()
     if args.purge:
         import shutil as _sh
+
         for p in (args.config_dir, args.log_dir):
             if os.path.isdir(p):
                 _sh.rmtree(p)
@@ -409,25 +421,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_version = sub.add_parser("version", help="Print the installed version")
     p_version.set_defaults(func=cmd_version)
 
-    p_install = sub.add_parser(
-        "install-service", help="Install systemd service (requires sudo)"
-    )
+    p_install = sub.add_parser("install-service", help="Install systemd service (requires sudo)")
     p_install.add_argument("--port", type=int, default=8765)
     p_install.add_argument("--bind", default="0.0.0.0")
     p_install.add_argument("--config-dir", default="/etc/mymcp")
     p_install.add_argument("--log-dir", default="/var/log/mymcp")
-    p_install.add_argument(
-        "--service-user", default="root", choices=["root", "mymcp"]
-    )
+    p_install.add_argument("--service-user", default="root", choices=["root", "mymcp"])
     grp_m = p_install.add_mutually_exclusive_group()
-    grp_m.add_argument(
-        "--enable-metrics", dest="enable_metrics", action="store_true", default=True
-    )
+    grp_m.add_argument("--enable-metrics", dest="enable_metrics", action="store_true", default=True)
     grp_m.add_argument("--no-metrics", dest="enable_metrics", action="store_false")
     grp_a = p_install.add_mutually_exclusive_group()
-    grp_a.add_argument(
-        "--enable-audit", dest="enable_audit", action="store_true", default=True
-    )
+    grp_a.add_argument("--enable-audit", dest="enable_audit", action="store_true", default=True)
     grp_a.add_argument("--no-audit", dest="enable_audit", action="store_false")
     grp_r = p_install.add_mutually_exclusive_group()
     grp_r.add_argument(
@@ -437,14 +441,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_install.add_argument("--yes", action="store_true")
     p_install.set_defaults(func=cmd_install_service)
 
-    p_uninst = sub.add_parser(
-        "uninstall-service", help="Remove systemd service (requires sudo)"
-    )
+    p_uninst = sub.add_parser("uninstall-service", help="Remove systemd service (requires sudo)")
     p_uninst.add_argument("--config-dir", default="/etc/mymcp")
     p_uninst.add_argument("--log-dir", default="/var/log/mymcp")
-    p_uninst.add_argument(
-        "--purge", action="store_true", help="Also delete config-dir and log-dir"
-    )
+    p_uninst.add_argument("--purge", action="store_true", help="Also delete config-dir and log-dir")
     p_uninst.set_defaults(func=cmd_uninstall_service)
 
     p_token = sub.add_parser("token", help="Manage tokens")
@@ -471,9 +471,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_tok_dm = p_token_sub.add_parser("disable-metrics")
     p_tok_dm.set_defaults(func=cmd_token_disable_metrics)
 
-    p_mig = sub.add_parser(
-        "migrate-from-legacy", help="Migrate a /opt/mymcp 1.x install to 2.0"
-    )
+    p_mig = sub.add_parser("migrate-from-legacy", help="Migrate a /opt/mymcp 1.x install to 2.0")
     p_mig.add_argument("--legacy-dir", default="/opt/mymcp")
     p_mig.add_argument("--dry-run", action="store_true")
     p_mig.set_defaults(func=cmd_migrate_from_legacy)

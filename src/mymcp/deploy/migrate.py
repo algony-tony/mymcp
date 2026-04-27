@@ -1,4 +1,5 @@
 """Migrate a 1.x install at /opt/mymcp to the 2.0 layout."""
+
 from __future__ import annotations
 
 import re
