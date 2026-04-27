@@ -121,6 +121,104 @@ def cmd_version(_args: argparse.Namespace) -> int:
     return 0
 
 
+def _require_root() -> bool:
+    if os.geteuid() != 0:
+        print("error: this command requires root. Re-run with sudo.", file=sys.stderr)
+        return False
+    return True
+
+
+def cmd_install_service(args: argparse.Namespace) -> int:
+    if not _require_root():
+        return 2
+
+    from mymcp.deploy import service, setup
+
+    if not service.systemd_available():
+        print("error: systemd does not appear to be running.", file=sys.stderr)
+        return 2
+
+    exec_path = service.resolve_mymcp_executable()
+    cfg_dir = os.path.abspath(args.config_dir)
+    log_dir = os.path.abspath(args.log_dir)
+    env_file = os.path.join(cfg_dir, ".env")
+    token_file = os.path.join(cfg_dir, "tokens.json")
+
+    if args.service_user != "root":
+        service.ensure_service_user(args.service_user)
+
+    setup.ensure_directory(cfg_dir, mode=0o750)
+    setup.ensure_directory(log_dir, mode=0o750)
+
+    admin_token = setup.make_token()
+    metrics_token = setup.make_token() if args.enable_metrics else ""
+
+    env = setup.build_env_dict(
+        host=args.bind,
+        port=args.port,
+        admin_token=admin_token,
+        metrics_token=metrics_token,
+        token_file=token_file,
+        audit_enabled=args.enable_audit,
+        audit_log_dir=log_dir,
+    )
+    setup.write_env_file(env_file, env)
+    setup.write_empty_token_store(token_file, admin_token=admin_token)
+
+    if args.enable_audit:
+        service.write_logrotate_config(service.render_logrotate_config(log_dir))
+
+    if args.install_ripgrep:
+        service.install_ripgrep()
+
+    unit_text = service.render_service_unit(
+        service_user=args.service_user,
+        env_file=env_file,
+        exec_start=f"{exec_path} serve --env-file {env_file}",
+    )
+    service.write_systemd_unit(unit_text)
+    service.daemon_reload()
+    service.enable_service()
+
+    print("=== mymcp install-service complete ===")
+    print(f"  Config dir:    {cfg_dir}")
+    print(f"  Log dir:       {log_dir}")
+    print(f"  Service user:  {args.service_user}")
+    print(f"  Listening:     {args.bind}:{args.port}")
+    print(f"\n  *** Admin token:   {admin_token} ***")
+    if metrics_token:
+        print(f"  *** Metrics token: {metrics_token} ***")
+    print(f"  (Tokens are in {env_file} — last chance to copy them)\n")
+    print("  Start:  sudo systemctl start mymcp")
+    print("  Status: sudo systemctl status mymcp")
+    print("  Logs:   sudo journalctl -u mymcp -f")
+    return 0
+
+
+def cmd_uninstall_service(args: argparse.Namespace) -> int:
+    if not _require_root():
+        return 2
+    from mymcp.deploy import service
+    if not service.systemd_available():
+        print("error: systemd does not appear to be running.", file=sys.stderr)
+        return 2
+    service.stop_service()
+    service.disable_service()
+    if service._SYSTEMD_UNIT_PATH.exists():
+        service._SYSTEMD_UNIT_PATH.unlink()
+    if service._LOGROTATE_PATH.exists():
+        service._LOGROTATE_PATH.unlink()
+    service.daemon_reload()
+    if args.purge:
+        import shutil as _sh
+        for p in (args.config_dir, args.log_dir):
+            if os.path.isdir(p):
+                _sh.rmtree(p)
+        print(f"Purged: {args.config_dir} {args.log_dir}")
+    print("mymcp service removed.")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="mymcp",
@@ -148,6 +246,44 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_version = sub.add_parser("version", help="Print the installed version")
     p_version.set_defaults(func=cmd_version)
+
+    p_install = sub.add_parser(
+        "install-service", help="Install systemd service (requires sudo)"
+    )
+    p_install.add_argument("--port", type=int, default=8765)
+    p_install.add_argument("--bind", default="0.0.0.0")
+    p_install.add_argument("--config-dir", default="/etc/mymcp")
+    p_install.add_argument("--log-dir", default="/var/log/mymcp")
+    p_install.add_argument(
+        "--service-user", default="root", choices=["root", "mymcp"]
+    )
+    grp_m = p_install.add_mutually_exclusive_group()
+    grp_m.add_argument(
+        "--enable-metrics", dest="enable_metrics", action="store_true", default=True
+    )
+    grp_m.add_argument("--no-metrics", dest="enable_metrics", action="store_false")
+    grp_a = p_install.add_mutually_exclusive_group()
+    grp_a.add_argument(
+        "--enable-audit", dest="enable_audit", action="store_true", default=True
+    )
+    grp_a.add_argument("--no-audit", dest="enable_audit", action="store_false")
+    grp_r = p_install.add_mutually_exclusive_group()
+    grp_r.add_argument(
+        "--install-ripgrep", dest="install_ripgrep", action="store_true", default=True
+    )
+    grp_r.add_argument("--skip-ripgrep", dest="install_ripgrep", action="store_false")
+    p_install.add_argument("--yes", action="store_true")
+    p_install.set_defaults(func=cmd_install_service)
+
+    p_uninst = sub.add_parser(
+        "uninstall-service", help="Remove systemd service (requires sudo)"
+    )
+    p_uninst.add_argument("--config-dir", default="/etc/mymcp")
+    p_uninst.add_argument("--log-dir", default="/var/log/mymcp")
+    p_uninst.add_argument(
+        "--purge", action="store_true", help="Also delete config-dir and log-dir"
+    )
+    p_uninst.set_defaults(func=cmd_uninstall_service)
 
     return parser
 
