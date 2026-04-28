@@ -130,10 +130,10 @@ jobs:
 
       - name: Run mutation testing
         run: |
-          # Generate coverage file to enable --use-coverage optimization
-          python -m pytest tests/ --cov=src/mymcp --benchmark-disable --cov-report=
-          # Run mutmut with coverage optimization
-          python -m mutmut run --use-coverage --no-progress 2>&1 || true
+          # Ensure clean cache for fresh run
+          rm -f .mutmut-cache
+          # Run mutmut
+          python -m mutmut run --no-progress 2>&1 || true
           python -m mutmut results > mutmut-results.txt 2>&1 || true
           cat mutmut-results.txt
 
@@ -148,15 +148,30 @@ jobs:
           try:
               conn = sqlite3.connect('.mutmut-cache')
               c = conn.cursor()
-              # mutmut 2.5 uses 'ok_killed', 'bad_survived', 'bad_timeout'
-              counts = dict(c.execute('SELECT status, count(*) FROM mutant GROUP BY status').fetchall())
+              # Get counts of all statuses to be sure
+              rows = c.execute('SELECT status, count(*) FROM mutant GROUP BY status').fetchall()
+              counts = dict(rows)
               conn.close()
+              
+              # Log statuses to CI output for debugging
+              import sys
+              print(f'DEBUG: Mutant statuses found: {counts}', file=sys.stderr)
+              
+              # mutmut 2.x statuses: 
+              # 'ok_killed', 'bad_survived', 'bad_timeout', 'suspicious', 'skipped'
               killed = counts.get('ok_killed', 0)
               survived = counts.get('bad_survived', 0)
               timeout = counts.get('bad_timeout', 0)
               total = killed + survived + timeout
+              
+              if total == 0:
+                  # If no mutants checked yet, try to sum everything that isn't skipped
+                  total = sum(v for k, v in counts.items() if k != 'skipped')
+              
               print(killed * 100 // total if total > 0 else 0)
-          except Exception:
+          except Exception as e:
+              import sys
+              print(f'DEBUG: Error calculating score: {e}', file=sys.stderr)
               print(0)
           ")
 
