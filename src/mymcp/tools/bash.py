@@ -101,12 +101,12 @@ async def run_bash_execute(
             stdout_bytes, stderr_bytes = await asyncio.wait_for(
                 proc.communicate(), timeout=float(timeout)
             )
-        except (asyncio.TimeoutError, TimeoutError):
+        except (asyncio.TimeoutError, TimeoutError):  # noqa: UP041
             with contextlib.suppress(ProcessLookupError, PermissionError):
                 os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
             try:
                 await asyncio.wait_for(proc.communicate(), timeout=2)
-            except (asyncio.TimeoutError, TimeoutError):
+            except (asyncio.TimeoutError, TimeoutError):  # noqa: UP041
                 with contextlib.suppress(ProcessLookupError, PermissionError):
                     os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
                 await proc.communicate()

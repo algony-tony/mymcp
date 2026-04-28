@@ -40,7 +40,7 @@ class TokenStore:
             info = self._data["tokens"].get(token)
             if info is None or not info.get("enabled", False):
                 return None
-            info["last_used"] = datetime.now(timezone.utc).isoformat()
+            info["last_used"] = datetime.now(timezone.utc).isoformat()  # noqa: UP017
             self._save()
             return dict(info)
 
@@ -51,7 +51,7 @@ class TokenStore:
         with self._lock:
             self._data["tokens"][token] = {
                 "name": name,
-                "created_at": datetime.now(timezone.utc).isoformat(),
+                "created_at": datetime.now(timezone.utc).isoformat(),  # noqa: UP017
                 "last_used": None,
                 "enabled": True,
                 "role": role,
