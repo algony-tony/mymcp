@@ -37,7 +37,7 @@ detects the process ancestry and automatically detaches. The client receives
 a "started in background" message and should advise the user to reconnect in
 ~2 minutes. `bash_execute` bypasses path protection by design, so upgrade
 runs without interference. The pip-based 2.0 install path replaces this with
-`pipx upgrade mymcp && sudo systemctl restart mymcp` (Plan 2/3 work).
+`pipx upgrade algony-mymcp && sudo systemctl restart mymcp` (Plan 2/3 work).
 
 ## Architecture
 

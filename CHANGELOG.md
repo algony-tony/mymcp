@@ -12,14 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Breaking changes
 - Environment variables: `MCP_*` → `MYMCP_*` (no compat). Migrate with `mymcp migrate-from-legacy`.
 - Install layout: code via `pipx`; config moved from `/opt/mymcp/` to `/etc/mymcp/`.
-- Install method: `pipx install mymcp` replaces `git clone + deploy/install.sh`.
+- Install method: `pipx install algony-mymcp` replaces `git clone + deploy/install.sh`. (PyPI distribution name is `algony-mymcp`; CLI command and import path are still `mymcp`.)
 - `MCP_APP_DIR` is removed. Protected paths now derive from the audit log dir + `MYMCP_PROTECTED_PATHS` only.
 
 ### Added
 - `mymcp` CLI with subcommands: `serve`, `install-service`, `uninstall-service`,
   `token list/add/revoke/rotate-admin/rotate-metrics/disable-metrics`,
   `migrate-from-legacy`, `doctor`, `version`.
-- `pipx install mymcp` workflow with `setuptools-scm`-derived versions.
+- `pipx install algony-mymcp` workflow with `setuptools-scm`-derived versions.
 - pydantic-settings-based config with typed defaults.
 - Bash subprocess SIGTERM cleanup: in-flight bash children get TERM/KILL with
   configurable grace via `MYMCP_SHUTDOWN_GRACE_SEC`.

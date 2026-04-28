@@ -82,7 +82,7 @@ ls dist/
    twine upload dist/*
    ```
 
-4. Visit https://pypi.org/project/mymcp/ — you should see the project page
+4. Visit https://pypi.org/project/algony-mymcp/ — you should see the project page
 
 5. **Re-scope the token**: now that the project exists, go back to the token page, **delete the All-projects token**, and create a new one scoped specifically to `mymcp`. (Or skip this if you'll switch to OIDC immediately as in step 3 below — see next section.)
 
@@ -90,10 +90,10 @@ ls dist/
 
 This is the secure replacement for storing PyPI tokens as GitHub secrets. Each release runs in a sandboxed environment and gets a short-lived OIDC token directly from PyPI.
 
-1. Go to https://pypi.org/manage/project/mymcp/settings/publishing/
+1. Go to https://pypi.org/manage/project/algony-mymcp/settings/publishing/
 2. Click "Add a new publisher" → GitHub
 3. Fill in:
-   - **PyPI Project Name**: `mymcp`
+   - **PyPI Project Name**: `algony-mymcp`
    - **Owner**: `algony-tony`
    - **Repository name**: `mymcp`
    - **Workflow name**: `release.yml`
@@ -165,7 +165,7 @@ Watch the run progress at https://github.com/algony-tony/mymcp/actions.
 # Fresh install from PyPI in a throwaway venv
 python -m venv /tmp/check
 /tmp/check/bin/pip install --upgrade pip
-/tmp/check/bin/pip install mymcp
+/tmp/check/bin/pip install algony-mymcp
 /tmp/check/bin/mymcp --version
 # expected: mymcp 2.0.0
 
@@ -205,7 +205,7 @@ For bugfix releases:
    git push origin v2.0.1
    ```
 
-3. Same workflow runs; users upgrade with `pipx upgrade mymcp`.
+3. Same workflow runs; users upgrade with `pipx upgrade algony-mymcp`.
 
 ---
 
@@ -213,11 +213,11 @@ For bugfix releases:
 
 If a release is found to be broken after upload:
 
-1. Visit https://pypi.org/project/mymcp/<version>/
+1. Visit https://pypi.org/project/algony-mymcp/<version>/
 2. Click "Manage" → "Options" → "Yank"
 3. Provide a reason (gets shown to users)
 
-Yanked releases stay installable for users who pin to that version (`mymcp==2.0.0`) but new `pipx install mymcp` will skip them.
+Yanked releases stay installable for users who pin to that version (`algony-mymcp==2.0.0`) but new `pipx install algony-mymcp` will skip them.
 
 You **cannot delete** a version from PyPI once uploaded (the version number is permanently consumed). To ship a fix, bump to the next patch version (2.0.1) and yank the broken one.
 
@@ -227,7 +227,7 @@ You **cannot delete** a version from PyPI once uploaded (the version number is p
 
 **`mymcp` name was taken** by someone else before you registered:
 
-If pypi.org shows another project at https://pypi.org/project/mymcp/, the name is gone. Pick a new name (e.g. `algony-mymcp`) and update:
+If pypi.org shows another project at https://pypi.org/project/algony-mymcp/, the name is gone. Pick a new name and update:
 
 - `pyproject.toml` `name = "..."`
 - README install commands

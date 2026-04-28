@@ -30,14 +30,18 @@ A Python MCP server that exposes full Linux system control to AI clients (Claude
 Requires Python 3.11+ on Linux.
 
 ```bash
-pipx install mymcp
+pipx install algony-mymcp
 ```
+
+The PyPI distribution name is `algony-mymcp` (the bare name `mymcp` is reserved
+on PyPI). After install the command and the Python import path are still
+plain `mymcp`.
 
 Plain `pip` works too (a venv is recommended):
 
 ```bash
 python3 -m venv ~/.local/share/mymcp-env
-~/.local/share/mymcp-env/bin/pip install mymcp
+~/.local/share/mymcp-env/bin/pip install algony-mymcp
 ln -s ~/.local/share/mymcp-env/bin/mymcp ~/.local/bin/mymcp
 ```
 
@@ -69,7 +73,7 @@ Useful flags: `--port 9000`, `--bind 127.0.0.1`, `--config-dir`, `--log-dir`,
 ### Upgrade
 
 ```bash
-pipx upgrade mymcp
+pipx upgrade algony-mymcp
 sudo systemctl restart mymcp
 ```
 
@@ -91,12 +95,12 @@ Breaking changes:
 - Environment variable prefix renamed: `MCP_*` → `MYMCP_*` (no compat shim).
 - Install layout: `/opt/mymcp/` (1.x) → `/etc/mymcp/` (2.0). Code is now
   managed by `pipx`, not unpacked into `/opt/mymcp/`.
-- Install method: `git clone + deploy/install.sh` → `pipx install mymcp`.
+- Install method: `git clone + deploy/install.sh` → `pipx install algony-mymcp`.
 
 One-line migration:
 
 ```bash
-pipx install mymcp
+pipx install algony-mymcp
 sudo mymcp migrate-from-legacy
 sudo rm -rf /opt/mymcp     # after verifying the new service is healthy
 ```
