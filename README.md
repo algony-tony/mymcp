@@ -259,6 +259,33 @@ Add extra protected paths via `MYMCP_PROTECTED_PATHS=/path/one,/path/two`.
 
 Note: `bash_execute` is not subject to path protection — use `ro` tokens for untrusted clients.
 
+## Monitoring
+
+mymcp provides a Prometheus-compatible `/metrics` endpoint.
+
+### Configuration
+1. **Metrics Token**: Set the `MYMCP_METRICS_TOKEN` environment variable to secure the endpoint.
+2. **Prometheus Scrape**: Configure Prometheus to scrape `/metrics` using the bearer token.
+   ```yaml
+   scrape_configs:
+     - job_name: mymcp
+       metrics_path: /metrics
+       authorization:
+         type: Bearer
+         credentials: <MYMCP_METRICS_TOKEN>
+       static_configs:
+         - targets: ["your-host:8765"]
+   ```
+
+### Dashboard
+A pre-built Grafana dashboard is available in `deploy/grafana/mymcp-dashboard.json`. It provides visualization for:
+- Tool call rates and error status.
+- p50/p95/p99 latency per tool.
+- HTTP request statistics.
+- System health (CPU, Memory, FDs).
+
+See [deploy/grafana/README.md](deploy/grafana/README.md) for detailed import and setup instructions.
+
 ## Testing
 
 ```bash
@@ -275,7 +302,7 @@ python -m pytest tests/test_benchmark.py --benchmark-only -v
 python -m pytest tests/test_benchmark.py --benchmark-save=baseline
 
 # Run mutation testing
-python -m mutmut run
+python -m mutmut run --use-coverage
 python -m mutmut results
 
 # Run load tests (start server first: mymcp serve)

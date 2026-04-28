@@ -130,7 +130,10 @@ jobs:
 
       - name: Run mutation testing
         run: |
-          python -m mutmut run --no-progress 2>&1 || true
+          # Generate coverage file to enable --use-coverage optimization
+          python -m pytest tests/ --cov=src/mymcp --benchmark-disable --cov-report=
+          # Run mutmut with coverage optimization
+          python -m mutmut run --use-coverage --no-progress 2>&1 || true
           python -m mutmut results > mutmut-results.txt 2>&1 || true
           cat mutmut-results.txt
 
@@ -138,9 +141,14 @@ jobs:
         run: |
           SCORE=$(python -c "
           import sqlite3
+          import os
+          if not os.path.exists('.mutmut-cache'):
+              print(0)
+              exit()
           try:
               conn = sqlite3.connect('.mutmut-cache')
               c = conn.cursor()
+              # mutmut 2.5 uses 'ok_killed', 'bad_survived', 'bad_timeout'
               counts = dict(c.execute('SELECT status, count(*) FROM mutant GROUP BY status').fetchall())
               conn.close()
               killed = counts.get('ok_killed', 0)
