@@ -57,7 +57,7 @@ def log_tool_call(
         return
 
     entry: dict = {
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "ts": datetime.now(timezone.utc).isoformat(),  # noqa: UP017
         "token_name": token_name,
         "role": role,
         "ip": ip,

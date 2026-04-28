@@ -264,7 +264,7 @@ async def _grep_rg(
         )
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=60)
         lines = stdout.decode("utf-8", errors="replace").splitlines()
-    except (asyncio.TimeoutError, TimeoutError):
+    except (asyncio.TimeoutError, TimeoutError):  # noqa: UP041
         return {"success": False, "error": "TimeoutError", "message": "grep timed out after 60s"}
 
     filtered = []
