@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-04-28
+
+### Fixed
+- Fixed mutation testing 0% score caused by Python compatibility issues and config splitting bug.
+- Improved Python < 3.11 compatibility (replaced `datetime.UTC` with `timezone.utc`).
+- Broadened `TimeoutError` handling in bash and file tools for cross-version consistency.
+- Corrected `protected_paths` delimiter in configuration.
+
+### Optimized
+- Speed up mutation testing in CI using `--use-coverage`.
+
+### Added
+- Documented Prometheus and Grafana monitoring in main README.
+
 ## [2.0.0] - 2026-04-28
 
 ### Breaking changes
