@@ -2,7 +2,7 @@ import json
 import logging
 import logging.handlers
 import os
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from mymcp import config
 
@@ -57,7 +57,7 @@ def log_tool_call(
         return
 
     entry: dict = {
-        "ts": datetime.now(UTC).isoformat(),
+        "ts": datetime.now(timezone.utc).isoformat(),
         "token_name": token_name,
         "role": role,
         "ip": ip,
@@ -74,4 +74,4 @@ def log_tool_call(
     if duration_ms is not None:
         entry["duration_ms"] = duration_ms
 
-    _logger.info(json.dumps(entry, ensure_ascii=False))
+    _logger.info(json.dumps(entry))

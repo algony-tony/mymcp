@@ -1,7 +1,7 @@
 import json
 import secrets
 import threading
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -40,7 +40,7 @@ class TokenStore:
             info = self._data["tokens"].get(token)
             if info is None or not info.get("enabled", False):
                 return None
-            info["last_used"] = datetime.now(UTC).isoformat()
+            info["last_used"] = datetime.now(timezone.utc).isoformat()
             self._save()
             return dict(info)
 
@@ -51,7 +51,7 @@ class TokenStore:
         with self._lock:
             self._data["tokens"][token] = {
                 "name": name,
-                "created_at": datetime.now(UTC).isoformat(),
+                "created_at": datetime.now(timezone.utc).isoformat(),
                 "last_used": None,
                 "enabled": True,
                 "role": role,
