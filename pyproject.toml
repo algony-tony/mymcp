@@ -96,6 +96,12 @@ markers = [
 ]
 
 [tool.mutmut]
-paths_to_mutate = "src/mymcp/auth.py,src/mymcp/audit.py,src/mymcp/config.py,src/mymcp/tools/bash.py,src/mymcp/tools/files.py,src/mymcp/mcp_server.py"
-tests_dir = "tests/"
-runner = "python3 -m pytest tests/ -x -q --tb=no --no-header --benchmark-disable"
+paths_to_mutate = [
+    "src/mymcp/auth.py",
+    "src/mymcp/tools/bash.py",
+    "src/mymcp/tools/files.py",
+    "src/mymcp/mcp_server.py",
+]
+also_copy = ["src/"]
+tests_dir = ["tests/"]
+pytest_add_cli_args = ["--benchmark-disable"]
