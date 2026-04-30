@@ -52,7 +52,7 @@ mymcp serve
 ```
 
 `mymcp` prints a temporary admin and rw token to stderr, listens on
-`127.0.0.1:8765`, and discards both tokens on exit.
+`0.0.0.0:8765` by default, and discards both tokens on exit.
 
 ### Production install (systemd)
 
@@ -87,6 +87,105 @@ tar xzf mymcp-2.0.0-offline-bundle.tar.gz
 cd mymcp-2.0.0-offline-bundle
 sudo ./install-offline.sh
 sudo mymcp install-service --yes
+```
+
+## CLI Reference
+
+### Top-level commands
+
+| Command | Purpose |
+|---------|---------|
+| `mymcp serve` | Run the MCP server in the foreground |
+| `mymcp version` | Print the installed version |
+| `mymcp install-service` | Install the systemd service and config files |
+| `mymcp uninstall-service` | Remove the systemd service |
+| `mymcp token ...` | Manage tokens in the local token store |
+| `mymcp migrate-from-legacy` | Migrate a 1.x `/opt/mymcp` install to 2.x |
+| `mymcp doctor` | Print environment and dependency diagnostics |
+
+### `mymcp serve`
+
+```bash
+mymcp serve --help
+```
+
+Important flags:
+
+| Flag | Description |
+|------|-------------|
+| `--env-file PATH` | Load settings from a specific env file |
+| `--host HOST` | Override bind host |
+| `--port PORT` | Override bind port |
+| `--log-level {DEBUG,INFO,WARNING,ERROR,CRITICAL}` | Set application log level |
+| `--log-format {text,json}` | Use text or JSON stderr logs |
+| `--with-metrics-token` | In temporary-token mode, also generate an ephemeral metrics token |
+
+### `mymcp install-service`
+
+```bash
+sudo mymcp install-service --help
+```
+
+Important flags:
+
+| Flag | Description |
+|------|-------------|
+| `--port PORT` | Listen port (default `8765`) |
+| `--bind HOST` | Bind address (default `0.0.0.0`) |
+| `--config-dir PATH` | Config directory (default `/etc/mymcp`) |
+| `--log-dir PATH` | Audit log directory (default `/var/log/mymcp`) |
+| `--service-user {root,mymcp}` | Run as root or a restricted `mymcp` user |
+| `--enable-metrics` / `--no-metrics` | Enable or disable `/metrics` token setup |
+| `--enable-audit` / `--no-audit` | Enable or disable audit logging setup |
+| `--install-ripgrep` / `--skip-ripgrep` | Install or skip `rg` for fast grep |
+| `--yes` | Skip interactive confirmation |
+
+### `mymcp uninstall-service`
+
+```bash
+sudo mymcp uninstall-service --help
+```
+
+| Flag | Description |
+|------|-------------|
+| `--config-dir PATH` | Config directory to target |
+| `--log-dir PATH` | Log directory to target |
+| `--purge` | Also delete config and log directories |
+
+### `mymcp token`
+
+```bash
+mymcp token --help
+```
+
+Subcommands:
+
+| Subcommand | Purpose |
+|------------|---------|
+| `mymcp token list` | Show admin/metrics state and ro/rw tokens |
+| `mymcp token add --name NAME --role {ro,rw}` | Create a new token |
+| `mymcp token revoke TOKEN` | Delete a token |
+| `mymcp token rotate-admin` | Generate and persist a new admin token |
+| `mymcp token rotate-metrics` | Generate and persist a new metrics token |
+| `mymcp token disable-metrics` | Disable the `/metrics` endpoint |
+
+### `mymcp migrate-from-legacy`
+
+```bash
+sudo mymcp migrate-from-legacy --help
+```
+
+| Flag | Description |
+|------|-------------|
+| `--legacy-dir PATH` | Legacy 1.x install root (default `/opt/mymcp`) |
+| `--dry-run` | Show planned migration steps without changing files |
+
+### `mymcp doctor`
+
+Use this when install, Python path, `rg`, or env-file resolution looks wrong:
+
+```bash
+mymcp doctor
 ```
 
 ## Upgrading from 1.x to 2.0
@@ -185,6 +284,64 @@ sudo mymcp token disable-metrics
 The HTTP `/admin/*` API still works for clients that need to manage tokens
 remotely; it requires `Authorization: Bearer <MYMCP_ADMIN_TOKEN>`.
 
+## HTTP Endpoints
+
+### Public / operational endpoints
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| `GET` | `/health` | none | Liveness check with version |
+| `GET` | `/version` | none | Return just the server version |
+| `GET` | `/metrics` | metrics token | Prometheus metrics |
+| `POST` | `/mcp` | ro/rw token | Streamable HTTP MCP transport |
+
+Examples:
+
+```bash
+curl http://your-server:8765/health
+curl http://your-server:8765/version
+curl -H "Authorization: Bearer $MYMCP_METRICS_TOKEN" \
+  http://your-server:8765/metrics
+```
+
+Notes:
+- `/metrics` returns `401` if the bearer token is wrong.
+- `/metrics` returns `503` if metrics support is disabled or no metrics token is configured.
+
+### Admin API
+
+All `/admin/*` endpoints require:
+
+```http
+Authorization: Bearer <MYMCP_ADMIN_TOKEN>
+```
+
+| Method | Path | Body | Purpose |
+|--------|------|------|---------|
+| `GET` | `/admin/tokens` | none | List managed ro/rw tokens |
+| `POST` | `/admin/tokens` | `{"name":"...", "role":"ro|rw"}` | Create a token |
+| `DELETE` | `/admin/tokens/{token}` | none | Revoke a token |
+
+Examples:
+
+```bash
+# List tokens
+curl -H "Authorization: Bearer $MYMCP_ADMIN_TOKEN" \
+  http://your-server:8765/admin/tokens
+
+# Create a read-only token
+curl -X POST \
+  -H "Authorization: Bearer $MYMCP_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"ci-bot","role":"ro"}' \
+  http://your-server:8765/admin/tokens
+
+# Revoke a token
+curl -X DELETE \
+  -H "Authorization: Bearer $MYMCP_ADMIN_TOKEN" \
+  http://your-server:8765/admin/tokens/tok_abc123
+```
+
 ## Connecting Clients
 
 ### Claude Desktop / Cursor
@@ -216,14 +373,188 @@ claude mcp add linux-server \
 
 ## MCP Tools
 
-| Tool | Permission | Description |
-|------|-----------|-------------|
-| `bash_execute` | rw | Run any shell command |
-| `read_file` | ro | Read file with line numbers and pagination |
-| `write_file` | rw | Create or overwrite a file (max 10MB) |
-| `edit_file` | rw | Replace a string in a file |
-| `glob` | ro | Find files by pattern |
+### Permission model
+
+| Tool | Permission | Summary |
+|------|-----------|---------|
+| `bash_execute` | rw | Run a shell command in a fresh subprocess |
+| `read_file` | ro | Read a file with line numbers and pagination |
+| `write_file` | rw | Create or overwrite a file |
+| `edit_file` | rw | Replace text in a file |
+| `glob` | ro | Find paths by glob pattern |
 | `grep` | ro | Search file contents with regex |
+
+`ro` tokens can only use `read_file`, `glob`, and `grep`.  
+`rw` tokens can use all six tools.
+
+### `bash_execute` (`rw`)
+
+Runs a shell command in a new subprocess. Commands are stateless: one call does
+not preserve cwd, environment changes, shell functions, or exports for the next.
+
+Parameters:
+
+| Field | Type | Required | Default | Notes |
+|------|------|----------|---------|-------|
+| `command` | string | yes | – | Shell command to run |
+| `timeout` | integer | no | `30` | Clamped to `1..600` seconds |
+| `working_dir` | string | no | `/` | Command cwd |
+| `max_output_bytes` | integer | no | `102400` | Per-stream cap; hard max `1048576` |
+
+Returns:
+- `stdout`
+- `stderr`
+- `exit_code`
+- `timed_out`
+
+Example:
+
+```json
+{
+  "command": "uname -a",
+  "timeout": 10,
+  "working_dir": "/tmp"
+}
+```
+
+### `read_file` (`ro`)
+
+Reads a file and returns numbered lines. Large reads support pagination.
+
+Parameters:
+
+| Field | Type | Required | Default | Notes |
+|------|------|----------|---------|-------|
+| `file_path` | string | yes | – | Absolute path |
+| `offset` | integer | no | `1` | 1-based start line |
+| `limit` | integer | no | `2000` | Runtime max `50000` |
+
+Returns:
+- `content`
+- `total_lines`
+- `truncated`
+
+Common errors:
+- `FileNotFoundError`
+- `IsADirectoryError`
+- `PermissionError`
+- `ProtectedPath`
+
+Example:
+
+```json
+{
+  "file_path": "/var/log/syslog",
+  "offset": 1,
+  "limit": 200
+}
+```
+
+### `write_file` (`rw`)
+
+Creates or overwrites a file in one shot.
+
+Parameters:
+
+| Field | Type | Required | Default | Notes |
+|------|------|----------|---------|-------|
+| `file_path` | string | yes | – | Absolute path |
+| `content` | string | yes | – | Max size `10485760` bytes (10 MB) |
+
+Notes:
+- Parent directory must already exist.
+- Protected paths are rejected.
+
+Example:
+
+```json
+{
+  "file_path": "/tmp/hello.txt",
+  "content": "hello from mymcp\n"
+}
+```
+
+### `edit_file` (`rw`)
+
+Replaces text in an existing file.
+
+Parameters:
+
+| Field | Type | Required | Default | Notes |
+|------|------|----------|---------|-------|
+| `file_path` | string | yes | – | Absolute path |
+| `old_string` | string | yes | – | Max size `1048576` bytes |
+| `new_string` | string | yes | – | Max size `1048576` bytes |
+| `replace_all` | boolean | no | `false` | If false, `old_string` must match uniquely |
+
+Use this when the client wants a precise in-file replacement instead of full overwrite.
+
+Example:
+
+```json
+{
+  "file_path": "/tmp/app.conf",
+  "old_string": "PORT=8000",
+  "new_string": "PORT=8765"
+}
+```
+
+### `glob` (`ro`)
+
+Finds matching files under a root directory. Results are sorted by modified time descending.
+
+Parameters:
+
+| Field | Type | Required | Default | Notes |
+|------|------|----------|---------|-------|
+| `pattern` | string | yes | – | Example: `**/*.py` |
+| `path` | string | no | `/` | Root directory |
+
+Runtime max results: `1000`.
+
+Example:
+
+```json
+{
+  "pattern": "**/*.log",
+  "path": "/var/log"
+}
+```
+
+### `grep` (`ro`)
+
+Searches file contents with a regex. Uses `ripgrep` if available; otherwise falls back to a Python implementation.
+
+Parameters:
+
+| Field | Type | Required | Default | Notes |
+|------|------|----------|---------|-------|
+| `pattern` | string | yes | – | Regex pattern |
+| `path` | string | no | `/` | File or directory to search |
+| `glob` | string | no | none | Filename filter, e.g. `*.py` |
+| `output_mode` | string | no | `content` | One of `content`, `files`, `count` |
+| `context_lines` | integer | no | `0` | Include surrounding lines |
+| `max_results` | integer | no | `500` | Runtime max `5000` |
+| `case_insensitive` | boolean | no | `false` | Case-insensitive search |
+
+Example:
+
+```json
+{
+  "pattern": "Authorization",
+  "path": "/etc",
+  "glob": "*.conf",
+  "output_mode": "content",
+  "context_lines": 2
+}
+```
+
+### Tool behavior notes
+
+- File tools enforce protected-path checks.
+- `bash_execute` does **not** enforce protected-path checks; use `ro` tokens for untrusted clients.
+- `grep` and `glob` are capped to protect the server from unbounded scans.
+- `read_file` truncates oversized individual lines and marks them with `[LINE TRUNCATED]`.
 
 ## Logging
 
@@ -302,7 +633,7 @@ python -m pytest tests/test_benchmark.py --benchmark-only -v
 python -m pytest tests/test_benchmark.py --benchmark-save=baseline
 
 # Run mutation testing
-python -m mutmut run --use-coverage
+python -m mutmut run --max-children 1
 python -m mutmut results
 
 # Run load tests (start server first: mymcp serve)
