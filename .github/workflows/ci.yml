@@ -131,7 +131,7 @@ jobs:
       - name: Run mutation testing
         run: |
           rm -rf mutants
-          mutmut run
+          mutmut run --max-children 1
           mutmut export-cicd-stats
           mutmut results
 
