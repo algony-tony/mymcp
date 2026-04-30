@@ -98,6 +98,7 @@ markers = [
 [tool.mutmut]
 paths_to_mutate = [
     "src/mymcp/auth.py",
+    "src/mymcp/config.py",
     "src/mymcp/tools/bash.py",
     "src/mymcp/tools/files.py",
     "src/mymcp/mcp_server.py",
