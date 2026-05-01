@@ -14,7 +14,7 @@ def legacy_dir_present(path: Path | str) -> bool:
     return (Path(path) / ".env").is_file()
 
 
-def rewrite_env_keys(text: str) -> str:
+def rewrite_env_keys(text: str, new_cfg_dir: Path | str | None = None) -> str:
     """Replace `MCP_FOO=` with `MYMCP_FOO=` line by line. Drop legacy keys."""
     out_lines: list[str] = []
     for raw in text.splitlines():
@@ -23,6 +23,12 @@ def rewrite_env_keys(text: str) -> str:
             key, val = m.group(1), m.group(2)
             if key in _DROP_KEYS:
                 continue
+            if key == "TOKEN_FILE" and new_cfg_dir:
+                # Remove possible quotes from val for path resolution
+                clean_val = val.strip().strip("'\"")
+                if not Path(clean_val).is_absolute():
+                    # Resolve relative to the new config directory
+                    val = str((Path(new_cfg_dir) / clean_val).resolve())
             out_lines.append(f"MYMCP_{key}={val}")
         else:
             out_lines.append(raw)

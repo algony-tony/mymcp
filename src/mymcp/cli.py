@@ -316,7 +316,7 @@ def cmd_migrate_from_legacy(args: argparse.Namespace) -> int:
     new_tokens = new_cfg / "tokens.json"
 
     src_text = (legacy / ".env").read_text()
-    rewritten = mig.rewrite_env_keys(src_text)
+    rewritten = mig.rewrite_env_keys(src_text, new_cfg_dir=new_cfg)
 
     plan_lines = [
         f"  rewrite {legacy / '.env'} → {new_env} (MCP_*→MYMCP_*)",

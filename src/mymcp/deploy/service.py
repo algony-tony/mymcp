@@ -28,9 +28,12 @@ def _read_template() -> str:
     return resources.files("mymcp.deploy.templates").joinpath("mymcp.service.in").read_text()
 
 
-def render_service_unit(*, service_user: str, env_file: str, exec_start: str) -> str:
+def render_service_unit(
+    *, service_user: str, env_file: str, exec_start: str, working_directory: str = "/etc/mymcp"
+) -> str:
     return _read_template().format(
         service_user=service_user,
+        working_directory=working_directory,
         env_file=env_file,
         exec_start=exec_start,
     )

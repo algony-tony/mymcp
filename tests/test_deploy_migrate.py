@@ -7,12 +7,14 @@ def test_rewrite_env_keys_replaces_mcp_with_mymcp():
         "MCP_ADMIN_TOKEN=adm\n"
         "MCP_AUDIT_ENABLED=true\n"
         "MCP_APP_DIR=/opt/mymcp\n"
+        "MCP_TOKEN_FILE=./tokens.json\n"
     )
-    out = rewrite_env_keys(src)
+    out = rewrite_env_keys(src, new_cfg_dir="/etc/mymcp")
     assert "MYMCP_HOST=0.0.0.0" in out
     assert "MYMCP_PORT=8765" in out
     assert "MYMCP_ADMIN_TOKEN=adm" in out
     assert "MYMCP_AUDIT_ENABLED=true" in out
+    assert "MYMCP_TOKEN_FILE=/etc/mymcp/tokens.json" in out
     # APP_DIR is dropped entirely
     assert "APP_DIR" not in out
 

@@ -12,6 +12,7 @@ def test_render_service_unit_substitutes_fields():
         exec_start="/usr/local/bin/mymcp serve --env-file /etc/mymcp/.env",
     )
     assert "User=root" in out
+    assert "WorkingDirectory=/etc/mymcp" in out
     assert "EnvironmentFile=/etc/mymcp/.env" in out
     assert "ExecStart=/usr/local/bin/mymcp serve --env-file /etc/mymcp/.env" in out
     assert out.strip().startswith("[Unit]")
