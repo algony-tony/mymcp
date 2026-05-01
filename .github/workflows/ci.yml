@@ -9,10 +9,10 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Install package + lint tooling
@@ -31,12 +31,12 @@ jobs:
         python-version: ["3.11", "3.12", "3.13"]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -77,7 +77,7 @@ jobs:
   bats:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install bats
         run: |
           sudo apt-get update -qq
@@ -90,16 +90,16 @@ jobs:
     runs-on: ubuntu-latest
     needs: [lint, test]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - run: |
           python -m pip install --upgrade pip build
           python -m build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: dist
           path: dist/*
@@ -109,14 +109,17 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     needs: test
+    concurrency:
+      group: mutation-smoke-${{ github.ref }}
+      cancel-in-progress: true
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -178,17 +181,19 @@ jobs:
             paths_json: '["src/mymcp/tools/files.py"]'
           - shard: protocol
             paths_json: '["src/mymcp/mcp_server.py"]'
+          - shard: server-audit
+            paths_json: '["src/mymcp/server.py", "src/mymcp/audit.py"]'
     concurrency:
       group: mutation-master-${{ matrix.shard }}
       cancel-in-progress: true
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -239,7 +244,7 @@ jobs:
           cp mutants/mutmut-cicd-stats.json mutation-stats-${{ matrix.shard }}.json
 
       - name: Upload mutation shard artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: mutation-stats-${{ matrix.shard }}
           path: |
@@ -254,7 +259,7 @@ jobs:
 
     steps:
       - name: Download mutation shard artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           pattern: mutation-stats-*
           path: mutation-artifacts
