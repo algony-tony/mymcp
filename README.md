@@ -462,7 +462,7 @@ Parameters:
 | `content` | string | yes | – | Max size `10485760` bytes (10 MB) |
 
 Notes:
-- Parent directory must already exist.
+- Missing parent directories are created automatically.
 - Protected paths are rejected.
 
 Example:

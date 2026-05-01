@@ -144,7 +144,7 @@ def _build_tool_definitions() -> dict[str, types.Tool]:
                     },
                     "max_results": {
                         "type": "integer",
-                        "description": "Max matches (default 250, max 5000)",
+                        "description": "Max matches (default 500, max 5000)",
                     },
                     "case_insensitive": {
                         "type": "boolean",
