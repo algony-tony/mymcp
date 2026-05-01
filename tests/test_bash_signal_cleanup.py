@@ -50,3 +50,25 @@ def test_shutdown_inflight_processes_handles_already_exited():
     _track_process(p)
 
     shutdown_inflight_processes(grace_sec=1)
+
+
+def test_signal_process_tree_refuses_to_kill_own_pgid():
+    """If a child somehow shares our pgid (e.g. start_new_session was dropped),
+    cleanup must signal the child only, not the whole pytest/runner group."""
+    from mymcp.tools.bash import _signal_process_tree
+
+    # start_new_session=False -> child inherits our pgid; killpg would suicide.
+    p = subprocess.Popen(["sleep", "30"], start_new_session=False)
+    try:
+        assert os.getpgid(p.pid) == os.getpgid(0)
+        _signal_process_tree(p, signal.SIGTERM)
+        # If the defensive check is missing, this process is already dead and
+        # we never reach the assertion. Reaching it proves we did not signal
+        # our own pgid.
+        p.wait(timeout=5)
+        assert p.returncode is not None
+    finally:
+        if p.poll() is None:
+            with contextlib.suppress(ProcessLookupError):
+                p.kill()
+            p.wait(timeout=2)

@@ -30,6 +30,20 @@ def _is_alive(p) -> bool:
     return getattr(p, "returncode", None) is None
 
 
+def _signal_process_tree(p, sig: int) -> None:  # pragma: no mutate
+    # If start_new_session was ever skipped (e.g. mutated away) the child
+    # would share our pgid; killpg would then signal ourselves and take down
+    # the whole runner. Fall back to a per-process signal in that case.
+    # pragma directives below: mutations on these lines turn the safety check
+    # into a self-SIGTERM that kills mutmut/hammett along with the test.
+    with contextlib.suppress(ProcessLookupError, PermissionError):  # pragma: no mutate
+        target_pgid = os.getpgid(p.pid)  # pragma: no mutate
+        if target_pgid == os.getpgid(0):  # pragma: no mutate
+            p.send_signal(sig)  # pragma: no mutate
+            return  # pragma: no mutate
+        os.killpg(target_pgid, sig)  # pragma: no mutate
+
+
 def shutdown_inflight_processes(grace_sec: int | None = None) -> None:
     """Send SIGTERM to all tracked process groups, then SIGKILL after grace.
 
@@ -47,8 +61,7 @@ def shutdown_inflight_processes(grace_sec: int | None = None) -> None:
     for p in snapshot:
         if not _is_alive(p):
             continue
-        with contextlib.suppress(ProcessLookupError, PermissionError):
-            os.killpg(os.getpgid(p.pid), signal.SIGTERM)
+        _signal_process_tree(p, signal.SIGTERM)
 
     deadline = time.monotonic() + max(0, grace_sec)
     while time.monotonic() < deadline:
@@ -59,8 +72,7 @@ def shutdown_inflight_processes(grace_sec: int | None = None) -> None:
     for p in snapshot:
         if not _is_alive(p):
             continue
-        with contextlib.suppress(ProcessLookupError, PermissionError):
-            os.killpg(os.getpgid(p.pid), signal.SIGKILL)
+        _signal_process_tree(p, signal.SIGKILL)
 
 
 async def run_bash_execute(
@@ -78,7 +90,7 @@ async def run_bash_execute(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=working_dir,
-            start_new_session=True,
+            start_new_session=True,  # pragma: no mutate
         )
     except FileNotFoundError:
         return {
@@ -102,13 +114,11 @@ async def run_bash_execute(
                 proc.communicate(), timeout=float(timeout)
             )
         except (asyncio.TimeoutError, TimeoutError):  # noqa: UP041
-            with contextlib.suppress(ProcessLookupError, PermissionError):
-                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            _signal_process_tree(proc, signal.SIGTERM)
             try:
                 await asyncio.wait_for(proc.communicate(), timeout=2)
             except (asyncio.TimeoutError, TimeoutError):  # noqa: UP041
-                with contextlib.suppress(ProcessLookupError, PermissionError):
-                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                _signal_process_tree(proc, signal.SIGKILL)
                 await proc.communicate()
             return {
                 "stdout": "",
