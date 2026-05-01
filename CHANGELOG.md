@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.2] - 2026-05-02
+
+### Fixed
+- Fixed bug where relative `TOKEN_FILE` paths became invalid after migrating from v1 to v2.
+- Added missing `WorkingDirectory` to the systemd service template to ensure proper path resolution.
+
 ## [2.0.1] - 2026-04-28
 
 ### Fixed
