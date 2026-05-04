@@ -12,6 +12,7 @@ from mymcp import config, metrics
 from mymcp.audit import log_tool_call
 from mymcp.tools.bash import run_bash_execute
 from mymcp.tools.files import edit_file, glob_files, grep_files, read_file, write_file
+from mymcp.tools.transfer import prepare_download, prepare_upload
 
 logger = logging.getLogger("mymcp")
 
@@ -26,8 +27,8 @@ _current_audit_info: contextvars.ContextVar[dict] = contextvars.ContextVar(
 # ---------------------------------------------------------------------------
 # Tool role sets
 # ---------------------------------------------------------------------------
-READ_TOOLS: set[str] = {"read_file", "glob", "grep"}
-WRITE_TOOLS: set[str] = {"bash_execute", "write_file", "edit_file"}
+READ_TOOLS: set[str] = {"read_file", "glob", "grep", "prepare_download"}
+WRITE_TOOLS: set[str] = {"bash_execute", "write_file", "edit_file", "prepare_upload"}
 ALL_TOOLS: set[str] = READ_TOOLS | WRITE_TOOLS
 
 # ---------------------------------------------------------------------------
@@ -119,6 +120,50 @@ def _build_tool_definitions() -> dict[str, types.Tool]:
                     "path": {"type": "string", "description": "Root directory (default /)"},
                 },
                 "required": ["pattern"],
+            },
+        ),
+        "prepare_upload": types.Tool(
+            name="prepare_upload",
+            description="Mint a signed URL for uploading bytes to a server path.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "dest_path": {
+                        "type": "string",
+                        "description": "Absolute server path to write to",
+                    },
+                    "max_bytes": {
+                        "type": "integer",
+                        "description": "Reject upload above this many bytes",
+                    },
+                    "expires_in": {
+                        "type": "integer",
+                        "description": "Ticket TTL seconds (default 300)",
+                    },
+                    "overwrite": {
+                        "type": "boolean",
+                        "description": "If false, refuse when dest_path exists (default true)",
+                    },
+                },
+                "required": ["dest_path"],
+            },
+        ),
+        "prepare_download": types.Tool(
+            name="prepare_download",
+            description="Mint a signed URL for downloading bytes from a server path.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "src_path": {
+                        "type": "string",
+                        "description": "Absolute server path to read from",
+                    },
+                    "expires_in": {
+                        "type": "integer",
+                        "description": "Ticket TTL seconds (default 300)",
+                    },
+                },
+                "required": ["src_path"],
             },
         ),
         "grep": types.Tool(
@@ -352,6 +397,22 @@ async def dispatch_tool(name: str, args: dict) -> str:
             old_string=args["old_string"],
             new_string=args["new_string"],
             replace_all=args.get("replace_all", False),
+        )
+    elif name == "prepare_upload":
+        info = _current_audit_info.get()
+        result = await prepare_upload(
+            dest_path=args["dest_path"],
+            max_bytes=args.get("max_bytes"),
+            expires_in=args.get("expires_in"),
+            overwrite=args.get("overwrite", True),
+            token_name=info.get("token_name", "unknown"),
+        )
+    elif name == "prepare_download":
+        info = _current_audit_info.get()
+        result = await prepare_download(
+            src_path=args["src_path"],
+            expires_in=args.get("expires_in"),
+            token_name=info.get("token_name", "unknown"),
         )
     elif name == "glob":
         result = await glob_files(
