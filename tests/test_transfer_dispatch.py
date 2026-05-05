@@ -3,9 +3,9 @@ import json
 import pytest
 
 from mymcp.mcp_server import (
+    _TOOL_DEFS,
     READ_TOOLS,
     WRITE_TOOLS,
-    _TOOL_DEFS,
     check_tool_permission,
     dispatch_tool,
 )

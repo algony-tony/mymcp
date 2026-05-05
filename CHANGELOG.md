@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- File transfer for binary and large files via two new MCP tools
+  (`prepare_upload`, `prepare_download`) and bypass HTTP endpoints
+  (`PUT /files/raw/{ticket}`, `GET /files/raw/{ticket}`). File bytes
+  never enter the LLM context. One-time signed tickets with 5-minute
+  default TTL; configurable via `MYMCP_TRANSFER_*` env vars
+  (`MYMCP_TRANSFER_ENABLED`, `MYMCP_TRANSFER_MAX_BYTES`,
+  `MYMCP_TRANSFER_DEFAULT_TTL_SEC`, `MYMCP_TRANSFER_MAX_TTL_SEC`,
+  `MYMCP_PUBLIC_BASE_URL`). See
+  `docs/superpowers/specs/2026-05-04-file-transfer-design.md`.
+
 ## [2.0.2] - 2026-05-02
 
 ### Fixed

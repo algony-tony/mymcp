@@ -41,9 +41,7 @@ def test_mint_download_ignores_max_bytes(store):
 
 
 def test_lookup_returns_ticket(store):
-    t = store.mint(
-        op="upload", path="/tmp/x", max_bytes=1, ttl_sec=60, created_by="t"
-    )
+    t = store.mint(op="upload", path="/tmp/x", max_bytes=1, ttl_sec=60, created_by="t")
     found = store.lookup(t.ticket_id)
     assert found is t
 
@@ -59,37 +57,27 @@ def test_two_mints_get_distinct_ids(store):
 
 
 def test_expired_ticket_lookup_returns_none(store, monkeypatch):
-    t = store.mint(
-        op="upload", path="/x", max_bytes=1, ttl_sec=60, created_by="t"
-    )
+    t = store.mint(op="upload", path="/x", max_bytes=1, ttl_sec=60, created_by="t")
     real_time = time.time
-    monkeypatch.setattr(
-        "mymcp.transfer.tickets.time.time", lambda: real_time() + 3600
-    )
+    monkeypatch.setattr("mymcp.transfer.tickets.time.time", lambda: real_time() + 3600)
     assert store.lookup(t.ticket_id) is None
 
 
 def test_consume_marks_ticket_consumed(store):
-    t = store.mint(
-        op="upload", path="/x", max_bytes=1, ttl_sec=60, created_by="t"
-    )
+    t = store.mint(op="upload", path="/x", max_bytes=1, ttl_sec=60, created_by="t")
     ok = store.consume(t.ticket_id)
     assert ok is True
     assert store._tickets[t.ticket_id].consumed is True
 
 
 def test_consume_already_consumed_returns_false(store):
-    t = store.mint(
-        op="upload", path="/x", max_bytes=1, ttl_sec=60, created_by="t"
-    )
+    t = store.mint(op="upload", path="/x", max_bytes=1, ttl_sec=60, created_by="t")
     store.consume(t.ticket_id)
     assert store.consume(t.ticket_id) is False
 
 
 def test_lookup_consumed_ticket_returns_none(store):
-    t = store.mint(
-        op="upload", path="/x", max_bytes=1, ttl_sec=60, created_by="t"
-    )
+    t = store.mint(op="upload", path="/x", max_bytes=1, ttl_sec=60, created_by="t")
     store.consume(t.ticket_id)
     assert store.lookup(t.ticket_id) is None
 
@@ -97,9 +85,7 @@ def test_lookup_consumed_ticket_returns_none(store):
 def test_sweep_removes_expired_entries(store, monkeypatch):
     a = store.mint(op="upload", path="/a", max_bytes=1, ttl_sec=60, created_by="t")
     real_time = time.time
-    monkeypatch.setattr(
-        "mymcp.transfer.tickets.time.time", lambda: real_time() + 3600
-    )
+    monkeypatch.setattr("mymcp.transfer.tickets.time.time", lambda: real_time() + 3600)
     b = store.mint(op="upload", path="/b", max_bytes=1, ttl_sec=60, created_by="t")
     removed = store.sweep_expired()
     assert removed == 1

@@ -2,8 +2,8 @@ import importlib
 
 import pytest
 
-from mymcp.transfer import reset_ticket_store
 from mymcp.tools.transfer import prepare_download, prepare_upload
+from mymcp.transfer import reset_ticket_store
 
 
 @pytest.fixture(autouse=True)
@@ -18,9 +18,7 @@ def _reset():
 
 @pytest.mark.anyio
 async def test_prepare_upload_returns_url_and_ticket(tmp_path, monkeypatch):
-    monkeypatch.setattr(
-        "mymcp.tools.transfer._public_base_url", lambda: "https://srv.example.com"
-    )
+    monkeypatch.setattr("mymcp.tools.transfer._public_base_url", lambda: "https://srv.example.com")
     dest = str(tmp_path / "foo.bin")
     result = await prepare_upload(
         dest_path=dest,
@@ -144,9 +142,7 @@ async def test_prepare_upload_relative_url_when_no_public_base(tmp_path, monkeyp
 
 @pytest.mark.anyio
 async def test_prepare_download_returns_url_and_size(tmp_path, monkeypatch):
-    monkeypatch.setattr(
-        "mymcp.tools.transfer._public_base_url", lambda: "https://srv.example.com"
-    )
+    monkeypatch.setattr("mymcp.tools.transfer._public_base_url", lambda: "https://srv.example.com")
     src = tmp_path / "thing.bin"
     src.write_bytes(b"hello-bytes")
     r = await prepare_download(src_path=str(src), expires_in=60, token_name="ro")

@@ -65,9 +65,7 @@ async def test_put_on_download_ticket_returns_405(client):
 async def test_consumed_ticket_returns_410(client, tmp_path):
     f = tmp_path / "f.bin"
     f.write_bytes(b"hi")
-    t = get_ticket_store().mint(
-        op="download", path=str(f), max_bytes=0, ttl_sec=60, created_by="t"
-    )
+    t = get_ticket_store().mint(op="download", path=str(f), max_bytes=0, ttl_sec=60, created_by="t")
     get_ticket_store().consume(t.ticket_id)
     r = await client.get(f"/files/raw/{t.ticket_id}")
     assert r.status_code == 410

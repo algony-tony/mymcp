@@ -16,7 +16,7 @@ from mymcp.transfer import get_ticket_store
 
 def _public_base_url() -> str:
     """Return public base URL with no trailing slash. Empty string means use request Host."""
-    return config.PUBLIC_BASE_URL.rstrip("/")
+    return str(config.PUBLIC_BASE_URL).rstrip("/")
 
 
 def _build_url(ticket_id: str) -> str:
@@ -30,7 +30,7 @@ def _build_url(ticket_id: str) -> str:
 
 
 def _iso(ts: float) -> str:
-    return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: UP017
 
 
 async def prepare_upload(

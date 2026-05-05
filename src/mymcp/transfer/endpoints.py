@@ -7,6 +7,7 @@ protocol or LLM context.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import tempfile
@@ -27,9 +28,7 @@ class _SizeExceeded(Exception):
 
 
 def _err(status: int, code: str, hint: str) -> JSONResponse:
-    return JSONResponse(
-        {"ok": False, "error": code, "hint": hint}, status_code=status
-    )
+    return JSONResponse({"ok": False, "error": code, "hint": hint}, status_code=status)
 
 
 def _disabled_response() -> JSONResponse:
@@ -105,32 +104,38 @@ async def _do_upload(ticket, request: Request):
     ip = _client_ip(request)
     err = check_protected_path(ticket.path)
     if err:
-        _audit_redeem(ticket, success=False, bytes_count=0,
-                      error_code="path_protected", client_ip=ip)
+        _audit_redeem(
+            ticket, success=False, bytes_count=0, error_code="path_protected", client_ip=ip
+        )
         return _err(403, "path_protected", err)
 
     declared = request.headers.get("content-length")
     if declared is not None:
         try:
             if int(declared) > ticket.max_bytes:
-                _audit_redeem(ticket, success=False, bytes_count=int(declared),
-                              error_code="size_exceeded", client_ip=ip)
+                _audit_redeem(
+                    ticket,
+                    success=False,
+                    bytes_count=int(declared),
+                    error_code="size_exceeded",
+                    client_ip=ip,
+                )
                 return _err(
                     413,
                     "size_exceeded",
                     f"Body exceeds max_bytes={ticket.max_bytes}.",
                 )
         except ValueError:
-            _audit_redeem(ticket, success=False, bytes_count=0,
-                          error_code="bad_content_length", client_ip=ip)
+            _audit_redeem(
+                ticket, success=False, bytes_count=0, error_code="bad_content_length", client_ip=ip
+            )
             return _err(400, "bad_content_length", "Content-Length is not an integer.")
 
     parent = os.path.dirname(ticket.path) or "/"
     try:
         os.makedirs(parent, exist_ok=True)
     except OSError as e:
-        _audit_redeem(ticket, success=False, bytes_count=0,
-                      error_code="mkdir_failed", client_ip=ip)
+        _audit_redeem(ticket, success=False, bytes_count=0, error_code="mkdir_failed", client_ip=ip)
         return _err(500, "mkdir_failed", str(e))
 
     fd, tmp_path = tempfile.mkstemp(prefix=".mymcp-upload-", dir=parent)
@@ -146,43 +151,38 @@ async def _do_upload(ticket, request: Request):
                 written += len(chunk)
         os.replace(tmp_path, ticket.path)
     except _SizeExceeded:
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(tmp_path)
-        except OSError:
-            pass
-        _audit_redeem(ticket, success=False, bytes_count=written,
-                      error_code="size_exceeded", client_ip=ip)
-        return _err(
-            413, "size_exceeded", f"Body exceeds max_bytes={ticket.max_bytes}."
+        _audit_redeem(
+            ticket, success=False, bytes_count=written, error_code="size_exceeded", client_ip=ip
         )
+        return _err(413, "size_exceeded", f"Body exceeds max_bytes={ticket.max_bytes}.")
     except Exception as e:  # pragma: no cover - defensive
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(tmp_path)
-        except OSError:
-            pass
         logger.error("upload failed for %s: %s", ticket.path, e)
-        _audit_redeem(ticket, success=False, bytes_count=written,
-                      error_code="write_failed", client_ip=ip)
+        _audit_redeem(
+            ticket, success=False, bytes_count=written, error_code="write_failed", client_ip=ip
+        )
         return _err(500, "write_failed", str(e))
 
     get_ticket_store().consume(ticket.ticket_id)
-    _audit_redeem(ticket, success=True, bytes_count=written,
-                  error_code=None, client_ip=ip)
-    return JSONResponse(
-        {"ok": True, "path": ticket.path, "bytes_written": written}
-    )
+    _audit_redeem(ticket, success=True, bytes_count=written, error_code=None, client_ip=ip)
+    return JSONResponse({"ok": True, "path": ticket.path, "bytes_written": written})
 
 
 async def _do_download(ticket, request: Request):
     ip = _client_ip(request)
     err = check_protected_path(ticket.path)
     if err:
-        _audit_redeem(ticket, success=False, bytes_count=0,
-                      error_code="path_protected", client_ip=ip)
+        _audit_redeem(
+            ticket, success=False, bytes_count=0, error_code="path_protected", client_ip=ip
+        )
         return _err(403, "path_protected", err)
     if not os.path.isfile(ticket.path):
-        _audit_redeem(ticket, success=False, bytes_count=0,
-                      error_code="path_not_found", client_ip=ip)
+        _audit_redeem(
+            ticket, success=False, bytes_count=0, error_code="path_not_found", client_ip=ip
+        )
         return _err(404, "path_not_found", "Server file no longer exists.")
 
     size = os.path.getsize(ticket.path)
@@ -201,13 +201,12 @@ async def _do_download(ticket, request: Request):
                 sent += len(chunk)
                 yield chunk
         get_ticket_store().consume(ticket_id)
-        _audit_redeem(captured_ticket, success=True, bytes_count=sent,
-                      error_code=None, client_ip=ip)
+        _audit_redeem(
+            captured_ticket, success=True, bytes_count=sent, error_code=None, client_ip=ip
+        )
 
     headers = {
         "content-length": str(size),
         "content-disposition": f'attachment; filename="{filename}"',
     }
-    return StreamingResponse(
-        iter_file(), media_type="application/octet-stream", headers=headers
-    )
+    return StreamingResponse(iter_file(), media_type="application/octet-stream", headers=headers)
