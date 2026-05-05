@@ -174,3 +174,50 @@ async def test_prepare_download_protected_path(monkeypatch):
     r = await prepare_download(src_path="/etc/shadow", token_name="t")
     assert r["success"] is False
     assert r["error"] == "ProtectedPath"
+
+
+# ---------- coverage gaps ---------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_prepare_upload_invalid_expires_in(tmp_path):
+    r = await prepare_upload(dest_path=str(tmp_path / "f"), expires_in=0, token_name="t")
+    assert r["success"] is False
+    assert r["error"] == "InvalidExpiresIn"
+
+
+@pytest.mark.anyio
+async def test_prepare_download_invalid_expires_in(tmp_path):
+    p = tmp_path / "f"
+    p.write_bytes(b"x")
+    r = await prepare_download(src_path=str(p), expires_in=-1, token_name="t")
+    assert r["success"] is False
+    assert r["error"] == "InvalidExpiresIn"
+
+
+@pytest.mark.anyio
+async def test_prepare_download_relative_path():
+    r = await prepare_download(src_path="rel/path", token_name="t")
+    assert r["success"] is False
+    assert r["error"] == "InvalidPath"
+
+
+@pytest.mark.anyio
+async def test_prepare_download_disabled(monkeypatch, tmp_path):
+    monkeypatch.setenv("MYMCP_TRANSFER_ENABLED", "false")
+    import mymcp.config as cfg
+
+    importlib.reload(cfg)
+    import mymcp.tools.transfer as transfer_mod
+
+    importlib.reload(transfer_mod)
+    try:
+        p = tmp_path / "f"
+        p.write_bytes(b"x")
+        r = await transfer_mod.prepare_download(src_path=str(p), token_name="t")
+        assert r["success"] is False
+        assert r["error"] == "TransferDisabled"
+    finally:
+        monkeypatch.delenv("MYMCP_TRANSFER_ENABLED", raising=False)
+        importlib.reload(cfg)
+        importlib.reload(transfer_mod)

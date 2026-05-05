@@ -300,3 +300,89 @@ async def test_download_writes_audit_entry(client, tmp_path, monkeypatch):
         monkeypatch.delenv("MYMCP_AUDIT_LOG_DIR", raising=False)
         importlib.reload(cfg)
         _reset_audit_module()
+
+
+# ---------- coverage gaps ---------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_expired_ticket_returns_410(client, tmp_path, monkeypatch):
+    """Expired (not-yet-consumed) ticket distinguishes from consumed/missing."""
+    import time as _time
+
+    dest = tmp_path / "f.bin"
+    t = get_ticket_store().mint(
+        op="upload", path=str(dest), max_bytes=10, ttl_sec=60, created_by="t"
+    )
+    real = _time.time
+    monkeypatch.setattr("mymcp.transfer.tickets.time.time", lambda: real() + 7200)
+    r = await client.put(f"/files/raw/{t.ticket_id}", content=b"x")
+    assert r.status_code == 410
+    assert r.json()["error"] == "ticket_expired"
+
+
+@pytest.mark.anyio
+async def test_download_expired_ticket_returns_410(client, tmp_path, monkeypatch):
+    import time as _time
+
+    src = tmp_path / "f.bin"
+    src.write_bytes(b"x")
+    t = get_ticket_store().mint(
+        op="download", path=str(src), max_bytes=0, ttl_sec=60, created_by="t"
+    )
+    real = _time.time
+    monkeypatch.setattr("mymcp.transfer.tickets.time.time", lambda: real() + 7200)
+    r = await client.get(f"/files/raw/{t.ticket_id}")
+    assert r.status_code == 410
+    assert r.json()["error"] == "ticket_expired"
+
+
+@pytest.mark.anyio
+async def test_download_consumed_returns_410(client, tmp_path):
+    src = tmp_path / "f.bin"
+    src.write_bytes(b"x")
+    t = get_ticket_store().mint(
+        op="download", path=str(src), max_bytes=0, ttl_sec=60, created_by="t"
+    )
+    get_ticket_store().consume(t.ticket_id)
+    r = await client.get(f"/files/raw/{t.ticket_id}")
+    assert r.status_code == 410
+    assert r.json()["error"] == "ticket_not_found"
+
+
+@pytest.mark.anyio
+async def test_upload_bad_content_length_returns_400(client, tmp_path):
+    dest = tmp_path / "x.bin"
+    t = get_ticket_store().mint(
+        op="upload", path=str(dest), max_bytes=100, ttl_sec=60, created_by="t"
+    )
+    r = await client.put(
+        f"/files/raw/{t.ticket_id}",
+        content=b"x",
+        headers={"content-length": "not-a-number"},
+    )
+    assert r.status_code == 400
+    assert r.json()["error"] == "bad_content_length"
+
+
+@pytest.mark.anyio
+async def test_put_unknown_ticket_returns_404(client):
+    r = await client.put("/files/raw/no-such-ticket-id", content=b"x")
+    assert r.status_code == 404
+    assert r.json()["error"] == "ticket_not_found"
+
+
+@pytest.mark.anyio
+async def test_upload_mkdir_failure_returns_500(client, tmp_path, monkeypatch):
+    dest = tmp_path / "deep" / "f.bin"
+    t = get_ticket_store().mint(
+        op="upload", path=str(dest), max_bytes=100, ttl_sec=60, created_by="t"
+    )
+
+    def boom(*a, **kw):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("mymcp.transfer.endpoints.os.makedirs", boom)
+    r = await client.put(f"/files/raw/{t.ticket_id}", content=b"x")
+    assert r.status_code == 500
+    assert r.json()["error"] == "mkdir_failed"
