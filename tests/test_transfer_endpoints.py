@@ -209,3 +209,96 @@ async def test_download_protected_at_redeem(client, tmp_path, monkeypatch):
     monkeypatch.setattr("mymcp.config.PROTECTED_PATHS", [str(tmp_path)])
     r = await client.get(f"/files/raw/{t.ticket_id}")
     assert r.status_code == 403
+
+
+# ---------- audit -----------------------------------------------------------
+
+
+def _reset_audit_module():
+    from mymcp import audit
+
+    audit._setup_done = False
+    audit._logger = None
+
+
+@pytest.mark.anyio
+async def test_upload_writes_audit_entry(client, tmp_path, monkeypatch):
+    audit_dir = tmp_path / "audit"
+    monkeypatch.setenv("MYMCP_AUDIT_ENABLED", "true")
+    monkeypatch.setenv("MYMCP_AUDIT_LOG_DIR", str(audit_dir))
+    import mymcp.config as cfg
+
+    importlib.reload(cfg)
+    _reset_audit_module()
+    try:
+        dest = tmp_path / "f.bin"
+        t = get_ticket_store().mint(
+            op="upload", path=str(dest), max_bytes=100, ttl_sec=60, created_by="rwc"
+        )
+        r = await client.put(f"/files/raw/{t.ticket_id}", content=b"hello")
+        assert r.status_code == 200
+        log_path = audit_dir / "audit.log"
+        assert log_path.exists()
+        text = log_path.read_text()
+        assert "transfer_redeem" in text
+        assert "rwc" in text
+        assert '"bytes": 5' in text
+    finally:
+        monkeypatch.delenv("MYMCP_AUDIT_ENABLED", raising=False)
+        monkeypatch.delenv("MYMCP_AUDIT_LOG_DIR", raising=False)
+        importlib.reload(cfg)
+        _reset_audit_module()
+
+
+@pytest.mark.anyio
+async def test_failed_upload_writes_error_audit(client, tmp_path, monkeypatch):
+    audit_dir = tmp_path / "audit"
+    monkeypatch.setenv("MYMCP_AUDIT_ENABLED", "true")
+    monkeypatch.setenv("MYMCP_AUDIT_LOG_DIR", str(audit_dir))
+    import mymcp.config as cfg
+
+    importlib.reload(cfg)
+    _reset_audit_module()
+    try:
+        dest = tmp_path / "f.bin"
+        t = get_ticket_store().mint(
+            op="upload", path=str(dest), max_bytes=2, ttl_sec=60, created_by="t"
+        )
+        r = await client.put(f"/files/raw/{t.ticket_id}", content=b"too-big")
+        assert r.status_code == 413
+        text = (audit_dir / "audit.log").read_text()
+        assert "size_exceeded" in text
+    finally:
+        monkeypatch.delenv("MYMCP_AUDIT_ENABLED", raising=False)
+        monkeypatch.delenv("MYMCP_AUDIT_LOG_DIR", raising=False)
+        importlib.reload(cfg)
+        _reset_audit_module()
+
+
+@pytest.mark.anyio
+async def test_download_writes_audit_entry(client, tmp_path, monkeypatch):
+    audit_dir = tmp_path / "audit"
+    monkeypatch.setenv("MYMCP_AUDIT_ENABLED", "true")
+    monkeypatch.setenv("MYMCP_AUDIT_LOG_DIR", str(audit_dir))
+    import mymcp.config as cfg
+
+    importlib.reload(cfg)
+    _reset_audit_module()
+    try:
+        src = tmp_path / "f.bin"
+        src.write_bytes(b"abcd")
+        t = get_ticket_store().mint(
+            op="download", path=str(src), max_bytes=0, ttl_sec=60, created_by="roc"
+        )
+        r = await client.get(f"/files/raw/{t.ticket_id}")
+        assert r.status_code == 200
+        assert r.content == b"abcd"
+        text = (audit_dir / "audit.log").read_text()
+        assert "transfer_redeem" in text
+        assert "roc" in text
+        assert '"bytes": 4' in text
+    finally:
+        monkeypatch.delenv("MYMCP_AUDIT_ENABLED", raising=False)
+        monkeypatch.delenv("MYMCP_AUDIT_LOG_DIR", raising=False)
+        importlib.reload(cfg)
+        _reset_audit_module()
