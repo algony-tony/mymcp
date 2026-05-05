@@ -11,6 +11,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from mymcp import config, metrics
 from mymcp.auth import admin_router, get_store
 from mymcp.mcp_server import _current_audit_info, server, session_manager  # noqa: F401
+from mymcp.transfer.endpoints import register_transfer_routes
 
 
 def _validate_token(request: Request) -> tuple[JSONResponse | None, dict | None]:
@@ -106,6 +107,7 @@ def create_app() -> FastAPI:
     app.add_middleware(MetricsMiddleware)
 
     app.include_router(admin_router)
+    register_transfer_routes(app)
 
     @app.get("/health")
     async def health() -> dict[str, str]:
