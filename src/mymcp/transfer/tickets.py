@@ -64,6 +64,22 @@ class TicketStore:
                 return None
             return t
 
+    def classify(self, ticket_id: str) -> Literal["valid", "missing", "consumed", "expired"]:
+        """Classify a ticket atomically under the lock.
+
+        Use after `lookup()` returns None to distinguish why, without racing
+        sweep_expired/consume.
+        """
+        with self._lock:
+            t = self._tickets.get(ticket_id)
+            if t is None:
+                return "missing"
+            if t.consumed:
+                return "consumed"
+            if t.expires_at <= time.time():
+                return "expired"
+            return "valid"
+
     def consume(self, ticket_id: str) -> bool:
         """Mark a ticket consumed. Returns False if already consumed/missing."""
         with self._lock:
@@ -74,10 +90,10 @@ class TicketStore:
             return True
 
     def sweep_expired(self) -> int:
-        """Remove expired entries. Returns number removed."""
+        """Remove expired or consumed entries. Returns number removed."""
         now = time.time()
         with self._lock:
-            stale = [tid for tid, t in self._tickets.items() if t.expires_at <= now]
+            stale = [tid for tid, t in self._tickets.items() if t.consumed or t.expires_at <= now]
             for tid in stale:
                 del self._tickets[tid]
             return len(stale)

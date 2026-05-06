@@ -93,6 +93,30 @@ def test_sweep_removes_expired_entries(store, monkeypatch):
     assert b.ticket_id in store._tickets
 
 
+def test_sweep_removes_consumed_entries(store):
+    a = store.mint(op="upload", path="/a", max_bytes=1, ttl_sec=60, created_by="t")
+    b = store.mint(op="upload", path="/b", max_bytes=1, ttl_sec=60, created_by="t")
+    store.consume(a.ticket_id)
+    removed = store.sweep_expired()
+    assert removed == 1
+    assert a.ticket_id not in store._tickets
+    assert b.ticket_id in store._tickets
+
+
+def test_classify_returns_each_state(store, monkeypatch):
+    t = store.mint(op="upload", path="/a", max_bytes=1, ttl_sec=60, created_by="t")
+    assert store.classify(t.ticket_id) == "valid"
+    assert store.classify("nope") == "missing"
+
+    consumed = store.mint(op="upload", path="/b", max_bytes=1, ttl_sec=60, created_by="t")
+    store.consume(consumed.ticket_id)
+    assert store.classify(consumed.ticket_id) == "consumed"
+
+    real_time = time.time
+    monkeypatch.setattr("mymcp.transfer.tickets.time.time", lambda: real_time() + 3600)
+    assert store.classify(t.ticket_id) == "expired"
+
+
 def test_get_ticket_store_returns_same_instance():
     from mymcp.transfer import get_ticket_store, reset_ticket_store
 

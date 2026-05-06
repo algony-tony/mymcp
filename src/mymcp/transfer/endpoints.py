@@ -39,6 +39,23 @@ def _client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
+def _content_disposition(filename: str) -> str:
+    """Build a safe Content-Disposition value.
+
+    Filenames may contain ``"``, ``\\`` or control chars (``\\r``/``\\n``)
+    which would break header parsing or enable header injection. Strip
+    control chars, escape ``\\`` and ``"`` for the quoted ``filename=``,
+    and add an RFC 5987 ``filename*=UTF-8''…`` for non-ASCII names.
+    """
+    from urllib.parse import quote
+
+    safe_ascii = "".join(c for c in filename if ord(c) >= 0x20 and c != "\x7f")
+    quoted = safe_ascii.replace("\\", "\\\\").replace('"', '\\"')
+    ascii_only = quoted.encode("ascii", "ignore").decode("ascii")
+    star = quote(safe_ascii, safe="")
+    return f"attachment; filename=\"{ascii_only}\"; filename*=UTF-8''{star}"
+
+
 def _audit_redeem(
     ticket,
     *,
@@ -72,12 +89,12 @@ def register_transfer_routes(app: FastAPI) -> None:
         store = get_ticket_store()
         ticket = store.lookup(ticket_id)
         if ticket is None:
-            raw = store._tickets.get(ticket_id)
-            if raw is None:
-                return _err(404, "ticket_not_found", "Mint a new ticket.")
-            if raw.consumed:
+            kind = store.classify(ticket_id)
+            if kind == "expired":
+                return _err(410, "ticket_expired", "Mint a new ticket.")
+            if kind == "consumed":
                 return _err(410, "ticket_not_found", "Ticket already used.")
-            return _err(410, "ticket_expired", "Mint a new ticket.")
+            return _err(404, "ticket_not_found", "Mint a new ticket.")
         if ticket.op != "upload":
             return _err(405, "wrong_method", "This ticket requires GET.")
         if not store.consume(ticket_id):
@@ -91,12 +108,12 @@ def register_transfer_routes(app: FastAPI) -> None:
         store = get_ticket_store()
         ticket = store.lookup(ticket_id)
         if ticket is None:
-            raw = store._tickets.get(ticket_id)
-            if raw is None:
-                return _err(404, "ticket_not_found", "Mint a new ticket.")
-            if raw.consumed:
+            kind = store.classify(ticket_id)
+            if kind == "expired":
+                return _err(410, "ticket_expired", "Mint a new ticket.")
+            if kind == "consumed":
                 return _err(410, "ticket_not_found", "Ticket already used.")
-            return _err(410, "ticket_expired", "Mint a new ticket.")
+            return _err(404, "ticket_not_found", "Mint a new ticket.")
         if ticket.op != "download":
             return _err(405, "wrong_method", "This ticket requires PUT.")
         if not store.consume(ticket_id):
@@ -195,19 +212,29 @@ async def _do_download(ticket, request: Request):
 
     async def iter_file():
         sent = 0
-        with open(file_path, "rb") as fh:
-            while True:
-                chunk = fh.read(64 * 1024)
-                if not chunk:
-                    break
-                sent += len(chunk)
-                yield chunk
-        _audit_redeem(
-            captured_ticket, success=True, bytes_count=sent, error_code=None, client_ip=ip
-        )
+        success = False
+        error_code: str | None = "stream_aborted"
+        try:
+            with open(file_path, "rb") as fh:
+                while True:
+                    chunk = fh.read(64 * 1024)
+                    if not chunk:
+                        break
+                    sent += len(chunk)
+                    yield chunk
+            success = True
+            error_code = None
+        finally:
+            _audit_redeem(
+                captured_ticket,
+                success=success,
+                bytes_count=sent,
+                error_code=error_code,
+                client_ip=ip,
+            )
 
     headers = {
         "content-length": str(size),
-        "content-disposition": f'attachment; filename="{filename}"',
+        "content-disposition": _content_disposition(filename),
     }
     return StreamingResponse(iter_file(), media_type="application/octet-stream", headers=headers)

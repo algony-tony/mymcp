@@ -1,3 +1,4 @@
+import contextlib
 import importlib
 from unittest.mock import patch
 
@@ -371,6 +372,64 @@ async def test_put_unknown_ticket_returns_404(client):
     r = await client.put("/files/raw/no-such-ticket-id", content=b"x")
     assert r.status_code == 404
     assert r.json()["error"] == "ticket_not_found"
+
+
+@pytest.mark.anyio
+async def test_download_filename_sanitized(client, tmp_path):
+    """Quotes/backslashes/control chars in filename must not break headers."""
+    nasty = tmp_path / 'evil"file\\name.bin'
+    nasty.write_bytes(b"x")
+    t = get_ticket_store().mint(
+        op="download", path=str(nasty), max_bytes=0, ttl_sec=60, created_by="t"
+    )
+    r = await client.get(f"/files/raw/{t.ticket_id}")
+    assert r.status_code == 200
+    cd = r.headers["content-disposition"]
+    # Quoted form is escaped; RFC 5987 form preserves original.
+    assert '\\"' in cd and "\\\\" in cd
+    assert "filename*=UTF-8''" in cd
+    assert "%22" in cd  # quote
+    assert "%5C" in cd  # backslash
+
+
+@pytest.mark.anyio
+async def test_download_error_writes_audit(client, tmp_path, monkeypatch):
+    """If the download stream raises mid-flight, an audit entry is still written."""
+    audit_dir = tmp_path / "audit"
+    monkeypatch.setenv("MYMCP_AUDIT_ENABLED", "true")
+    monkeypatch.setenv("MYMCP_AUDIT_LOG_DIR", str(audit_dir))
+    import mymcp.config as cfg
+
+    importlib.reload(cfg)
+    _reset_audit_module()
+    try:
+        src = tmp_path / "f.bin"
+        src.write_bytes(b"data" * 1000)
+        t = get_ticket_store().mint(
+            op="download", path=str(src), max_bytes=0, ttl_sec=60, created_by="t"
+        )
+
+        real_open = open
+
+        def boom_open(path, *args, **kwargs):
+            if str(path) == str(src):
+                raise OSError("disk error")
+            return real_open(path, *args, **kwargs)
+
+        monkeypatch.setattr("mymcp.transfer.endpoints.open", boom_open, raising=False)
+        # The error happens inside the streaming generator; httpx surfaces it.
+        with contextlib.suppress(Exception):
+            await client.get(f"/files/raw/{t.ticket_id}")
+        monkeypatch.undo()
+
+        text = (audit_dir / "audit.log").read_text()
+        assert "transfer_redeem" in text
+        assert "stream_aborted" in text
+    finally:
+        monkeypatch.delenv("MYMCP_AUDIT_ENABLED", raising=False)
+        monkeypatch.delenv("MYMCP_AUDIT_LOG_DIR", raising=False)
+        importlib.reload(cfg)
+        _reset_audit_module()
 
 
 @pytest.mark.anyio
