@@ -1,4 +1,5 @@
 import importlib
+from unittest.mock import patch
 
 import pytest
 
@@ -47,9 +48,9 @@ async def test_prepare_upload_rejects_relative_path():
 
 
 @pytest.mark.anyio
-async def test_prepare_upload_rejects_protected_path(monkeypatch):
-    monkeypatch.setattr("mymcp.config.PROTECTED_PATHS", ["/etc"])
-    r = await prepare_upload(dest_path="/etc/passwd", token_name="t")
+async def test_prepare_upload_rejects_protected_path():
+    with patch("mymcp.config.get_protected_paths", return_value=["/etc"]):
+        r = await prepare_upload(dest_path="/etc/passwd", token_name="t")
     assert r["success"] is False
     assert r["error"] == "ProtectedPath"
 
@@ -169,9 +170,9 @@ async def test_prepare_download_directory_rejected(tmp_path):
 
 
 @pytest.mark.anyio
-async def test_prepare_download_protected_path(monkeypatch):
-    monkeypatch.setattr("mymcp.config.PROTECTED_PATHS", ["/etc"])
-    r = await prepare_download(src_path="/etc/shadow", token_name="t")
+async def test_prepare_download_protected_path():
+    with patch("mymcp.config.get_protected_paths", return_value=["/etc"]):
+        r = await prepare_download(src_path="/etc/shadow", token_name="t")
     assert r["success"] is False
     assert r["error"] == "ProtectedPath"
 

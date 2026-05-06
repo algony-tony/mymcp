@@ -80,6 +80,8 @@ def register_transfer_routes(app: FastAPI) -> None:
             return _err(410, "ticket_expired", "Mint a new ticket.")
         if ticket.op != "upload":
             return _err(405, "wrong_method", "This ticket requires GET.")
+        if not store.consume(ticket_id):
+            return _err(410, "ticket_not_found", "Ticket already used.")
         return await _do_upload(ticket, request)
 
     @app.get("/files/raw/{ticket_id}")
@@ -97,6 +99,8 @@ def register_transfer_routes(app: FastAPI) -> None:
             return _err(410, "ticket_expired", "Mint a new ticket.")
         if ticket.op != "download":
             return _err(405, "wrong_method", "This ticket requires PUT.")
+        if not store.consume(ticket_id):
+            return _err(410, "ticket_not_found", "Ticket already used.")
         return await _do_download(ticket, request)
 
 
@@ -166,7 +170,6 @@ async def _do_upload(ticket, request: Request):
         )
         return _err(500, "write_failed", str(e))
 
-    get_ticket_store().consume(ticket.ticket_id)
     _audit_redeem(ticket, success=True, bytes_count=written, error_code=None, client_ip=ip)
     return JSONResponse({"ok": True, "path": ticket.path, "bytes_written": written})
 
@@ -187,7 +190,6 @@ async def _do_download(ticket, request: Request):
 
     size = os.path.getsize(ticket.path)
     filename = os.path.basename(ticket.path)
-    ticket_id = ticket.ticket_id
     file_path = ticket.path
     captured_ticket = ticket
 
@@ -200,7 +202,6 @@ async def _do_download(ticket, request: Request):
                     break
                 sent += len(chunk)
                 yield chunk
-        get_ticket_store().consume(ticket_id)
         _audit_redeem(
             captured_ticket, success=True, bytes_count=sent, error_code=None, client_ip=ip
         )

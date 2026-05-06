@@ -1,4 +1,5 @@
 import importlib
+from unittest.mock import patch
 
 import pytest
 from fastapi import FastAPI
@@ -151,13 +152,13 @@ async def test_upload_streaming_truncation_returns_413(client, tmp_path):
 
 
 @pytest.mark.anyio
-async def test_upload_protected_path_at_redeem(client, tmp_path, monkeypatch):
+async def test_upload_protected_path_at_redeem(client, tmp_path):
     dest = tmp_path / "x.bin"
     t = get_ticket_store().mint(
         op="upload", path=str(dest), max_bytes=100, ttl_sec=60, created_by="t"
     )
-    monkeypatch.setattr("mymcp.config.PROTECTED_PATHS", [str(tmp_path)])
-    r = await client.put(f"/files/raw/{t.ticket_id}", content=b"x")
+    with patch("mymcp.config.get_protected_paths", return_value=[str(tmp_path)]):
+        r = await client.put(f"/files/raw/{t.ticket_id}", content=b"x")
     assert r.status_code == 403
     assert r.json()["error"] == "path_protected"
     assert not dest.exists()
@@ -198,14 +199,14 @@ async def test_download_missing_file_returns_404(client, tmp_path):
 
 
 @pytest.mark.anyio
-async def test_download_protected_at_redeem(client, tmp_path, monkeypatch):
+async def test_download_protected_at_redeem(client, tmp_path):
     src = tmp_path / "f.bin"
     src.write_bytes(b"x")
     t = get_ticket_store().mint(
         op="download", path=str(src), max_bytes=0, ttl_sec=60, created_by="t"
     )
-    monkeypatch.setattr("mymcp.config.PROTECTED_PATHS", [str(tmp_path)])
-    r = await client.get(f"/files/raw/{t.ticket_id}")
+    with patch("mymcp.config.get_protected_paths", return_value=[str(tmp_path)]):
+        r = await client.get(f"/files/raw/{t.ticket_id}")
     assert r.status_code == 403
 
 
@@ -370,6 +371,50 @@ async def test_put_unknown_ticket_returns_404(client):
     r = await client.put("/files/raw/no-such-ticket-id", content=b"x")
     assert r.status_code == 404
     assert r.json()["error"] == "ticket_not_found"
+
+
+@pytest.mark.anyio
+async def test_concurrent_uploads_only_one_succeeds(client, tmp_path):
+    """Two parallel PUTs against the same ticket: one wins, one is rejected."""
+    import anyio
+
+    dest = tmp_path / "race.bin"
+    t = get_ticket_store().mint(
+        op="upload", path=str(dest), max_bytes=10_000, ttl_sec=60, created_by="t"
+    )
+    results: list[int] = []
+
+    async def attempt(payload: bytes):
+        r = await client.put(f"/files/raw/{t.ticket_id}", content=payload)
+        results.append(r.status_code)
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(attempt, b"A" * 100)
+        tg.start_soon(attempt, b"B" * 100)
+
+    assert sorted(results) == [200, 410]
+
+
+@pytest.mark.anyio
+async def test_concurrent_downloads_only_one_succeeds(client, tmp_path):
+    import anyio
+
+    src = tmp_path / "race.bin"
+    src.write_bytes(b"payload" * 100)
+    t = get_ticket_store().mint(
+        op="download", path=str(src), max_bytes=0, ttl_sec=60, created_by="t"
+    )
+    results: list[int] = []
+
+    async def attempt():
+        r = await client.get(f"/files/raw/{t.ticket_id}")
+        results.append(r.status_code)
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(attempt)
+        tg.start_soon(attempt)
+
+    assert sorted(results) == [200, 410]
 
 
 @pytest.mark.anyio
