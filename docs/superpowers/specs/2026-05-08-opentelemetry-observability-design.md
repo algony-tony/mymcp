@@ -11,7 +11,7 @@ Status: Approved (brainstorming complete, awaiting implementation plan)
 - Standardize on OpenTelemetry as the in-process emission layer so users can plug into any backend (self-hosted Prometheus/LGTM/SigNoz or SaaS such as Grafana Cloud / Datadog / New Relic / Honeycomb) without code changes.
 - Preserve a zero-extra-dependency default install (`pip install algony-mymcp` still works without any observability backend).
 - Keep audit logging as a first-class, file-based, always-on artifact (security/compliance requirement).
-- Ship alerting rules and a Grafana dashboard alongside the code so observability is operational, not just instrumented.
+- Ship a Grafana dashboard alongside the code so observability is operational, not just instrumented. Alert rules are intentionally **not** shipped — see Section 7.
 
 ### Non-Goals
 
@@ -156,17 +156,18 @@ If `[otlp]` is not installed, all `OTEL_EXPORTER_OTLP_*` variables are silently 
 
 Beyond code instrumentation, the design includes:
 
-- `deploy/observability/alerts.yml` — Prometheus-format alerting rules covering:
-  - High tool-call error rate (`rate(mymcp_tool_calls{result="error"}[5m]) / rate(mymcp_tool_calls[5m]) > 0.1`)
-  - p99 tool latency regression
-  - Saturation: bash inflight processes exceeding a threshold
-  - Audit write failures (`increase(mymcp_audit_write_failures[15m]) > 0`)
-  - Service down (`up == 0`)
-- `deploy/observability/dashboard.json` — Grafana dashboard JSON: golden-signals row + bash subprocess saturation + audit event timeline + traces panel (linked to Tempo/Jaeger via `trace_id`).
+- `deploy/observability/dashboard.json` — Grafana dashboard JSON, designed to work in **both** deployment modes from a single file:
+  - **Metrics row** (always populated): golden signals (latency, traffic, errors), bash subprocess saturation, token store size, audit event rate. Queries are PromQL against metric series whose names are identical whether they arrived via Prometheus scrape of `/metrics` or via OTLP push into a Prometheus-compatible store (Mimir, Grafana Cloud Metrics, etc.). The user only needs to point Grafana at the right data source.
+  - **Traces row** (populated in OTLP mode only): Tempo/Jaeger panels linked from metric series via `trace_id` exemplars. In pull-only deployments these panels render Grafana's empty-state ("no data source configured") rather than failing.
+  - **Logs row** (populated in OTLP mode only): Loki/equivalent panels for audit and application logs, filterable by `request_id` / `trace_id`. Same empty-state behavior in pull-only mode.
 - `README.md` observability section with three end-to-end deployment recipes:
   1. Grafana Cloud (free tier): install `[otlp]`, set two env vars, done.
   2. Self-hosted LGTM stack: docker-compose snippet for Mimir + Loki + Tempo + Grafana, with mymcp pointed at the Collector.
   3. Pull-only Prometheus: existing scrape, no extra needed.
+
+### Why no alert rules
+
+Alerting rules are intentionally **not** shipped with the project. Each operator has different SLOs, notification channels, on-call rotations, and inhibition strategies; a one-size-fits-all `alerts.yml` would either be too noisy (firing for everyone's normal-but-different baselines) or too quiet (thresholds set so wide that real problems pass through). The dashboard's PromQL queries are the better starting point — operators copy the queries they care about into their own alerting setup with thresholds appropriate to their environment.
 
 ## 8. Breaking Changes
 
