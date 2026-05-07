@@ -210,7 +210,7 @@ async def _do_download(ticket, request: Request):
     file_path = ticket.path
     captured_ticket = ticket
 
-    async def iter_file():
+    def iter_file():
         sent = 0
         success = False
         error_code: str | None = "stream_aborted"

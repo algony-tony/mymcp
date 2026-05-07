@@ -86,9 +86,16 @@ def test_sweep_removes_expired_entries(store, monkeypatch):
     a = store.mint(op="upload", path="/a", max_bytes=1, ttl_sec=60, created_by="t")
     real_time = time.time
     monkeypatch.setattr("mymcp.transfer.tickets.time.time", lambda: real_time() + 3600)
-    b = store.mint(op="upload", path="/b", max_bytes=1, ttl_sec=60, created_by="t")
     removed = store.sweep_expired()
     assert removed == 1
+    assert a.ticket_id not in store._tickets
+
+
+def test_mint_sweeps_expired_lazily(store, monkeypatch):
+    a = store.mint(op="upload", path="/a", max_bytes=1, ttl_sec=60, created_by="t")
+    real_time = time.time
+    monkeypatch.setattr("mymcp.transfer.tickets.time.time", lambda: real_time() + 3600)
+    b = store.mint(op="upload", path="/b", max_bytes=1, ttl_sec=60, created_by="t")
     assert a.ticket_id not in store._tickets
     assert b.ticket_id in store._tickets
 

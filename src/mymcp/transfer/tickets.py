@@ -40,6 +40,7 @@ class TicketStore:
         ttl_sec: int,
         created_by: str,
     ) -> Ticket:
+        self.sweep_expired()
         ticket_id = secrets.token_urlsafe(24)
         ticket = Ticket(
             ticket_id=ticket_id,
