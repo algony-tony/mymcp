@@ -10,6 +10,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from mymcp import config, metrics
 from mymcp.auth import admin_router, get_store
+from mymcp.observability.request_id import RequestIdMiddleware
 from mymcp.mcp_server import _current_audit_info, server, session_manager  # noqa: F401
 from mymcp.transfer.endpoints import register_transfer_routes
 
@@ -105,6 +106,7 @@ def create_app() -> FastAPI:
 
     app.add_middleware(McpAuthMiddleware)
     app.add_middleware(MetricsMiddleware)
+    app.add_middleware(RequestIdMiddleware)  # added last → runs first
 
     app.include_router(admin_router)
     register_transfer_routes(app)
