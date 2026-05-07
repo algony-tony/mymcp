@@ -115,7 +115,7 @@ Application logging (everything except `mymcp.audit`):
 - `cli.py`'s current logging configuration is replaced. All `mymcp.*` loggers emit JSON-formatted records to stderr. journald (the systemd unit's default stdout/stderr sink) becomes the local log source of truth.
 - Each record carries `trace_id`, `span_id`, and `request_id` fields when available (auto-injected by `opentelemetry-instrumentation-logging` when `[otlp]` is installed; injected manually via a logging filter otherwise so the field is always present).
 - When `[otlp]` is installed AND `OTEL_EXPORTER_OTLP_ENDPOINT` is set, an OTel `LoggingHandler` is additionally attached at root level so the same records are pushed to the OTLP endpoint.
-- No application-log files are written by the project. `RotatingFileHandler` is removed for non-audit loggers.
+- No application-log files are written by the project (current state already; documented here so it remains an explicit non-goal — no `RotatingFileHandler` is to be added for application logs).
 
 Audit logging (`mymcp.audit`):
 
