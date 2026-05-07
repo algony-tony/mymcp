@@ -74,3 +74,43 @@ def test_settings_extra_protected_paths(monkeypatch):
     paths = cfg.get_protected_paths()
     assert "/extra/one" in paths
     assert "/extra/two" in paths
+
+
+def test_transfer_settings_defaults(monkeypatch):
+    for var in (
+        "MYMCP_TRANSFER_ENABLED",
+        "MYMCP_TRANSFER_MAX_BYTES",
+        "MYMCP_TRANSFER_DEFAULT_TTL_SEC",
+        "MYMCP_TRANSFER_MAX_TTL_SEC",
+        "MYMCP_PUBLIC_BASE_URL",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    cfg = _reload_config(monkeypatch, {})
+    s = cfg.get_settings()
+    assert s.transfer_enabled is True
+    assert s.transfer_max_bytes == 2 * 1024 * 1024 * 1024
+    assert s.transfer_default_ttl_sec == 300
+    assert s.transfer_max_ttl_sec == 900
+    assert s.public_base_url == ""
+
+
+def test_transfer_settings_env_override(monkeypatch):
+    cfg = _reload_config(
+        monkeypatch,
+        {
+            "MYMCP_TRANSFER_ENABLED": "false",
+            "MYMCP_TRANSFER_MAX_BYTES": "5242880",
+            "MYMCP_TRANSFER_DEFAULT_TTL_SEC": "60",
+            "MYMCP_TRANSFER_MAX_TTL_SEC": "120",
+            "MYMCP_PUBLIC_BASE_URL": "https://mcp.example.com",
+        },
+    )
+    s = cfg.get_settings()
+    assert s.transfer_enabled is False
+    assert s.transfer_max_bytes == 5_242_880
+    assert s.transfer_default_ttl_sec == 60
+    assert s.transfer_max_ttl_sec == 120
+    assert s.public_base_url == "https://mcp.example.com"
+    assert cfg.TRANSFER_ENABLED is False
+    assert cfg.TRANSFER_MAX_BYTES == 5_242_880
+    assert cfg.PUBLIC_BASE_URL == "https://mcp.example.com"

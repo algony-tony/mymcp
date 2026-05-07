@@ -70,6 +70,13 @@ class Settings(BaseSettings):
     # Extra protected paths (CSV)
     protected_paths: str = Field(default="")
 
+    # File transfer (binary / large file)
+    transfer_enabled: bool = Field(default=True)
+    transfer_max_bytes: int = Field(default=2 * 1024 * 1024 * 1024)
+    transfer_default_ttl_sec: int = Field(default=300)
+    transfer_max_ttl_sec: int = Field(default=900)
+    public_base_url: str = Field(default="")
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
@@ -118,6 +125,11 @@ _LEGACY_ATTRS = {
     "AUDIT_LOG_DIR": "audit_log_dir",
     "AUDIT_MAX_BYTES": "audit_max_bytes",
     "AUDIT_BACKUP_COUNT": "audit_backup_count",
+    "TRANSFER_ENABLED": "transfer_enabled",
+    "TRANSFER_MAX_BYTES": "transfer_max_bytes",
+    "TRANSFER_DEFAULT_TTL_SEC": "transfer_default_ttl_sec",
+    "TRANSFER_MAX_TTL_SEC": "transfer_max_ttl_sec",
+    "PUBLIC_BASE_URL": "public_base_url",
 }
 
 

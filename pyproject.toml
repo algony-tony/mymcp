@@ -101,6 +101,9 @@ paths_to_mutate = [
     "src/mymcp/config.py",
     "src/mymcp/tools/bash.py",
     "src/mymcp/tools/files.py",
+    "src/mymcp/tools/transfer.py",
+    "src/mymcp/transfer/tickets.py",
+    "src/mymcp/transfer/endpoints.py",
     "src/mymcp/mcp_server.py",
 ]
 also_copy = ["src/"]

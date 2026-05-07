@@ -11,7 +11,8 @@ A Python MCP server that exposes full Linux system control to AI clients (Claude
 
 ## Features
 
-- **6 MCP tools**: `bash_execute`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`
+- **8 MCP tools**: `bash_execute`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`, `prepare_upload`, `prepare_download`
+- **Binary / large file transfer**: bypass HTTP endpoints (`PUT/GET /files/raw/{ticket}`) for streaming uploads and downloads — file bytes never enter the LLM context window
 - **Per-token permissions**: read-only (`ro`) or read-write (`rw`) roles
 - **Audit logging**: JSON Lines audit trail with error details for all tool invocations
 - **Application logging**: errors and warnings output to stderr (captured by journald)
@@ -383,9 +384,11 @@ claude mcp add linux-server \
 | `edit_file` | rw | Replace text in a file |
 | `glob` | ro | Find paths by glob pattern |
 | `grep` | ro | Search file contents with regex |
+| `prepare_upload` | rw | Mint a one-time signed URL for uploading bytes to a server path |
+| `prepare_download` | ro | Mint a one-time signed URL for downloading bytes from a server path |
 
-`ro` tokens can only use `read_file`, `glob`, and `grep`.  
-`rw` tokens can use all six tools.
+`ro` tokens can only use `read_file`, `glob`, `grep`, and `prepare_download`.  
+`rw` tokens can use all eight tools.
 
 ### `bash_execute` (`rw`)
 
@@ -549,12 +552,27 @@ Example:
 }
 ```
 
+### `prepare_upload` (`rw`) and `prepare_download` (`ro`)
+
+Use for **binary files** or files **larger than 10 MB** that don't need to be read into the conversation. The MCP tool only returns a small JSON object containing a one-time signed URL — the actual file bytes never enter the LLM context window. The client then drives the byte transfer with a regular `curl` from its local shell.
+
+Workflow:
+
+1. LLM calls `prepare_upload(dest_path="/tmp/foo.deb", max_bytes=20_000_000)` → server returns a JSON dict with `url`, `method: "PUT"`, `expires_in` (default 300 s), `max_bytes`, and a ready-to-run `curl_example` like `curl -fsS -T /local/path/to/file 'https://server/files/raw/<ticket>'`.
+2. LLM (or the user) runs the curl on the **MCP client's local shell**. Bytes stream straight to the server — no MCP message, no base64.
+3. Server writes to a temp file alongside the destination, atomically replaces it on success, and returns `{"ok": true, "path": "...", "bytes_written": N}`.
+
+`prepare_download` is the mirror: it returns a `GET` URL, you `curl URL -o local`, and bytes stream back.
+
+Tickets are **single-use**, **path-scoped**, **byte-bounded**, and expire after `expires_in` seconds (default 300, max 900). Both endpoints reuse the same `check_protected_path` and audit log as the file tools. Server tunables: `MYMCP_TRANSFER_ENABLED`, `MYMCP_TRANSFER_MAX_BYTES` (default 2 GB), `MYMCP_TRANSFER_DEFAULT_TTL_SEC`, `MYMCP_TRANSFER_MAX_TTL_SEC`, `MYMCP_PUBLIC_BASE_URL` (set when behind a reverse proxy).
+
 ### Tool behavior notes
 
 - File tools enforce protected-path checks.
 - `bash_execute` does **not** enforce protected-path checks; use `ro` tokens for untrusted clients.
 - `grep` and `glob` are capped to protect the server from unbounded scans.
 - `read_file` truncates oversized individual lines and marks them with `[LINE TRUNCATED]`.
+- `prepare_upload`/`prepare_download` enforce protected-path checks at both **mint** and **redeem** time.
 
 ## Logging
 
