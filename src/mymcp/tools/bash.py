@@ -10,6 +10,9 @@ from opentelemetry.metrics import Observation
 
 from mymcp import config
 from mymcp.observability.instruments import register_callback_gauge
+from mymcp.observability.tracing import get_tracer
+
+_tracer = get_tracer(__name__)
 
 _inflight_lock = threading.Lock()
 _inflight: WeakSet = WeakSet()
@@ -87,63 +90,77 @@ async def run_bash_execute(
     timeout = min(max(1, timeout), 600)
     max_output_bytes = min(max(1, max_output_bytes), config.BASH_MAX_OUTPUT_BYTES_HARD)
 
-    try:
-        proc = await asyncio.create_subprocess_shell(
-            command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=working_dir,
-            start_new_session=True,  # pragma: no mutate
-        )
-    except FileNotFoundError:
-        return {
-            "success": False,
-            "error": "FileNotFoundError",
-            "message": f"Working directory not found: {working_dir}",
-            "suggestion": "Check that the working_dir path exists",
-        }
-    except PermissionError as e:
-        return {
-            "success": False,
-            "error": "PermissionError",
-            "message": str(e),
-            "suggestion": "Check directory permissions",
-        }
-
-    _track_process(proc)
-    try:
+    with _tracer.start_as_current_span(
+        "mymcp.bash.execute",
+        attributes={"bash.timeout_sec": timeout},
+    ) as span:
         try:
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                proc.communicate(), timeout=float(timeout)
+            proc = await asyncio.create_subprocess_shell(
+                command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=working_dir,
+                start_new_session=True,  # pragma: no mutate
             )
-        except (asyncio.TimeoutError, TimeoutError):  # noqa: UP041
-            _signal_process_tree(proc, signal.SIGTERM)
-            try:
-                await asyncio.wait_for(proc.communicate(), timeout=2)
-            except (asyncio.TimeoutError, TimeoutError):  # noqa: UP041
-                _signal_process_tree(proc, signal.SIGKILL)
-                await proc.communicate()
+        except FileNotFoundError:
+            span.set_attribute("error.type", "FileNotFoundError")
             return {
-                "stdout": "",
-                "stderr": f"Command timed out after {timeout}s",
-                "exit_code": -1,
-                "timed_out": True,
+                "success": False,
+                "error": "FileNotFoundError",
+                "message": f"Working directory not found: {working_dir}",
+                "suggestion": "Check that the working_dir path exists",
             }
-    finally:
-        _untrack_process(proc)
+        except PermissionError as e:
+            span.set_attribute("error.type", "PermissionError")
+            return {
+                "success": False,
+                "error": "PermissionError",
+                "message": str(e),
+                "suggestion": "Check directory permissions",
+            }
 
-    def _truncate(data: bytes, limit: int) -> str:
-        if len(data) <= limit:
-            return data.decode("utf-8", errors="replace")
-        shown = data[:limit].decode("utf-8", errors="replace")
-        return f"{shown}\n[TRUNCATED: total {len(data)} bytes, showing first {limit} bytes]"
+        _track_process(proc)
+        try:
+            try:
+                stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                    proc.communicate(), timeout=float(timeout)
+                )
+            except (asyncio.TimeoutError, TimeoutError):  # noqa: UP041
+                _signal_process_tree(proc, signal.SIGTERM)
+                try:
+                    await asyncio.wait_for(proc.communicate(), timeout=2)
+                except (asyncio.TimeoutError, TimeoutError):  # noqa: UP041
+                    _signal_process_tree(proc, signal.SIGKILL)
+                    await proc.communicate()
+                span.set_attribute("bash.exit_code", -1)
+                span.set_attribute("bash.timed_out", True)
+                return {
+                    "stdout": "",
+                    "stderr": f"Command timed out after {timeout}s",
+                    "exit_code": -1,
+                    "timed_out": True,
+                }
+        finally:
+            _untrack_process(proc)
 
-    return {
-        "stdout": _truncate(stdout_bytes, max_output_bytes),
-        "stderr": _truncate(stderr_bytes, max_output_bytes),
-        "exit_code": proc.returncode,
-        "timed_out": False,
-    }
+        def _truncate(data: bytes, limit: int) -> str:
+            if len(data) <= limit:
+                return data.decode("utf-8", errors="replace")
+            shown = data[:limit].decode("utf-8", errors="replace")
+            return f"{shown}\n[TRUNCATED: total {len(data)} bytes, showing first {limit} bytes]"
+
+        exit_code = proc.returncode
+        span.set_attribute("bash.exit_code", exit_code if exit_code is not None else -1)
+        span.set_attribute("bash.timed_out", False)
+        span.set_attribute("bash.stdout_bytes", len(stdout_bytes))
+        span.set_attribute("bash.stderr_bytes", len(stderr_bytes))
+
+        return {
+            "stdout": _truncate(stdout_bytes, max_output_bytes),
+            "stderr": _truncate(stderr_bytes, max_output_bytes),
+            "exit_code": exit_code,
+            "timed_out": False,
+        }
 
 
 def _observe_inflight():

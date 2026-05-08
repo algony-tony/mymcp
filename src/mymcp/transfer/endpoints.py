@@ -17,10 +17,12 @@ from starlette.responses import JSONResponse, StreamingResponse
 
 from mymcp import config
 from mymcp.audit import log_tool_call
+from mymcp.observability.tracing import get_tracer
 from mymcp.tools.files import check_protected_path
 from mymcp.transfer import get_ticket_store
 
 logger = logging.getLogger("mymcp")
+_tracer = get_tracer(__name__)
 
 
 class _SizeExceeded(Exception):
@@ -122,119 +124,162 @@ def register_transfer_routes(app: FastAPI) -> None:
 
 
 async def _do_upload(ticket, request: Request):
-    ip = _client_ip(request)
-    err = check_protected_path(ticket.path)
-    if err:
-        _audit_redeem(
-            ticket, success=False, bytes_count=0, error_code="path_protected", client_ip=ip
-        )
-        return _err(403, "path_protected", err)
+    with _tracer.start_as_current_span(
+        "mymcp.transfer.upload",
+        attributes={"transfer.path": ticket.path},
+    ) as span:
+        ip = _client_ip(request)
+        err = check_protected_path(ticket.path)
+        if err:
+            _audit_redeem(
+                ticket, success=False, bytes_count=0, error_code="path_protected", client_ip=ip
+            )
+            span.set_attribute("transfer.bytes", 0)
+            span.set_attribute("error.type", "path_protected")
+            return _err(403, "path_protected", err)
 
-    declared = request.headers.get("content-length")
-    if declared is not None:
-        try:
-            if int(declared) > ticket.max_bytes:
+        declared = request.headers.get("content-length")
+        if declared is not None:
+            try:
+                if int(declared) > ticket.max_bytes:
+                    _audit_redeem(
+                        ticket,
+                        success=False,
+                        bytes_count=int(declared),
+                        error_code="size_exceeded",
+                        client_ip=ip,
+                    )
+                    span.set_attribute("transfer.bytes", int(declared))
+                    span.set_attribute("error.type", "size_exceeded")
+                    return _err(
+                        413,
+                        "size_exceeded",
+                        f"Body exceeds max_bytes={ticket.max_bytes}.",
+                    )
+            except ValueError:
                 _audit_redeem(
                     ticket,
                     success=False,
-                    bytes_count=int(declared),
-                    error_code="size_exceeded",
+                    bytes_count=0,
+                    error_code="bad_content_length",
                     client_ip=ip,
                 )
-                return _err(
-                    413,
-                    "size_exceeded",
-                    f"Body exceeds max_bytes={ticket.max_bytes}.",
-                )
-        except ValueError:
+                span.set_attribute("transfer.bytes", 0)
+                span.set_attribute("error.type", "bad_content_length")
+                return _err(400, "bad_content_length", "Content-Length is not an integer.")
+
+        parent = os.path.dirname(ticket.path) or "/"
+        try:
+            os.makedirs(parent, exist_ok=True)
+        except OSError as e:
             _audit_redeem(
-                ticket, success=False, bytes_count=0, error_code="bad_content_length", client_ip=ip
+                ticket, success=False, bytes_count=0, error_code="mkdir_failed", client_ip=ip
             )
-            return _err(400, "bad_content_length", "Content-Length is not an integer.")
+            span.set_attribute("transfer.bytes", 0)
+            span.set_attribute("error.type", "mkdir_failed")
+            return _err(500, "mkdir_failed", str(e))
 
-    parent = os.path.dirname(ticket.path) or "/"
-    try:
-        os.makedirs(parent, exist_ok=True)
-    except OSError as e:
-        _audit_redeem(ticket, success=False, bytes_count=0, error_code="mkdir_failed", client_ip=ip)
-        return _err(500, "mkdir_failed", str(e))
+        fd, tmp_path = tempfile.mkstemp(prefix=".mymcp-upload-", dir=parent)
+        written = 0
+        try:
+            with os.fdopen(fd, "wb") as out:
+                async for chunk in request.stream():
+                    if not chunk:
+                        continue
+                    if written + len(chunk) > ticket.max_bytes:
+                        raise _SizeExceeded()
+                    out.write(chunk)
+                    written += len(chunk)
+            os.replace(tmp_path, ticket.path)
+        except _SizeExceeded:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp_path)
+            _audit_redeem(
+                ticket,
+                success=False,
+                bytes_count=written,
+                error_code="size_exceeded",
+                client_ip=ip,
+            )
+            span.set_attribute("transfer.bytes", written)
+            span.set_attribute("error.type", "size_exceeded")
+            return _err(413, "size_exceeded", f"Body exceeds max_bytes={ticket.max_bytes}.")
+        except Exception as e:  # pragma: no cover - defensive
+            with contextlib.suppress(OSError):
+                os.unlink(tmp_path)
+            logger.error("upload failed for %s: %s", ticket.path, e)
+            _audit_redeem(
+                ticket,
+                success=False,
+                bytes_count=written,
+                error_code="write_failed",
+                client_ip=ip,
+            )
+            span.set_attribute("transfer.bytes", written)
+            span.set_attribute("error.type", "write_failed")
+            span.record_exception(e)
+            return _err(500, "write_failed", str(e))
 
-    fd, tmp_path = tempfile.mkstemp(prefix=".mymcp-upload-", dir=parent)
-    written = 0
-    try:
-        with os.fdopen(fd, "wb") as out:
-            async for chunk in request.stream():
-                if not chunk:
-                    continue
-                if written + len(chunk) > ticket.max_bytes:
-                    raise _SizeExceeded()
-                out.write(chunk)
-                written += len(chunk)
-        os.replace(tmp_path, ticket.path)
-    except _SizeExceeded:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp_path)
-        _audit_redeem(
-            ticket, success=False, bytes_count=written, error_code="size_exceeded", client_ip=ip
-        )
-        return _err(413, "size_exceeded", f"Body exceeds max_bytes={ticket.max_bytes}.")
-    except Exception as e:  # pragma: no cover - defensive
-        with contextlib.suppress(OSError):
-            os.unlink(tmp_path)
-        logger.error("upload failed for %s: %s", ticket.path, e)
-        _audit_redeem(
-            ticket, success=False, bytes_count=written, error_code="write_failed", client_ip=ip
-        )
-        return _err(500, "write_failed", str(e))
-
-    _audit_redeem(ticket, success=True, bytes_count=written, error_code=None, client_ip=ip)
-    return JSONResponse({"ok": True, "path": ticket.path, "bytes_written": written})
+        _audit_redeem(ticket, success=True, bytes_count=written, error_code=None, client_ip=ip)
+        span.set_attribute("transfer.bytes", written)
+        return JSONResponse({"ok": True, "path": ticket.path, "bytes_written": written})
 
 
 async def _do_download(ticket, request: Request):
-    ip = _client_ip(request)
-    err = check_protected_path(ticket.path)
-    if err:
-        _audit_redeem(
-            ticket, success=False, bytes_count=0, error_code="path_protected", client_ip=ip
-        )
-        return _err(403, "path_protected", err)
-    if not os.path.isfile(ticket.path):
-        _audit_redeem(
-            ticket, success=False, bytes_count=0, error_code="path_not_found", client_ip=ip
-        )
-        return _err(404, "path_not_found", "Server file no longer exists.")
-
-    size = os.path.getsize(ticket.path)
-    filename = os.path.basename(ticket.path)
-    file_path = ticket.path
-    captured_ticket = ticket
-
-    def iter_file():
-        sent = 0
-        success = False
-        error_code: str | None = "stream_aborted"
-        try:
-            with open(file_path, "rb") as fh:
-                while True:
-                    chunk = fh.read(64 * 1024)
-                    if not chunk:
-                        break
-                    sent += len(chunk)
-                    yield chunk
-            success = True
-            error_code = None
-        finally:
+    with _tracer.start_as_current_span(
+        "mymcp.transfer.download",
+        attributes={"transfer.path": ticket.path},
+    ) as span:
+        ip = _client_ip(request)
+        err = check_protected_path(ticket.path)
+        if err:
             _audit_redeem(
-                captured_ticket,
-                success=success,
-                bytes_count=sent,
-                error_code=error_code,
-                client_ip=ip,
+                ticket, success=False, bytes_count=0, error_code="path_protected", client_ip=ip
             )
+            span.set_attribute("transfer.bytes", 0)
+            span.set_attribute("error.type", "path_protected")
+            return _err(403, "path_protected", err)
+        if not os.path.isfile(ticket.path):
+            _audit_redeem(
+                ticket, success=False, bytes_count=0, error_code="path_not_found", client_ip=ip
+            )
+            span.set_attribute("transfer.bytes", 0)
+            span.set_attribute("error.type", "path_not_found")
+            return _err(404, "path_not_found", "Server file no longer exists.")
 
-    headers = {
-        "content-length": str(size),
-        "content-disposition": _content_disposition(filename),
-    }
-    return StreamingResponse(iter_file(), media_type="application/octet-stream", headers=headers)
+        size = os.path.getsize(ticket.path)
+        filename = os.path.basename(ticket.path)
+        file_path = ticket.path
+        captured_ticket = ticket
+        span.set_attribute("transfer.bytes", size)
+
+        def iter_file():
+            sent = 0
+            success = False
+            error_code: str | None = "stream_aborted"
+            try:
+                with open(file_path, "rb") as fh:
+                    while True:
+                        chunk = fh.read(64 * 1024)
+                        if not chunk:
+                            break
+                        sent += len(chunk)
+                        yield chunk
+                success = True
+                error_code = None
+            finally:
+                _audit_redeem(
+                    captured_ticket,
+                    success=success,
+                    bytes_count=sent,
+                    error_code=error_code,
+                    client_ip=ip,
+                )
+
+        headers = {
+            "content-length": str(size),
+            "content-disposition": _content_disposition(filename),
+        }
+        return StreamingResponse(
+            iter_file(), media_type="application/octet-stream", headers=headers
+        )

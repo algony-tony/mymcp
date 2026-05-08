@@ -371,9 +371,7 @@ async def call_tool(name: str, arguments: dict | None) -> list[types.TextContent
         instruments.tool_calls.add(1, {"tool": name, "role": role, "result": result_status})
         instruments.tool_duration.record(duration_ms / 1000, {"tool": name})
 
-        span.set_attribute(
-            "tool.result", "success" if result_status == "ok" else "error"
-        )
+        span.set_attribute("tool.result", "success" if result_status == "ok" else "error")
         if result_status == "error" and error_code:
             span.set_attribute("error.type", str(error_code))
 

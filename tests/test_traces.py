@@ -28,9 +28,7 @@ def span_exporter(monkeypatch, tmp_path):
 async def test_dispatch_tool_creates_span_with_attributes(span_exporter):
     from mymcp.mcp_server import _current_audit_info, call_tool
 
-    token = _current_audit_info.set(
-        {"token_name": "t", "role": "rw", "ip": "127.0.0.1"}
-    )
+    token = _current_audit_info.set({"token_name": "t", "role": "rw", "ip": "127.0.0.1"})
     try:
         await call_tool("read_file", {"path": "/etc/hostname"})
     finally:
@@ -42,3 +40,21 @@ async def test_dispatch_tool_creates_span_with_attributes(span_exporter):
     assert s.attributes["tool.name"] == "read_file"
     assert s.attributes["token.role"] == "rw"
     assert s.attributes["tool.result"] in ("success", "error")
+
+
+@pytest.mark.anyio
+async def test_bash_execute_creates_child_span(span_exporter):
+    from mymcp.mcp_server import _current_audit_info, call_tool
+
+    token = _current_audit_info.set({"token_name": "t", "role": "rw", "ip": "127.0.0.1"})
+    try:
+        await call_tool("bash_execute", {"command": "echo hi", "timeout": 5})
+    finally:
+        _current_audit_info.reset(token)
+
+    spans = span_exporter.get_finished_spans()
+    bash_spans = [s for s in spans if s.name == "mymcp.bash.execute"]
+    assert bash_spans, "expected a mymcp.bash.execute span"
+    s = bash_spans[0]
+    assert s.attributes["bash.exit_code"] == 0
+    assert s.attributes["bash.timed_out"] is False
