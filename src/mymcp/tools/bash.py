@@ -6,7 +6,10 @@ import threading
 import time
 from weakref import WeakSet
 
+from opentelemetry.metrics import Observation
+
 from mymcp import config
+from mymcp.observability.instruments import register_callback_gauge
 
 _inflight_lock = threading.Lock()
 _inflight: WeakSet = WeakSet()
@@ -141,3 +144,14 @@ async def run_bash_execute(
         "exit_code": proc.returncode,
         "timed_out": False,
     }
+
+
+def _observe_inflight():
+    return [Observation(len(_inflight))]
+
+
+register_callback_gauge(
+    "mymcp.bash.inflight_processes",
+    "Live count of tracked bash subprocesses",
+    _observe_inflight,
+)

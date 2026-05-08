@@ -74,4 +74,10 @@ def log_tool_call(
     if duration_ms is not None:
         entry["duration_ms"] = duration_ms
 
-    _logger.info(json.dumps(entry))
+    try:
+        _logger.info(json.dumps(entry))
+    except Exception:
+        from mymcp.observability.instruments import audit_write_failures
+
+        audit_write_failures.add(1)
+        raise

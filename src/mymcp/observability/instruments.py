@@ -35,3 +35,19 @@ audit_write_failures = _meter.create_counter(
     description="Audit log write failures",
     unit="1",
 )
+
+
+# --- Saturation gauges (callbacks registered by other modules) ---
+
+
+def register_callback_gauge(name: str, description: str, callback) -> None:
+    """Create an observable gauge backed by ``callback`` (called on each export).
+
+    ``callback`` receives no arguments and returns an iterable of
+    ``opentelemetry.metrics.Observation`` instances.
+    """
+    _meter.create_observable_gauge(
+        name,
+        description=description,
+        callbacks=[lambda options: callback()],
+    )

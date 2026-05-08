@@ -5,7 +5,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from opentelemetry.metrics import Observation
 from pydantic import BaseModel
+
+from mymcp.observability.instruments import register_callback_gauge
 
 
 class TokenStore:
@@ -160,3 +163,24 @@ async def revoke_token(token: str, store: "TokenStore" = Depends(get_store)):
 @admin_router.get("/tokens")
 async def list_tokens(store: "TokenStore" = Depends(get_store)):
     return store.list_tokens()
+
+
+def _observe_tokens():
+    counts: dict[str, int] = {}
+    try:
+        store = get_store()
+        for info in store.list_tokens().values():
+            role = info.get("role", "unknown")
+            counts[role] = counts.get(role, 0) + 1
+    except Exception:
+        pass
+    return [Observation(n, {"role": role}) for role, n in counts.items()] or [
+        Observation(0, {"role": "none"})
+    ]
+
+
+register_callback_gauge(
+    "mymcp.tokens.count",
+    "Number of tokens in the token store, by role",
+    _observe_tokens,
+)
