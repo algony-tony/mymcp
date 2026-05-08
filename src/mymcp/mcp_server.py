@@ -11,11 +11,13 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mymcp import config
 from mymcp.audit import log_tool_call
 from mymcp.observability import instruments
+from mymcp.observability.tracing import get_tracer
 from mymcp.tools.bash import run_bash_execute
 from mymcp.tools.files import edit_file, glob_files, grep_files, read_file, write_file
 from mymcp.tools.transfer import prepare_download, prepare_upload
 
 logger = logging.getLogger("mymcp")
+_tracer = get_tracer(__name__)
 
 # ---------------------------------------------------------------------------
 # Context variable: set by auth middleware, read by tool handlers
@@ -262,106 +264,120 @@ async def call_tool(name: str, arguments: dict | None) -> list[types.TextContent
     role = info.get("role", "rw")
     ip = info.get("ip", "unknown")
 
-    # Permission check
-    perm_err = check_tool_permission(name, role)
-    if perm_err is not None:
-        log_tool_call(
-            token_name=token_name,
-            role=role,
-            ip=ip,
-            tool=name,
-            params=_extract_params(name, args),
-            result="denied",
-            reason=perm_err,
-        )
-        instruments.tool_calls.add(1, {"tool": name, "role": role, "result": "denied"})
-        error_result = json.dumps(
-            {"success": False, "error": "PermissionDenied", "message": perm_err}
-        )
-        return [types.TextContent(type="text", text=error_result)]
+    with _tracer.start_as_current_span(
+        "mymcp.tool.dispatch",
+        attributes={"tool.name": name, "token.role": role},
+    ) as span:
+        # Permission check
+        perm_err = check_tool_permission(name, role)
+        if perm_err is not None:
+            log_tool_call(
+                token_name=token_name,
+                role=role,
+                ip=ip,
+                tool=name,
+                params=_extract_params(name, args),
+                result="denied",
+                reason=perm_err,
+            )
+            instruments.tool_calls.add(1, {"tool": name, "role": role, "result": "denied"})
+            error_result = json.dumps(
+                {"success": False, "error": "PermissionDenied", "message": perm_err}
+            )
+            span.set_attribute("tool.result", "denied")
+            return [types.TextContent(type="text", text=error_result)]
 
-    # Execute tool
-    t0 = time.monotonic()
-    try:
-        result_json = await dispatch_tool(name, args)
-    except Exception:
+        # Execute tool
+        t0 = time.monotonic()
+        try:
+            result_json = await dispatch_tool(name, args)
+        except Exception as exc:
+            duration_ms = int((time.monotonic() - t0) * 1000)
+            tb = traceback.format_exc()
+            logger.error("Unhandled exception in tool %s: %s", name, tb)
+            error_data = {
+                "success": False,
+                "error": "InternalError",
+                "message": f"Tool '{name}' failed with an unexpected error",
+            }
+            log_tool_call(
+                token_name=token_name,
+                role=role,
+                ip=ip,
+                tool=name,
+                params=_extract_params(name, args),
+                result="error",
+                error_code="InternalError",
+                error_message=f"Unhandled exception in {name}",
+                duration_ms=duration_ms,
+            )
+            instruments.tool_calls.add(1, {"tool": name, "role": role, "result": "error"})
+            instruments.tool_duration.record(duration_ms / 1000, {"tool": name})
+            span.set_attribute("tool.result", "error")
+            span.set_attribute("error.type", type(exc).__name__)
+            span.record_exception(exc)
+            return [types.TextContent(type="text", text=json.dumps(error_data))]
+
         duration_ms = int((time.monotonic() - t0) * 1000)
-        tb = traceback.format_exc()
-        logger.error("Unhandled exception in tool %s: %s", name, tb)
-        error_data = {
-            "success": False,
-            "error": "InternalError",
-            "message": f"Tool '{name}' failed with an unexpected error",
-        }
+
+        # Determine result status for audit
+        error_code = None
+        error_message = None
+        try:
+            result_data = json.loads(result_json)
+            if result_data.get("success", True) is False:
+                # Explicit failure (ProtectedPath, FileNotFoundError, etc.)
+                result_status = "error"
+                error_code = result_data.get("error", "")
+                error_message = result_data.get("message", "")
+            elif result_data.get("timed_out"):
+                # bash_execute timeout
+                result_status = "error"
+                error_code = "TimeoutError"
+                error_message = result_data.get("stderr", "Command timed out")
+            elif result_data.get("exit_code") is not None and result_data["exit_code"] != 0:
+                # bash_execute non-zero exit
+                result_status = "error"
+                error_code = f"ExitCode:{result_data['exit_code']}"
+                stderr = result_data.get("stderr", "")
+                error_message = stderr[:200] if stderr else "Non-zero exit code"
+            else:
+                result_status = "ok"
+        except (json.JSONDecodeError, AttributeError):
+            result_status = "ok"
+
+        if result_status == "error":
+            logger.warning(
+                "Tool %s returned error: [%s] %s (token=%s, ip=%s)",
+                name,
+                error_code,
+                error_message,
+                token_name,
+                ip,
+            )
+
         log_tool_call(
             token_name=token_name,
             role=role,
             ip=ip,
             tool=name,
             params=_extract_params(name, args),
-            result="error",
-            error_code="InternalError",
-            error_message=f"Unhandled exception in {name}",
+            result=result_status,
+            error_code=error_code,
+            error_message=error_message,
             duration_ms=duration_ms,
         )
-        instruments.tool_calls.add(1, {"tool": name, "role": role, "result": "error"})
+
+        instruments.tool_calls.add(1, {"tool": name, "role": role, "result": result_status})
         instruments.tool_duration.record(duration_ms / 1000, {"tool": name})
-        return [types.TextContent(type="text", text=json.dumps(error_data))]
 
-    duration_ms = int((time.monotonic() - t0) * 1000)
-
-    # Determine result status for audit
-    error_code = None
-    error_message = None
-    try:
-        result_data = json.loads(result_json)
-        if result_data.get("success", True) is False:
-            # Explicit failure (ProtectedPath, FileNotFoundError, etc.)
-            result_status = "error"
-            error_code = result_data.get("error", "")
-            error_message = result_data.get("message", "")
-        elif result_data.get("timed_out"):
-            # bash_execute timeout
-            result_status = "error"
-            error_code = "TimeoutError"
-            error_message = result_data.get("stderr", "Command timed out")
-        elif result_data.get("exit_code") is not None and result_data["exit_code"] != 0:
-            # bash_execute non-zero exit
-            result_status = "error"
-            error_code = f"ExitCode:{result_data['exit_code']}"
-            stderr = result_data.get("stderr", "")
-            error_message = stderr[:200] if stderr else "Non-zero exit code"
-        else:
-            result_status = "ok"
-    except (json.JSONDecodeError, AttributeError):
-        result_status = "ok"
-
-    if result_status == "error":
-        logger.warning(
-            "Tool %s returned error: [%s] %s (token=%s, ip=%s)",
-            name,
-            error_code,
-            error_message,
-            token_name,
-            ip,
+        span.set_attribute(
+            "tool.result", "success" if result_status == "ok" else "error"
         )
+        if result_status == "error" and error_code:
+            span.set_attribute("error.type", str(error_code))
 
-    log_tool_call(
-        token_name=token_name,
-        role=role,
-        ip=ip,
-        tool=name,
-        params=_extract_params(name, args),
-        result=result_status,
-        error_code=error_code,
-        error_message=error_message,
-        duration_ms=duration_ms,
-    )
-
-    instruments.tool_calls.add(1, {"tool": name, "role": role, "result": result_status})
-    instruments.tool_duration.record(duration_ms / 1000, {"tool": name})
-
-    return [types.TextContent(type="text", text=result_json)]
+        return [types.TextContent(type="text", text=result_json)]
 
 
 async def dispatch_tool(name: str, args: dict) -> str:
