@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import logging
 import os
 import secrets
 import signal
@@ -11,24 +10,6 @@ import sys
 from typing import Any
 
 from mymcp import __version__
-
-
-def _configure_logging(level: str, fmt: str) -> None:
-    log_level = getattr(logging, level.upper(), logging.INFO)
-    root = logging.getLogger()
-    for h in list(root.handlers):
-        root.removeHandler(h)
-    handler = logging.StreamHandler(sys.stderr)
-    if fmt == "json":
-        from pythonjsonlogger import jsonlogger
-
-        handler.setFormatter(
-            jsonlogger.JsonFormatter("%(asctime)s %(levelname)s %(name)s %(message)s")
-        )
-    else:
-        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
-    root.addHandler(handler)
-    root.setLevel(log_level)
 
 
 def _install_signal_handlers() -> None:
@@ -79,7 +60,9 @@ def cmd_serve(args: argparse.Namespace) -> int:
     if args.env_file:
         os.environ["MYMCP_ENV_FILE"] = args.env_file
 
-    _configure_logging(args.log_level, args.log_format)
+    from mymcp.observability.logs import configure_logging
+
+    configure_logging(level=args.log_level)
     _maybe_set_temp_tokens(args.with_metrics_token)
 
     from mymcp import config
@@ -410,7 +393,6 @@ def build_parser() -> argparse.ArgumentParser:
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
     )
-    p_serve.add_argument("--log-format", default="text", choices=["text", "json"])
     p_serve.add_argument(
         "--with-metrics-token",
         action="store_true",
