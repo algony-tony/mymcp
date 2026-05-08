@@ -8,10 +8,11 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from mymcp import config, metrics
+from mymcp import config
 from mymcp.auth import admin_router, get_store
-from mymcp.observability.request_id import RequestIdMiddleware
 from mymcp.mcp_server import _current_audit_info, server, session_manager  # noqa: F401
+from mymcp.observability import instruments, setup_observability
+from mymcp.observability.request_id import RequestIdMiddleware
 from mymcp.transfer.endpoints import register_transfer_routes
 
 
@@ -67,7 +68,7 @@ class MetricsMiddleware:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send):
-        if scope["type"] != "http" or not metrics.ENABLED:
+        if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
         status_code = 500
@@ -81,11 +82,14 @@ class MetricsMiddleware:
         try:
             await self.app(scope, receive, send_wrapper)
         finally:
-            metrics.HTTP_REQUESTS.labels(
-                path=scope.get("path", ""),
-                method=scope.get("method", ""),
-                status=str(status_code),
-            ).inc()
+            instruments.http_requests.add(
+                1,
+                {
+                    "path": scope.get("path", ""),
+                    "method": scope.get("method", ""),
+                    "status": str(status_code),
+                },
+            )
 
 
 def create_app() -> FastAPI:
@@ -104,6 +108,8 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="Linux MCP Server", version=mymcp.__version__, lifespan=lifespan)
 
+    setup_observability(app, service_name="mymcp", service_version=mymcp.__version__)
+
     app.add_middleware(McpAuthMiddleware)
     app.add_middleware(MetricsMiddleware)
     app.add_middleware(RequestIdMiddleware)  # added last → runs first
@@ -121,11 +127,6 @@ def create_app() -> FastAPI:
 
     @app.get("/metrics")
     async def get_metrics(request: Request):
-        if not metrics.ENABLED:
-            return JSONResponse(
-                {"detail": "Metrics disabled: prometheus_client not installed"},
-                status_code=503,
-            )
         if not config.METRICS_TOKEN:
             return JSONResponse(
                 {"detail": "Metrics disabled: MYMCP_METRICS_TOKEN not configured"},
@@ -134,9 +135,8 @@ def create_app() -> FastAPI:
         auth_header = request.headers.get("authorization", "")
         if auth_header != f"Bearer {config.METRICS_TOKEN}":
             return JSONResponse({"detail": "Unauthorized"}, status_code=401)
-        return Response(
-            content=metrics.generate_latest(),
-            media_type=metrics.CONTENT_TYPE_LATEST,
-        )
+        from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+
+        return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
     return app

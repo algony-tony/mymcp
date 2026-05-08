@@ -8,8 +8,9 @@ from mcp import types
 from mcp.server import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 
-from mymcp import config, metrics
+from mymcp import config
 from mymcp.audit import log_tool_call
+from mymcp.observability import instruments
 from mymcp.tools.bash import run_bash_execute
 from mymcp.tools.files import edit_file, glob_files, grep_files, read_file, write_file
 from mymcp.tools.transfer import prepare_download, prepare_upload
@@ -273,8 +274,7 @@ async def call_tool(name: str, arguments: dict | None) -> list[types.TextContent
             result="denied",
             reason=perm_err,
         )
-        if metrics.ENABLED:
-            metrics.TOOL_CALLS.labels(tool=name, role=role, result="denied").inc()
+        instruments.tool_calls.add(1, {"tool": name, "role": role, "result": "denied"})
         error_result = json.dumps(
             {"success": False, "error": "PermissionDenied", "message": perm_err}
         )
@@ -304,9 +304,8 @@ async def call_tool(name: str, arguments: dict | None) -> list[types.TextContent
             error_message=f"Unhandled exception in {name}",
             duration_ms=duration_ms,
         )
-        if metrics.ENABLED:
-            metrics.TOOL_CALLS.labels(tool=name, role=role, result="error").inc()
-            metrics.TOOL_DURATION.labels(tool=name).observe(duration_ms / 1000)
+        instruments.tool_calls.add(1, {"tool": name, "role": role, "result": "error"})
+        instruments.tool_duration.record(duration_ms / 1000, {"tool": name})
         return [types.TextContent(type="text", text=json.dumps(error_data))]
 
     duration_ms = int((time.monotonic() - t0) * 1000)
@@ -359,9 +358,8 @@ async def call_tool(name: str, arguments: dict | None) -> list[types.TextContent
         duration_ms=duration_ms,
     )
 
-    if metrics.ENABLED:
-        metrics.TOOL_CALLS.labels(tool=name, role=role, result=result_status).inc()
-        metrics.TOOL_DURATION.labels(tool=name).observe(duration_ms / 1000)
+    instruments.tool_calls.add(1, {"tool": name, "role": role, "result": result_status})
+    instruments.tool_duration.record(duration_ms / 1000, {"tool": name})
 
     return [types.TextContent(type="text", text=result_json)]
 
