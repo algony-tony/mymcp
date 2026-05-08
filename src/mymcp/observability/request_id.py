@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from contextvars import ContextVar
 
@@ -10,6 +11,9 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 current_request_id: ContextVar[str | None] = ContextVar("current_request_id", default=None)
 
 _HEADER_NAME = b"x-request-id"
+_FORBIDDEN_CHARS = ("\r", "\n", "\x00")
+
+logger = logging.getLogger(__name__)
 
 
 class RequestIdMiddleware:
@@ -41,7 +45,14 @@ class RequestIdMiddleware:
         for name, value in scope.get("headers", []):
             if name == _HEADER_NAME:
                 try:
-                    return value.decode("ascii")
+                    decoded = value.decode("ascii")
                 except UnicodeDecodeError:
                     break
+                if any(ch in decoded for ch in _FORBIDDEN_CHARS):
+                    logger.warning(
+                        "Invalid X-Request-ID header containing control characters "
+                        "was replaced with a generated UUID."
+                    )
+                    break
+                return decoded
         return str(uuid.uuid4())
