@@ -46,22 +46,28 @@ def setup_observability(
         }
     )
 
-    prom_reader = PrometheusMetricReader()
-    meter_provider = MeterProvider(resource=resource, metric_readers=[prom_reader])
+    readers = [PrometheusMetricReader()]
+    span_processors = []
+    otlp_app_instrumenters = None
+
+    endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+    if endpoint:
+        otlp_app_instrumenters = _build_otlp(readers, span_processors)
+
+    meter_provider = MeterProvider(resource=resource, metric_readers=readers)
     otel_metrics.set_meter_provider(meter_provider)
 
     tracer_provider = TracerProvider(resource=resource)
+    for sp in span_processors:
+        tracer_provider.add_span_processor(sp)
     otel_trace.set_tracer_provider(tracer_provider)
 
-    _maybe_setup_otlp(app, tracer_provider, meter_provider, prom_reader, resource)
+    if otlp_app_instrumenters and app is not None:
+        otlp_app_instrumenters(app)
 
 
-def _maybe_setup_otlp(app, tracer_provider, meter_provider, prom_reader, resource) -> None:
-    """If [otlp] extra is installed and an endpoint is configured, wire OTLP."""
-    endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
-    if not endpoint:
-        return
-
+def _build_otlp(readers, span_processors):
+    """Append OTLP exporters to readers/span_processors. Returns optional app-instrumenter."""
     try:
         from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
             OTLPMetricExporter,
@@ -76,27 +82,22 @@ def _maybe_setup_otlp(app, tracer_provider, meter_provider, prom_reader, resourc
             "OTEL_EXPORTER_OTLP_ENDPOINT is set but the [otlp] extra is not "
             "installed; OTLP export disabled. Run: pip install algony-mymcp[otlp]"
         )
-        return
+        return None
 
-    tracer_provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+    span_processors.append(BatchSpanProcessor(OTLPSpanExporter()))
+    readers.append(PeriodicExportingMetricReader(OTLPMetricExporter()))
 
-    otlp_reader = PeriodicExportingMetricReader(OTLPMetricExporter())
-    new_meter_provider = type(meter_provider)(
-        resource=resource,
-        metric_readers=[prom_reader, otlp_reader],
-    )
-    otel_metrics.set_meter_provider(new_meter_provider)
-
-    if app is not None:
+    def _instrument_app(app):
         try:
             from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
             from opentelemetry.instrumentation.logging import LoggingInstrumentor
         except ImportError:
             _log.warning("instrumentation packages missing despite [otlp] partial install")
             return
-
         FastAPIInstrumentor.instrument_app(app)
         LoggingInstrumentor().instrument(set_logging_format=False)
+
+    return _instrument_app
 
 
 def reset_for_tests() -> None:
