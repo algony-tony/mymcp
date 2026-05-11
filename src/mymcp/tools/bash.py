@@ -150,9 +150,7 @@ async def run_bash_execute(
             return f"{shown}\n[TRUNCATED: total {len(data)} bytes, showing first {limit} bytes]"
 
         exit_code = proc.returncode
-        truncated = (
-            len(stdout_bytes) > max_output_bytes or len(stderr_bytes) > max_output_bytes
-        )
+        truncated = len(stdout_bytes) > max_output_bytes or len(stderr_bytes) > max_output_bytes
         span.set_attribute("bash.exit_code", exit_code if exit_code is not None else -1)
         span.set_attribute("bash.timed_out", False)
         span.set_attribute("bash.stdout_bytes", len(stdout_bytes))
