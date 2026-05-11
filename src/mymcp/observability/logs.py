@@ -6,6 +6,7 @@ import logging
 import sys
 from typing import IO
 
+from opentelemetry import trace as _otel_trace
 from pythonjsonlogger import jsonlogger
 
 from mymcp.observability.request_id import current_request_id
@@ -16,10 +17,13 @@ class _ContextFilter(logging.Filter):
 
     def filter(self, record: logging.LogRecord) -> bool:
         record.request_id = current_request_id.get()
-        if not hasattr(record, "trace_id"):
-            record.trace_id = None
-        if not hasattr(record, "span_id"):
-            record.span_id = None
+        record.trace_id = None
+        record.span_id = None
+        span = _otel_trace.get_current_span()
+        ctx = span.get_span_context() if span is not None else None
+        if ctx is not None and ctx.is_valid:
+            record.trace_id = format(ctx.trace_id, "032x")
+            record.span_id = format(ctx.span_id, "016x")
         return True
 
 

@@ -164,7 +164,9 @@ async def run_bash_execute(
 
 
 def _observe_inflight():
-    return [Observation(len(_inflight))]
+    with _inflight_lock:
+        count = len(_inflight)
+    return [Observation(count)]
 
 
 register_callback_gauge(
