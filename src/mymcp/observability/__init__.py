@@ -46,8 +46,8 @@ def setup_observability(
         }
     )
 
-    readers = [PrometheusMetricReader()]
-    span_processors = []
+    readers: list = [PrometheusMetricReader()]
+    span_processors: list = []
     otlp_app_instrumenters = None
 
     endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")

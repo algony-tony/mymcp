@@ -4,7 +4,10 @@ import logging.handlers
 import os
 from datetime import datetime, timezone
 
+from opentelemetry import trace as _otel_trace
+
 from mymcp import config
+from mymcp.observability.request_id import current_request_id
 
 _logger: logging.Logger | None = None
 _setup_done = False
@@ -34,7 +37,23 @@ def _setup() -> logging.Logger | None:
     )
     handler.setFormatter(logging.Formatter("%(message)s"))
     logger.addHandler(handler)
+
+    _maybe_attach_otel_handler(logger)
     return logger
+
+
+def _maybe_attach_otel_handler(logger: logging.Logger) -> None:
+    """Attach OTel LoggingHandler when a real LoggerProvider has been configured."""
+    try:
+        from opentelemetry._logs import get_logger_provider
+        from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
+    except ImportError:
+        return
+
+    provider = get_logger_provider()
+    if not isinstance(provider, LoggerProvider):
+        return
+    logger.addHandler(LoggingHandler(level=logging.INFO, logger_provider=provider))
 
 
 def log_tool_call(
@@ -65,6 +84,14 @@ def log_tool_call(
         "params": params,
         "result": result,
     }
+    rid = current_request_id.get()
+    if rid is not None:
+        entry["request_id"] = rid
+    span = _otel_trace.get_current_span()
+    ctx = span.get_span_context() if span is not None else None
+    if ctx is not None and ctx.is_valid:
+        entry["trace_id"] = format(ctx.trace_id, "032x")
+        entry["span_id"] = format(ctx.span_id, "016x")
     if reason is not None:
         entry["reason"] = reason
     if error_code is not None:
