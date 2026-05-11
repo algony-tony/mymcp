@@ -608,32 +608,93 @@ Add extra protected paths via `MYMCP_PROTECTED_PATHS=/path/one,/path/two`.
 
 Note: `bash_execute` is not subject to path protection — use `ro` tokens for untrusted clients.
 
-## Monitoring
+## Observability
 
-mymcp provides a Prometheus-compatible `/metrics` endpoint.
+mymcp emits metrics, traces, and logs via OpenTelemetry. The default install supports Prometheus pull at `/metrics`; the `[otlp]` extra adds OTLP push for any backend.
 
-### Configuration
-1. **Metrics Token**: Set the `MYMCP_METRICS_TOKEN` environment variable to secure the endpoint.
-2. **Prometheus Scrape**: Configure Prometheus to scrape `/metrics` using the bearer token.
-   ```yaml
-   scrape_configs:
-     - job_name: mymcp
-       metrics_path: /metrics
-       authorization:
-         type: Bearer
-         credentials: <MYMCP_METRICS_TOKEN>
-       static_configs:
-         - targets: ["your-host:8765"]
-   ```
+### Quick reference
 
-### Dashboard
-A pre-built Grafana dashboard is available in `deploy/grafana/mymcp-dashboard.json`. It provides visualization for:
-- Tool call rates and error status.
-- p50/p95/p99 latency per tool.
-- HTTP request statistics.
-- System health (CPU, Memory, FDs).
+| Capability | Default install | `pip install algony-mymcp[otlp]` |
+|---|---|---|
+| `/metrics` Prometheus pull endpoint | yes | yes |
+| OTLP push (metrics + traces + logs) | no | yes (when endpoint set) |
+| FastAPI/ASGI auto-instrumentation | no | yes |
+| Audit log → local file | yes | yes |
+| Audit log → OTLP push | no | yes |
+| Application logs → stderr (JSON) | yes | yes |
 
-See [deploy/grafana/README.md](deploy/grafana/README.md) for detailed import and setup instructions.
+### Recipe 1 — Grafana Cloud (free tier)
+
+```bash
+pip install algony-mymcp[otlp]
+
+export OTEL_EXPORTER_OTLP_ENDPOINT="https://otlp-gateway-prod-us-central-0.grafana.net/otlp"
+export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic <base64(instanceId:token)>"
+export OTEL_SERVICE_NAME=mymcp
+
+mymcp serve
+```
+
+Import `deploy/observability/dashboard.json` into Grafana Cloud.
+
+### Recipe 2 — Self-hosted LGTM stack
+
+`docker-compose.yml`:
+
+```yaml
+services:
+  collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    ports: ["4318:4318"]
+    volumes: ["./otelcol-config.yaml:/etc/otelcol-contrib/config.yaml"]
+  mimir:
+    image: grafana/mimir:latest
+    command: -config.file=/etc/mimir.yaml
+  loki:
+    image: grafana/loki:latest
+  tempo:
+    image: grafana/tempo:latest
+  grafana:
+    image: grafana/grafana:latest
+    ports: ["3000:3000"]
+```
+
+Then run mymcp with:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 mymcp serve
+```
+
+Import the dashboard JSON; configure Mimir/Loki/Tempo as data sources.
+
+### Recipe 3 — Pull-only Prometheus
+
+No extra needed. Configure Prometheus:
+
+```yaml
+scrape_configs:
+  - job_name: mymcp
+    bearer_token: <your MYMCP_METRICS_TOKEN>
+    static_configs:
+      - targets: ['localhost:8000']
+```
+
+Import the dashboard JSON; the Traces and Logs panels remain empty (this is expected).
+
+### Configuration knobs
+
+All standard OTel env vars work. The most useful:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `OTEL_SERVICE_NAME` | `mymcp` | Service name |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | OTLP target |
+| `OTEL_EXPORTER_OTLP_HEADERS` | unset | OTLP auth headers |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` | http or grpc |
+| `OTEL_TRACES_SAMPLER` | `parentbased_traceidratio` | Sampler |
+| `OTEL_TRACES_SAMPLER_ARG` | `1.0` | Sampling ratio |
+| `OTEL_METRIC_EXPORT_INTERVAL` | `60000` (ms) | Push period |
+| `MYMCP_LOG_LEVEL` | `INFO` | Application log level |
 
 ## Testing
 
