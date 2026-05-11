@@ -54,5 +54,5 @@ class RequestIdMiddleware:
                         "was replaced with a generated UUID."
                     )
                     break
-                return decoded
+                return str(decoded)
         return str(uuid.uuid4())
