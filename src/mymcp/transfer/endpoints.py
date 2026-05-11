@@ -13,6 +13,7 @@ import os
 import tempfile
 
 from fastapi import FastAPI, Request
+from opentelemetry import trace as _otel_trace
 from starlette.responses import JSONResponse, StreamingResponse
 
 from mymcp import config
@@ -226,10 +227,20 @@ async def _do_upload(ticket, request: Request):
 
 
 async def _do_download(ticket, request: Request):
-    with _tracer.start_as_current_span(
+    span = _tracer.start_span(
         "mymcp.transfer.download",
         attributes={"transfer.path": ticket.path},
-    ) as span:
+    )
+    span_ctx = _otel_trace.use_span(span, end_on_exit=False)
+    span_ended = False
+
+    def _end_span():
+        nonlocal span_ended
+        if not span_ended:
+            span_ended = True
+            span.end()
+
+    with span_ctx:
         ip = _client_ip(request)
         err = check_protected_path(ticket.path)
         if err:
@@ -238,6 +249,7 @@ async def _do_download(ticket, request: Request):
             )
             span.set_attribute("transfer.bytes", 0)
             span.set_attribute("error.type", "path_protected")
+            _end_span()
             return _err(403, "path_protected", err)
         if not os.path.isfile(ticket.path):
             _audit_redeem(
@@ -245,6 +257,7 @@ async def _do_download(ticket, request: Request):
             )
             span.set_attribute("transfer.bytes", 0)
             span.set_attribute("error.type", "path_not_found")
+            _end_span()
             return _err(404, "path_not_found", "Server file no longer exists.")
 
         size = os.path.getsize(ticket.path)
@@ -258,23 +271,29 @@ async def _do_download(ticket, request: Request):
             success = False
             error_code: str | None = "stream_aborted"
             try:
-                with open(file_path, "rb") as fh:
-                    while True:
-                        chunk = fh.read(64 * 1024)
-                        if not chunk:
-                            break
-                        sent += len(chunk)
-                        yield chunk
-                success = True
-                error_code = None
+                with _otel_trace.use_span(span, end_on_exit=False):
+                    with open(file_path, "rb") as fh:
+                        while True:
+                            chunk = fh.read(64 * 1024)
+                            if not chunk:
+                                break
+                            sent += len(chunk)
+                            yield chunk
+                    success = True
+                    error_code = None
             finally:
-                _audit_redeem(
-                    captured_ticket,
-                    success=success,
-                    bytes_count=sent,
-                    error_code=error_code,
-                    client_ip=ip,
-                )
+                with _otel_trace.use_span(span, end_on_exit=False):
+                    _audit_redeem(
+                        captured_ticket,
+                        success=success,
+                        bytes_count=sent,
+                        error_code=error_code,
+                        client_ip=ip,
+                    )
+                span.set_attribute("transfer.bytes_sent", sent)
+                if error_code:
+                    span.set_attribute("error.type", error_code)
+                _end_span()
 
         headers = {
             "content-length": str(size),
