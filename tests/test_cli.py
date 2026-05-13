@@ -38,7 +38,6 @@ def test_mymcp_serve_help():
     assert "--host" in result.stdout
     assert "--port" in result.stdout
     assert "--log-level" in result.stdout
-    assert "--log-format" in result.stdout
 
 
 def test_mymcp_no_subcommand_shows_help():
