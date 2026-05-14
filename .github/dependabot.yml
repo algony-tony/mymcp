@@ -1,6 +1,8 @@
 version: 2
 updates:
-  # Python dependencies declared in pyproject.toml (incl. dev/otlp extras)
+  # Python dependencies. pyproject.toml keeps loose >= floors (library style),
+  # so routine bumps land in the requirements-dev.txt lockfile; pyproject.toml
+  # itself only changes on security advisories.
   - package-ecosystem: pip
     directory: "/"
     schedule:

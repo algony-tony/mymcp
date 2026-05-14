@@ -5,8 +5,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-# Install in editable mode for development (creates a venv first if needed)
-pip install -e ".[dev]"
+# Install in editable mode for development (creates a venv first if needed).
+# requirements-dev.txt is a pip-compile lockfile used as a constraints file so
+# local + CI installs match exactly; pyproject.toml stays the source of truth.
+pip install -e ".[dev]" -c requirements-dev.txt
+
+# Regenerate the lockfile after changing dependencies in pyproject.toml
+pip-compile --extra dev --strip-extras \
+  --unsafe-package algony-mymcp --unsafe-package pip --unsafe-package setuptools \
+  --output-file requirements-dev.txt pyproject.toml
 
 # Run all tests
 pytest tests/ -v --benchmark-disable
