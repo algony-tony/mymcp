@@ -124,6 +124,25 @@ def cmd_install_service(args: argparse.Namespace) -> int:
     exec_path = service.resolve_mymcp_executable()
     cfg_dir = os.path.abspath(args.config_dir)
     log_dir = os.path.abspath(args.log_dir)
+
+    if not args.yes:
+        summary = (
+            "About to install the mymcp systemd service:\n"
+            f"  config dir: {cfg_dir}\n"
+            f"  log dir:    {log_dir}\n"
+            f"  listening:  {args.bind}:{args.port} (user: {args.service_user})\n"
+            f"  metrics:    {'enabled' if args.enable_metrics else 'disabled'}"
+            f"  |  audit: {'enabled' if args.enable_audit else 'disabled'}"
+            f"  |  ripgrep: {'install' if args.install_ripgrep else 'skip'}"
+        )
+        print(summary)
+        if sys.stdin.isatty():
+            if input("Proceed? [y/N] ").strip().lower() not in ("y", "yes"):
+                print("Aborted.")
+                return 1
+        else:
+            print("Non-interactive shell; proceeding (pass --yes to silence this notice).")
+
     env_file = os.path.join(cfg_dir, ".env")
     token_file = os.path.join(cfg_dir, "tokens.json")
 
@@ -337,6 +356,28 @@ def cmd_migrate_from_legacy(args: argparse.Namespace) -> int:
     return 0
 
 
+def _otel_endpoint_from_env_file(env_path: str | None) -> str | None:
+    """Read OTEL_EXPORTER_OTLP_ENDPOINT from a .env file.
+
+    OTEL_* vars are not MYMCP_-prefixed, so the pydantic Settings model never
+    loads them; systemd's EnvironmentFile= does. Peeking the file directly lets
+    `doctor` reflect what the running service would actually see.
+    """
+    if not env_path:
+        return None
+    from pathlib import Path
+
+    try:
+        for raw in Path(env_path).read_text().splitlines():
+            line = raw.strip()
+            if line.startswith("OTEL_EXPORTER_OTLP_ENDPOINT"):
+                _, _, value = line.partition("=")
+                return value.strip().strip("'\"") or None
+    except OSError:
+        return None
+    return None
+
+
 def cmd_doctor(_args: argparse.Namespace) -> int:
     import platform
     import shutil as _sh
@@ -347,6 +388,47 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
     print(f"mymcp:     {__version__}")
     print(f"ripgrep:   {'ok' if _sh.which('rg') else 'missing'}")
     print(f"systemd:   {'ok' if service.systemd_available() else 'unavailable'}")
+
+    print("\nobservability:")
+    env_path: str | None = None
+    metrics_state = "unknown (could not load settings)"
+    try:
+        from mymcp.config import Settings, _discover_env_file
+
+        env_path = _discover_env_file()
+        # Build a throwaway Settings without touching os.environ or the
+        # get_settings() singleton — doctor is a read-only diagnostic.
+        s = Settings(_env_file=env_path) if env_path else Settings()  # type: ignore[call-arg]
+        metrics_state = "enabled" if s.metrics_token else "disabled (no metrics token)"
+    except Exception:  # noqa: BLE001 - doctor must never crash
+        pass
+
+    try:
+        import importlib.util
+
+        otlp_installed = (
+            importlib.util.find_spec("opentelemetry.exporter.otlp.proto.http") is not None
+        )
+    except Exception:  # noqa: BLE001
+        otlp_installed = False
+
+    # Check the live environment first, then fall back to the .env file the
+    # service would load via systemd's EnvironmentFile=.
+    otlp_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT") or _otel_endpoint_from_env_file(
+        env_path
+    )
+    print(f"  /metrics endpoint:  {metrics_state}")
+    print(f"  [otlp] extra:       {'installed' if otlp_installed else 'not installed'}")
+    if otlp_endpoint:
+        if otlp_installed:
+            # doctor cannot start the exporter (that happens in `serve`); it can
+            # only confirm the endpoint is configured.
+            push_state = f"{otlp_endpoint} (configured)"
+        else:
+            push_state = f"{otlp_endpoint} (INERT — install algony-mymcp[otlp])"
+    else:
+        push_state = "off (OTEL_EXPORTER_OTLP_ENDPOINT unset)"
+    print(f"  OTLP push:          {push_state}")
     return 0
 
 
@@ -380,11 +462,29 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="mymcp",
         description="MCP server for Linux system control",
+        epilog=(
+            "Observability: mymcp emits OpenTelemetry metrics, traces, and logs. "
+            "A Prometheus /metrics endpoint is exposed when a metrics token is set "
+            "(see 'token' subcommands). Set OTEL_EXPORTER_OTLP_ENDPOINT (and install "
+            "the [otlp] extra) to also push to an OTLP backend. Run 'mymcp doctor' "
+            "to check observability status."
+        ),
     )
     parser.add_argument("--version", action="version", version=f"mymcp {__version__}")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    p_serve = sub.add_parser("serve", help="Run the MCP server (foreground)")
+    p_serve = sub.add_parser(
+        "serve",
+        help="Run the MCP server (foreground)",
+        epilog=(
+            "Observability env vars (read at startup): OTEL_EXPORTER_OTLP_ENDPOINT "
+            "enables OTLP push of metrics/traces/logs; OTEL_SERVICE_NAME, "
+            "OTEL_EXPORTER_OTLP_HEADERS, OTEL_TRACES_SAMPLER_ARG tune it. The "
+            "Prometheus /metrics endpoint is exposed only when a metrics token is "
+            "configured. With no .env and no admin token, ephemeral tokens are "
+            "printed to stderr."
+        ),
+    )
     p_serve.add_argument("--env-file", help="Path to .env file")
     p_serve.add_argument("--host", help="Override bind host")
     p_serve.add_argument("--port", type=int, help="Override bind port")
@@ -392,6 +492,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--log-level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        help="Logging verbosity (default: INFO)",
     )
     p_serve.add_argument(
         "--with-metrics-token",
@@ -404,61 +505,113 @@ def build_parser() -> argparse.ArgumentParser:
     p_version.set_defaults(func=cmd_version)
 
     p_install = sub.add_parser("install-service", help="Install systemd service (requires sudo)")
-    p_install.add_argument("--port", type=int, default=8765)
-    p_install.add_argument("--bind", default="0.0.0.0")
-    p_install.add_argument("--config-dir", default="/etc/mymcp")
-    p_install.add_argument("--log-dir", default="/var/log/mymcp")
-    p_install.add_argument("--service-user", default="root", choices=["root", "mymcp"])
+    p_install.add_argument("--port", type=int, default=8765, help="Bind port (default: 8765)")
+    p_install.add_argument("--bind", default="0.0.0.0", help="Bind host (default: 0.0.0.0)")
+    p_install.add_argument(
+        "--config-dir", default="/etc/mymcp", help="Config dir for .env and tokens.json"
+    )
+    p_install.add_argument("--log-dir", default="/var/log/mymcp", help="Directory for audit logs")
+    p_install.add_argument(
+        "--service-user",
+        default="root",
+        choices=["root", "mymcp"],
+        help="User the service runs as (default: root)",
+    )
     grp_m = p_install.add_mutually_exclusive_group()
-    grp_m.add_argument("--enable-metrics", dest="enable_metrics", action="store_true", default=True)
-    grp_m.add_argument("--no-metrics", dest="enable_metrics", action="store_false")
+    grp_m.add_argument(
+        "--enable-metrics",
+        dest="enable_metrics",
+        action="store_true",
+        default=True,
+        help="Generate a metrics token and expose the Prometheus /metrics endpoint (default)",
+    )
+    grp_m.add_argument(
+        "--no-metrics",
+        dest="enable_metrics",
+        action="store_false",
+        help="Do not generate a metrics token; /metrics stays disabled",
+    )
     grp_a = p_install.add_mutually_exclusive_group()
-    grp_a.add_argument("--enable-audit", dest="enable_audit", action="store_true", default=True)
-    grp_a.add_argument("--no-audit", dest="enable_audit", action="store_false")
+    grp_a.add_argument(
+        "--enable-audit",
+        dest="enable_audit",
+        action="store_true",
+        default=True,
+        help="Enable the rotating audit log and install logrotate config (default)",
+    )
+    grp_a.add_argument(
+        "--no-audit", dest="enable_audit", action="store_false", help="Disable audit logging"
+    )
     grp_r = p_install.add_mutually_exclusive_group()
     grp_r.add_argument(
-        "--install-ripgrep", dest="install_ripgrep", action="store_true", default=True
+        "--install-ripgrep",
+        dest="install_ripgrep",
+        action="store_true",
+        default=True,
+        help="Install ripgrep if missing, used by grep_files (default)",
     )
-    grp_r.add_argument("--skip-ripgrep", dest="install_ripgrep", action="store_false")
-    p_install.add_argument("--yes", action="store_true")
+    grp_r.add_argument(
+        "--skip-ripgrep",
+        dest="install_ripgrep",
+        action="store_false",
+        help="Skip ripgrep installation",
+    )
+    p_install.add_argument(
+        "--yes", action="store_true", help="Skip the interactive confirmation prompt"
+    )
     p_install.set_defaults(func=cmd_install_service)
 
     p_uninst = sub.add_parser("uninstall-service", help="Remove systemd service (requires sudo)")
-    p_uninst.add_argument("--config-dir", default="/etc/mymcp")
-    p_uninst.add_argument("--log-dir", default="/var/log/mymcp")
+    p_uninst.add_argument("--config-dir", default="/etc/mymcp", help="Config dir to purge")
+    p_uninst.add_argument("--log-dir", default="/var/log/mymcp", help="Log dir to purge")
     p_uninst.add_argument("--purge", action="store_true", help="Also delete config-dir and log-dir")
     p_uninst.set_defaults(func=cmd_uninstall_service)
 
     p_token = sub.add_parser("token", help="Manage tokens")
     p_token_sub = p_token.add_subparsers(dest="token_cmd", required=True)
 
-    p_tok_list = p_token_sub.add_parser("list")
+    p_tok_list = p_token_sub.add_parser(
+        "list", help="Show admin/metrics state and all ro/rw tokens"
+    )
     p_tok_list.set_defaults(func=cmd_token_list)
 
-    p_tok_add = p_token_sub.add_parser("add")
-    p_tok_add.add_argument("--name", required=True)
-    p_tok_add.add_argument("--role", choices=["ro", "rw"], required=True)
+    p_tok_add = p_token_sub.add_parser("add", help="Create a new ro or rw token")
+    p_tok_add.add_argument("--name", required=True, help="Human-readable label for the token")
+    p_tok_add.add_argument(
+        "--role",
+        choices=["ro", "rw"],
+        required=True,
+        help="ro = read-only tools; rw = all tools",
+    )
     p_tok_add.set_defaults(func=cmd_token_add)
 
-    p_tok_rev = p_token_sub.add_parser("revoke")
-    p_tok_rev.add_argument("token")
+    p_tok_rev = p_token_sub.add_parser("revoke", help="Revoke a ro/rw token by value")
+    p_tok_rev.add_argument("token", help="The token string to revoke")
     p_tok_rev.set_defaults(func=cmd_token_revoke)
 
-    p_tok_ra = p_token_sub.add_parser("rotate-admin")
+    p_tok_ra = p_token_sub.add_parser("rotate-admin", help="Generate and persist a new admin token")
     p_tok_ra.set_defaults(func=cmd_token_rotate_admin)
 
-    p_tok_rm = p_token_sub.add_parser("rotate-metrics")
+    p_tok_rm = p_token_sub.add_parser(
+        "rotate-metrics", help="Generate and persist a new metrics token (enables /metrics)"
+    )
     p_tok_rm.set_defaults(func=cmd_token_rotate_metrics)
 
-    p_tok_dm = p_token_sub.add_parser("disable-metrics")
+    p_tok_dm = p_token_sub.add_parser(
+        "disable-metrics", help="Empty the metrics token, disabling the /metrics endpoint"
+    )
     p_tok_dm.set_defaults(func=cmd_token_disable_metrics)
 
     p_mig = sub.add_parser("migrate-from-legacy", help="Migrate a /opt/mymcp 1.x install to 2.0")
-    p_mig.add_argument("--legacy-dir", default="/opt/mymcp")
-    p_mig.add_argument("--dry-run", action="store_true")
+    p_mig.add_argument(
+        "--legacy-dir", default="/opt/mymcp", help="Path to the 1.x install (default: /opt/mymcp)"
+    )
+    p_mig.add_argument(
+        "--dry-run", action="store_true", help="Print the migration plan without changing anything"
+    )
     p_mig.set_defaults(func=cmd_migrate_from_legacy)
 
-    p_doc = sub.add_parser("doctor", help="System diagnostics")
+    p_doc = sub.add_parser("doctor", help="System diagnostics, including observability status")
     p_doc.set_defaults(func=cmd_doctor)
 
     return parser
