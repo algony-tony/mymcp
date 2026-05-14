@@ -7,7 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-05-15
+
+### Fixed
+- `mymcp --help`/subcommand help: every `install-service`, `token`, and
+  `migrate` flag now has help text (previously most showed blank).
+- `mymcp doctor` reports the OTLP endpoint as `configured` (not `active`) —
+  `doctor` never starts the exporter — and reads it without mutating
+  `os.environ` or the `get_settings()` singleton.
+- `serve` epilog: `/metrics` is described as exposed only when a metrics
+  token is set, matching `server.py`'s 503 behavior.
+
 ### Added
+- `install-service` `--yes` is now functional: confirms interactively, or
+  prints the install summary (including metrics/audit/ripgrep flags) plus an
+  explicit notice in non-interactive shells.
+- Dependabot config for pip (`pyproject.toml`, incl. dev/otlp extras) and
+  GitHub Actions; OpenTelemetry packages grouped to move in lockstep.
+- `requirements-dev.txt` pip-compile lockfile used as a constraints file so
+  local and CI installs match exactly.
+
+## [2.1.0] - 2026-05-13
+
+### Added
+- OpenTelemetry three-pillar observability (metrics + traces + logs) with
+  optional OTLP push via `OTEL_*` env vars and the `[otlp]` extra.
 - File transfer for binary and large files via two new MCP tools
   (`prepare_upload`, `prepare_download`) and bypass HTTP endpoints
   (`PUT /files/raw/{ticket}`, `GET /files/raw/{ticket}`). File bytes
