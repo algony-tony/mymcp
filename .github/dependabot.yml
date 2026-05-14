@@ -1,0 +1,48 @@
+version: 2
+updates:
+  # Python dependencies. pyproject.toml keeps loose >= floors (library style),
+  # so routine bumps land in the requirements-dev.txt lockfile; pyproject.toml
+  # itself only changes on security advisories.
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # OpenTelemetry packages move in lockstep; keep them in one PR.
+      # Declared first so otel bumps land here, not in python-minor-patch
+      # (Dependabot assigns each dep to the first matching group).
+      opentelemetry:
+        patterns:
+          - "opentelemetry-*"
+      # Bundle remaining non-major bumps into one PR to cut review noise.
+      # exclude-patterns guards the grouping even if order changes later.
+      python-minor-patch:
+        exclude-patterns:
+          - "opentelemetry-*"
+        update-types:
+          - minor
+          - patch
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "chore(deps)"
+
+  # GitHub Actions used by CI and release workflows
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        update-types:
+          - minor
+          - patch
+    labels:
+      - dependencies
+      - ci
+    commit-message:
+      prefix: "ci(deps)"

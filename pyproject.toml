@@ -45,6 +45,7 @@ dev = [
     "pre-commit>=3.7",
     "mutmut",
     "build",
+    "pip-tools>=7.4",
     "algony-mymcp[otlp]",
 ]
 otlp = [
