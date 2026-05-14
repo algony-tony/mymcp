@@ -125,16 +125,23 @@ def cmd_install_service(args: argparse.Namespace) -> int:
     cfg_dir = os.path.abspath(args.config_dir)
     log_dir = os.path.abspath(args.log_dir)
 
-    if not args.yes and sys.stdin.isatty():
-        print(
-            f"About to install the mymcp systemd service:\n"
+    if not args.yes:
+        summary = (
+            "About to install the mymcp systemd service:\n"
             f"  config dir: {cfg_dir}\n"
             f"  log dir:    {log_dir}\n"
-            f"  listening:  {args.bind}:{args.port} (user: {args.service_user})"
+            f"  listening:  {args.bind}:{args.port} (user: {args.service_user})\n"
+            f"  metrics:    {'enabled' if args.enable_metrics else 'disabled'}"
+            f"  |  audit: {'enabled' if args.enable_audit else 'disabled'}"
+            f"  |  ripgrep: {'install' if args.install_ripgrep else 'skip'}"
         )
-        if input("Proceed? [y/N] ").strip().lower() not in ("y", "yes"):
-            print("Aborted.")
-            return 1
+        print(summary)
+        if sys.stdin.isatty():
+            if input("Proceed? [y/N] ").strip().lower() not in ("y", "yes"):
+                print("Aborted.")
+                return 1
+        else:
+            print("Non-interactive shell; proceeding (pass --yes to silence this notice).")
 
     env_file = os.path.join(cfg_dir, ".env")
     token_file = os.path.join(cfg_dir, "tokens.json")
@@ -349,6 +356,28 @@ def cmd_migrate_from_legacy(args: argparse.Namespace) -> int:
     return 0
 
 
+def _otel_endpoint_from_env_file(env_path: str | None) -> str | None:
+    """Read OTEL_EXPORTER_OTLP_ENDPOINT from a .env file.
+
+    OTEL_* vars are not MYMCP_-prefixed, so the pydantic Settings model never
+    loads them; systemd's EnvironmentFile= does. Peeking the file directly lets
+    `doctor` reflect what the running service would actually see.
+    """
+    if not env_path:
+        return None
+    from pathlib import Path
+
+    try:
+        for raw in Path(env_path).read_text().splitlines():
+            line = raw.strip()
+            if line.startswith("OTEL_EXPORTER_OTLP_ENDPOINT"):
+                _, _, value = line.partition("=")
+                return value.strip().strip("'\"") or None
+    except OSError:
+        return None
+    return None
+
+
 def cmd_doctor(_args: argparse.Namespace) -> int:
     import platform
     import shutil as _sh
@@ -361,19 +390,18 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
     print(f"systemd:   {'ok' if service.systemd_available() else 'unavailable'}")
 
     print("\nobservability:")
+    env_path: str | None = None
+    metrics_state = "unknown (could not load settings)"
     try:
-        from mymcp.config import _discover_env_file
+        from mymcp.config import Settings, _discover_env_file
 
         env_path = _discover_env_file()
-        if env_path:
-            os.environ["MYMCP_ENV_FILE"] = env_path
-        from mymcp import config
-
-        config.reset_settings_cache()
-        s = config.get_settings()
+        # Build a throwaway Settings without touching os.environ or the
+        # get_settings() singleton — doctor is a read-only diagnostic.
+        s = Settings(_env_file=env_path) if env_path else Settings()  # type: ignore[call-arg]
         metrics_state = "enabled" if s.metrics_token else "disabled (no metrics token)"
     except Exception:  # noqa: BLE001 - doctor must never crash
-        metrics_state = "unknown (could not load settings)"
+        pass
 
     try:
         import importlib.util
@@ -384,12 +412,18 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
     except Exception:  # noqa: BLE001
         otlp_installed = False
 
-    otlp_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+    # Check the live environment first, then fall back to the .env file the
+    # service would load via systemd's EnvironmentFile=.
+    otlp_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT") or _otel_endpoint_from_env_file(
+        env_path
+    )
     print(f"  /metrics endpoint:  {metrics_state}")
     print(f"  [otlp] extra:       {'installed' if otlp_installed else 'not installed'}")
     if otlp_endpoint:
         if otlp_installed:
-            push_state = f"{otlp_endpoint} (active)"
+            # doctor cannot start the exporter (that happens in `serve`); it can
+            # only confirm the endpoint is configured.
+            push_state = f"{otlp_endpoint} (configured)"
         else:
             push_state = f"{otlp_endpoint} (INERT — install algony-mymcp[otlp])"
     else:
@@ -446,9 +480,9 @@ def build_parser() -> argparse.ArgumentParser:
             "Observability env vars (read at startup): OTEL_EXPORTER_OTLP_ENDPOINT "
             "enables OTLP push of metrics/traces/logs; OTEL_SERVICE_NAME, "
             "OTEL_EXPORTER_OTLP_HEADERS, OTEL_TRACES_SAMPLER_ARG tune it. The "
-            "Prometheus /metrics endpoint is always served (guarded by the metrics "
-            "token). With no .env and no admin token, ephemeral tokens are printed "
-            "to stderr."
+            "Prometheus /metrics endpoint is exposed only when a metrics token is "
+            "configured. With no .env and no admin token, ephemeral tokens are "
+            "printed to stderr."
         ),
     )
     p_serve.add_argument("--env-file", help="Path to .env file")
