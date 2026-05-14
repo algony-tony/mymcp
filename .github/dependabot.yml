@@ -1,0 +1,41 @@
+version: 2
+updates:
+  # Python dependencies declared in pyproject.toml (incl. dev/otlp extras)
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # Bundle non-major bumps into one PR to cut review noise
+      python-minor-patch:
+        update-types:
+          - minor
+          - patch
+      # OpenTelemetry packages move in lockstep; keep them together
+      opentelemetry:
+        patterns:
+          - "opentelemetry-*"
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "chore(deps)"
+
+  # GitHub Actions used by CI and release workflows
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        update-types:
+          - minor
+          - patch
+    labels:
+      - dependencies
+      - ci
+    commit-message:
+      prefix: "ci(deps)"
