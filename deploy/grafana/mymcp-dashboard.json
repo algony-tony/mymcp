@@ -49,7 +49,16 @@
   "annotations": {
     "list": []
   },
-  "links": [],
+  "links": [
+    {
+      "title": "Logs & Traces",
+      "type": "link",
+      "url": "/d/mymcp-logs?${instance:queryparam}&${__url_time_range}",
+      "icon": "doc",
+      "targetBlank": false,
+      "tooltip": "Open mymcp logs/traces dashboard with the same time range"
+    }
+  ],
   "editable": true,
   "graphTooltip": 1,
   "style": "dark",
@@ -336,6 +345,13 @@
             "fillOpacity": 10,
             "spanNulls": false
           },
+          "links": [
+            {
+              "title": "Drill into logs for ${__field.labels.tool}",
+              "url": "/d/mymcp-logs?var-tool=${__field.labels.tool}&${__url_time_range}",
+              "targetBlank": false
+            }
+          ],
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -432,6 +448,13 @@
             "fillOpacity": 5,
             "spanNulls": false
           },
+          "links": [
+            {
+              "title": "Drill into logs for ${__field.labels.tool}",
+              "url": "/d/mymcp-logs?var-tool=${__field.labels.tool}&${__url_time_range}",
+              "targetBlank": false
+            }
+          ],
           "thresholds": {
             "mode": "absolute",
             "steps": [

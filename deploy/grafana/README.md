@@ -1,8 +1,17 @@
-# Grafana dashboard
+# Grafana dashboards
 
-`mymcp-dashboard.json` is a portable Grafana dashboard for the metrics exposed at
-`/metrics`. It uses a `${datasource}` template variable so the same JSON works
-on any Grafana that has at least one Prometheus datasource.
+Two portable dashboards live here:
+
+- `mymcp-dashboard.json` — metrics from `/metrics` (Prometheus datasource).
+- `mymcp-logs-dashboard.json` — JSON logs (Loki) + slow traces (Tempo).
+
+Both use `${datasource}`-style template variables so the same JSON works on any
+Grafana that has the matching datasource type configured.
+
+A header link on the metrics dashboard jumps to the logs dashboard preserving
+the current time range; series in **Tool Call Rate** and **Tool Latency
+Percentiles** have a data link that opens the logs dashboard pre-filtered by
+the clicked `tool` label.
 
 ## What it shows
 
@@ -95,6 +104,57 @@ After importing:
    Each of `mymcp_tool_calls_total`, `mymcp_tool_duration_seconds_bucket`,
    `mymcp_http_requests_total`, plus the three `process_*` series should
    appear.
+
+## Logs & Traces dashboard
+
+`mymcp-logs-dashboard.json` needs:
+
+- A **Loki** datasource scraping mymcp's stderr (JSON log lines from
+  `configure_logging()` in `src/mymcp/observability/logs.py`). The dashboard
+  expects the `job` label to match the `$job` textbox variable (default
+  `mymcp`).
+- A **Tempo** datasource if you also push OTLP traces (install the `[otlp]`
+  extra and set `OTEL_EXPORTER_OTLP_ENDPOINT`). The Tempo panel uses TraceQL
+  with `resource.service.name="mymcp"` — adjust if you set
+  `OTEL_SERVICE_NAME` to something else.
+
+Each log line carries `request_id`, `trace_id`, and `span_id` fields (when
+present). Use the `Request ID` / `Tool` textbox variables at the top of the
+dashboard to drill in. To go from a slow span in Tempo → its logs in Loki,
+configure a **Derived field** on the Loki datasource: regex
+`"trace_id":\s*"(\w+)"` → name `trace_id` → linked Tempo datasource. That
+makes `trace_id` clickable directly in any log line.
+
+### Promtail / log shipping
+
+mymcp writes JSON logs to stderr — point Promtail (or whichever shipper you
+use) at the systemd unit and let it ship to Loki. A minimal Promtail scrape
+config:
+
+```yaml
+scrape_configs:
+  - job_name: mymcp
+    journal:
+      matches: _SYSTEMD_UNIT=mymcp.service
+      labels:
+        job: mymcp
+    relabel_configs:
+      - source_labels: ['__journal__hostname']
+        target_label: instance
+    pipeline_stages:
+      - json:
+          expressions:
+            levelname: levelname
+            request_id: request_id
+            trace_id: trace_id
+            tool: tool
+      - labels:
+          levelname:
+```
+
+Only promote `levelname` to a label — leave `request_id`/`trace_id`/`tool` as
+parsed JSON fields (the dashboard uses `| json` LogQL to extract them at
+query time), or you will explode Loki's index cardinality.
 
 ## Editing
 
