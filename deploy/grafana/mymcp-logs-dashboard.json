@@ -51,22 +51,24 @@
         "name": "request_id",
         "label": "Request ID",
         "type": "textbox",
+        "description": "Set to a specific request_id to drill in. Leave as .* to match all.",
         "current": {
-          "value": "",
-          "text": ""
+          "value": ".*",
+          "text": ".*"
         },
-        "query": "",
+        "query": ".*",
         "hide": 0
       },
       {
         "name": "tool",
         "label": "Tool",
         "type": "textbox",
+        "description": "Set to a specific tool name to drill in. Leave as .* to match all.",
         "current": {
-          "value": "",
-          "text": ""
+          "value": ".*",
+          "text": ".*"
         },
-        "query": "",
+        "query": ".*",
         "hide": 0
       }
     ]
@@ -293,7 +295,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (levelname) (rate({job=~\"$job\"} | json | levelname=~\"ERROR|CRITICAL|WARNING\" | (\"$tool\" = \"\" or tool=\"$tool\") | (\"$request_id\" = \"\" or request_id=\"$request_id\") [1m]))",
+          "expr": "sum by (levelname) (rate({job=~\"$job\"} | json | levelname=~\"ERROR|CRITICAL|WARNING\" | tool=~\"$tool\" | request_id=~\"$request_id\" [1m]))",
           "legendFormat": "{{levelname}}"
         }
       ]
@@ -338,7 +340,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "{job=~\"$job\"} | json | levelname=~\"ERROR|CRITICAL\" | (\"$tool\" = \"\" or tool=\"$tool\") | (\"$request_id\" = \"\" or request_id=\"$request_id\")",
+          "expr": "{job=~\"$job\"} | json | levelname=~\"ERROR|CRITICAL\" | tool=~\"$tool\" | request_id=~\"$request_id\"",
           "maxLines": 500
         }
       ]
@@ -347,7 +349,7 @@
       "id": 22,
       "type": "logs",
       "title": "All Logs for $request_id",
-      "description": "Full log stream for the request_id variable. Leave the variable blank to disable.",
+      "description": "Full log stream filtered by the Request ID variable. Set Request ID to a specific value to scope to one request.",
       "gridPos": {
         "x": 0,
         "y": 27,
@@ -371,7 +373,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "{job=~\"$job\"} | json | request_id=\"$request_id\" | $request_id != \"\"",
+          "expr": "{job=~\"$job\"} | json | request_id=~\"$request_id\" | request_id != \"\"",
           "maxLines": 1000
         }
       ]
@@ -407,7 +409,7 @@
         {
           "refId": "A",
           "queryType": "traceql",
-          "query": "{ resource.service.name=\"mymcp\" } | select(duration) | by(duration) > 100ms"
+          "query": "{ resource.service.name=\"mymcp\" && duration > 100ms }"
         }
       ]
     }
