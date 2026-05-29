@@ -28,9 +28,24 @@ _current_audit_info: contextvars.ContextVar[dict] = contextvars.ContextVar(
 )
 
 # ---------------------------------------------------------------------------
+# Recorder supervisor (optional; None when recorder is disabled)
+# ---------------------------------------------------------------------------
+_recorder_supervisor: object | None = None
+
+
+def set_recorder_supervisor(sup: object | None) -> None:
+    global _recorder_supervisor
+    _recorder_supervisor = sup
+
+
+def get_recorder_supervisor() -> object | None:
+    return _recorder_supervisor
+
+
+# ---------------------------------------------------------------------------
 # Tool role sets
 # ---------------------------------------------------------------------------
-READ_TOOLS: set[str] = {"read_file", "glob", "grep", "prepare_download"}
+READ_TOOLS: set[str] = {"read_file", "glob", "grep", "prepare_download", "server_overview"}
 WRITE_TOOLS: set[str] = {"bash_execute", "write_file", "edit_file", "prepare_upload"}
 ALL_TOOLS: set[str] = READ_TOOLS | WRITE_TOOLS
 
@@ -201,6 +216,11 @@ def _build_tool_definitions() -> dict[str, types.Tool]:
                 },
                 "required": ["pattern"],
             },
+        ),
+        "server_overview": types.Tool(
+            name="server_overview",
+            description="Return a maintained map of this server's services, apps, data, and recent changes.",  # noqa: E501
+            inputSchema={"type": "object", "properties": {}, "additionalProperties": False},
         ),
     }
 
@@ -477,6 +497,34 @@ async def dispatch_tool(name: str, args: dict) -> str:
             ),
             case_insensitive=args.get("case_insensitive", False),
         )
+    elif name == "server_overview":
+        sup = _recorder_supervisor
+        if sup is None:
+            result = {
+                "success": False,
+                "error": "RecorderDisabled",
+                "message": "server_overview requires MYMCP_RECORDER_ENABLED=true",
+            }
+        else:
+            from mymcp.recorder.task import RecorderSupervisor
+            from mymcp.recorder.tool import server_overview_handler
+
+            # cast for type checker
+            sup_typed: RecorderSupervisor = sup  # type: ignore[assignment]
+            status = sup_typed.status()
+            stale: float | None = None
+            if (
+                status.last_merge_age_seconds is not None
+                and status.last_merge_age_seconds > 2 * sup_typed.merge_interval
+            ):
+                stale = status.last_merge_age_seconds
+            overview_text = server_overview_handler(
+                store=sup_typed.store,
+                schedule_bootstrap=lambda: sup_typed.request_bootstrap(),
+                stale_seconds=stale,
+                last_error=status.last_error,
+            )
+            result = {"success": True, "overview": overview_text}
     else:
         result = {
             "success": False,
