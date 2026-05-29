@@ -2,23 +2,54 @@ import asyncio
 import glob as _glob_module
 import os
 import shutil
+from typing import Literal
 
 from mymcp import config
 
+# Runtime registry for additional protected paths with per-mode blocking.
+# Each entry is (pattern, frozenset({"read","write",...}))
+_runtime_protected: list[tuple[str, frozenset[str]]] = []
 
-def check_protected_path(file_path: str) -> str | None:
-    """Returns error message if path is protected, None if allowed."""
+
+def register_protected_path(pattern: str, *, modes: set[str]) -> None:
+    """Register a path (file or directory) as protected against the given modes.
+
+    modes is a subset of {"read", "write"}. Use {"write"} to make a path
+    read-only (e.g. recorder's overview directory), {"read", "write"} to fully
+    block, etc. Idempotent on duplicate (pattern, modes).
+    """
+    entry = (pattern, frozenset(modes))
+    if entry not in _runtime_protected:
+        _runtime_protected.append(entry)
+
+
+def _legacy_protected() -> list[tuple[str, frozenset[str]]]:
+    """Paths from config: audit dir + MYMCP_PROTECTED_PATHS. Always block both modes."""
+    return [(p, frozenset({"read", "write"})) for p in config.PROTECTED_PATHS]
+
+
+def check_protected_path(
+    file_path: str,
+    mode: Literal["read", "write"] = "write",
+) -> str | None:
+    """Returns error message if path is protected against ``mode``, None otherwise.
+
+    Default mode is "write" for backwards compatibility — existing callers
+    that pass no mode get the same legacy behavior.
+    """
     real = os.path.realpath(file_path)
-    for protected in config.PROTECTED_PATHS:
-        protected_real = os.path.realpath(protected)
+    for pattern, blocked_modes in _legacy_protected() + _runtime_protected:
+        if mode not in blocked_modes:
+            continue
+        protected_real = os.path.realpath(pattern)
         if real == protected_real or real.startswith(protected_real + os.sep):
-            return f"Access denied: path is within protected directory {protected}"
+            return f"Access denied: path is within protected directory {pattern}"
     return None
 
 
 def _filter_protected(paths: list[str]) -> list[str]:
-    """Filter out paths that fall within protected directories."""
-    return [p for p in paths if check_protected_path(p) is None]
+    """Filter out paths that fall within protected directories (read mode)."""
+    return [p for p in paths if check_protected_path(p, mode="read") is None]
 
 
 # ---------------------------------------------------------------------------
@@ -34,7 +65,7 @@ async def read_file(
     limit = min(max(1, limit), config.READ_FILE_MAX_LIMIT)
     offset = max(1, offset)
 
-    err = check_protected_path(file_path)
+    err = check_protected_path(file_path, mode="read")
     if err:
         return {"success": False, "error": "ProtectedPath", "message": err}
 
@@ -270,7 +301,7 @@ async def _grep_rg(
     filtered = []
     for line in lines:
         parts = line.split(":", 1)
-        if parts and check_protected_path(parts[0]) is None:
+        if parts and check_protected_path(parts[0], mode="read") is None:
             filtered.append(line)
     lines = filtered
 
@@ -306,7 +337,7 @@ async def _grep_python(
 
     matches: list[str] = []
     for fpath in files_to_search:
-        if check_protected_path(fpath) is not None:
+        if check_protected_path(fpath, mode="read") is not None:
             continue
         if len(matches) >= max_results and output_mode == "content":
             break

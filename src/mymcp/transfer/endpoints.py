@@ -130,7 +130,7 @@ async def _do_upload(ticket, request: Request):
         attributes={"transfer.path": ticket.path},
     ) as span:
         ip = _client_ip(request)
-        err = check_protected_path(ticket.path)
+        err = check_protected_path(ticket.path, mode="write")
         if err:
             _audit_redeem(
                 ticket, success=False, bytes_count=0, error_code="path_protected", client_ip=ip
@@ -242,7 +242,7 @@ async def _do_download(ticket, request: Request):
 
     with span_ctx:
         ip = _client_ip(request)
-        err = check_protected_path(ticket.path)
+        err = check_protected_path(ticket.path, mode="read")
         if err:
             _audit_redeem(
                 ticket, success=False, bytes_count=0, error_code="path_protected", client_ip=ip
