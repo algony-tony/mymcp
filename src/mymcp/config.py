@@ -8,6 +8,7 @@ All settings come from MYMCP_-prefixed environment variables. An optional
 import os
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -77,6 +78,24 @@ class Settings(BaseSettings):
     transfer_max_ttl_sec: int = Field(default=900)
     public_base_url: str = Field(default="")
 
+    # Recorder (optional llm-recorder module)
+    recorder_enabled: bool = Field(default=False)
+    recorder_data_dir: str = Field(default="/var/lib/mymcp/recorder")
+    recorder_merge_interval_sec: int = Field(default=300)
+    recorder_max_events_per_cycle: int = Field(default=50)
+    recorder_bootstrap_max_iterations: int = Field(default=200)
+    recorder_bootstrap_token_budget: int = Field(default=10_000_000)
+    recorder_bootstrap_probe_timeout_sec: int = Field(default=30)
+    recorder_bootstrap_retry_interval_sec: int = Field(default=3600)
+    recorder_llm_provider: Literal["anthropic", "openai"] = Field(default="anthropic")
+    recorder_llm_model: str | None = Field(default=None)
+    recorder_llm_api_key: str | None = Field(default=None)
+    recorder_llm_base_url: str | None = Field(default=None)
+
+    # T1 truncation knobs
+    audit_output_bash_head_bytes: int = Field(default=4096)
+    audit_output_bash_tail_bytes: int = Field(default=4096)
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
@@ -130,6 +149,20 @@ _LEGACY_ATTRS = {
     "TRANSFER_DEFAULT_TTL_SEC": "transfer_default_ttl_sec",
     "TRANSFER_MAX_TTL_SEC": "transfer_max_ttl_sec",
     "PUBLIC_BASE_URL": "public_base_url",
+    "RECORDER_ENABLED": "recorder_enabled",
+    "RECORDER_DATA_DIR": "recorder_data_dir",
+    "RECORDER_MERGE_INTERVAL_SEC": "recorder_merge_interval_sec",
+    "RECORDER_MAX_EVENTS_PER_CYCLE": "recorder_max_events_per_cycle",
+    "RECORDER_BOOTSTRAP_MAX_ITERATIONS": "recorder_bootstrap_max_iterations",
+    "RECORDER_BOOTSTRAP_TOKEN_BUDGET": "recorder_bootstrap_token_budget",
+    "RECORDER_BOOTSTRAP_PROBE_TIMEOUT_SEC": "recorder_bootstrap_probe_timeout_sec",
+    "RECORDER_BOOTSTRAP_RETRY_INTERVAL_SEC": "recorder_bootstrap_retry_interval_sec",
+    "RECORDER_LLM_PROVIDER": "recorder_llm_provider",
+    "RECORDER_LLM_MODEL": "recorder_llm_model",
+    "RECORDER_LLM_API_KEY": "recorder_llm_api_key",
+    "RECORDER_LLM_BASE_URL": "recorder_llm_base_url",
+    "AUDIT_OUTPUT_BASH_HEAD_BYTES": "audit_output_bash_head_bytes",
+    "AUDIT_OUTPUT_BASH_TAIL_BYTES": "audit_output_bash_tail_bytes",
 }
 
 
