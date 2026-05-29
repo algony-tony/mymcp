@@ -167,11 +167,11 @@ Agent loop:
 messages = [{"role": "user", "content": INITIAL_PROBE_PROMPT}]
 tools = [bash_probe_tool, read_file_probe_tool]
 tokens_spent = 0
-for i in range(MAX_ITERATIONS):  # default 60
+for i in range(MAX_ITERATIONS):  # default 200
     resp = await client.call(system=BOOTSTRAP_SYSTEM_PROMPT, messages=messages,
                               tools=tools, max_tokens=4096)
     tokens_spent += resp.usage_total
-    if tokens_spent > TOKEN_BUDGET:  # default 1_000_000
+    if tokens_spent > TOKEN_BUDGET:  # default 10_000_000
         raise BootstrapBudgetExceeded
     if resp.stop_reason == "end_turn":
         return parse_final_overview(resp)
@@ -321,8 +321,8 @@ All under `MYMCP_RECORDER_*`, all optional, all read by `pydantic-settings`:
 | `MYMCP_RECORDER_DATA_DIR` | `/var/lib/mymcp/recorder` | Holds `overview/`, `cursor.json`, `bootstrap-trace.log`. |
 | `MYMCP_RECORDER_MERGE_INTERVAL_SEC` | `300` | |
 | `MYMCP_RECORDER_MAX_EVENTS_PER_CYCLE` | `50` | |
-| `MYMCP_RECORDER_BOOTSTRAP_MAX_ITERATIONS` | `60` | Generous default — bootstrap rarely runs and must be allowed to finish. |
-| `MYMCP_RECORDER_BOOTSTRAP_TOKEN_BUDGET` | `1000000` | Generous default — guards against runaway loops, not against normal use. |
+| `MYMCP_RECORDER_BOOTSTRAP_MAX_ITERATIONS` | `200` | Generous default — bootstrap rarely runs and must be allowed to finish. |
+| `MYMCP_RECORDER_BOOTSTRAP_TOKEN_BUDGET` | `10000000` | Generous default — guards against runaway loops, not against normal use. |
 | `MYMCP_RECORDER_BOOTSTRAP_PROBE_TIMEOUT_SEC` | `30` | Per bash_probe call. |
 | `MYMCP_RECORDER_BOOTSTRAP_RETRY_INTERVAL_SEC` | `3600` | After failed bootstrap. |
 | `MYMCP_RECORDER_LLM_PROVIDER` | `anthropic` | `anthropic` or `openai`. |
@@ -407,21 +407,24 @@ End-to-end through `create_app()` lifespan with `MYMCP_RECORDER_ENABLED=true` an
 - Failure surfacing: inject LLM exception → `last_error` populated on status endpoint, overview gains stale banner.
 - Lifespan: shutdown mid-cycle, restart, verify no event lost and no duplicate changelog entry.
 
-### Live LLM tests (opt-in)
+### Live LLM tests (opt-in, local only)
 
-A `tests/live/` directory holds tests marked `@pytest.mark.live`. They are skipped unless `MYMCP_RECORDER_LIVE_TEST_API_KEY` is set in env. Run locally with DeepSeek (per <https://api-docs.deepseek.com/zh-cn/>):
+A `tests/live/` directory holds tests marked `@pytest.mark.live`. They are skipped by default. Configuration comes from a **gitignored env file** so the developer sets credentials once and never exports manually:
+
+- `tests/live/.env.live.example` — committed template, no real secrets.
+- `tests/live/.env.live` — gitignored, user copies the example and fills in keys.
+- `tests/live/conftest.py` — auto-loads `tests/live/.env.live` (via `python-dotenv` if present; pure-stdlib `key=value` parser fallback) before tests run. If `.env.live` is missing or has no `MYMCP_RECORDER_LIVE_TEST_API_KEY`, all live tests are skipped with a clear message.
+
+The template covers both DeepSeek modes (per <https://api-docs.deepseek.com/zh-cn/>): OpenAI-compatible endpoint to exercise the openai adapter, Anthropic-compatible endpoint to exercise the anthropic adapter. The developer picks which adapter(s) to exercise by uncommenting blocks.
+
+Run locally:
 
 ```bash
-# OpenAI-style endpoint (works for the openai adapter)
-export MYMCP_RECORDER_LIVE_TEST_API_KEY="$DEEPSEEK_API_KEY"
-export MYMCP_RECORDER_LIVE_TEST_PROVIDER=openai
-export MYMCP_RECORDER_LIVE_TEST_BASE_URL=https://api.deepseek.com
-export MYMCP_RECORDER_LIVE_TEST_MODEL=deepseek-chat
-pytest tests/live/ -m live -v
+# one-time setup
+cp tests/live/.env.live.example tests/live/.env.live
+# edit tests/live/.env.live, paste DeepSeek key
 
-# Anthropic-style endpoint (works for the anthropic adapter)
-export MYMCP_RECORDER_LIVE_TEST_PROVIDER=anthropic
-export MYMCP_RECORDER_LIVE_TEST_BASE_URL=https://api.deepseek.com/anthropic
+# then any time
 pytest tests/live/ -m live -v
 ```
 
@@ -429,9 +432,7 @@ Live tests cover at minimum: one full merge cycle, one tiny bootstrap (probe bud
 
 ### CI
 
-Default `pytest tests/ -v --benchmark-disable` does **not** invoke live tests (the `live` marker is excluded). Mock-based unit + integration tests run on every PR as today.
-
-For optional live coverage in CI, add `DEEPSEEK_API_KEY` as a GitHub Actions repo secret and add a separate manual workflow (`workflow_dispatch`) that runs `pytest tests/live/ -m live`. Do **not** run live tests on every PR — they cost money, can flake on third-party availability, and a leaked PR could exfiltrate the key. The recommendation is: keep live tests as a local + manual-CI safety net, not a per-PR gate.
+Default `pytest tests/ -v --benchmark-disable` does **not** invoke live tests (the `live` marker is excluded). Mock-based unit + integration tests run on every PR as today. **No LLM API key is configured in GitHub Actions** — live tests are local only.
 
 ## Open questions
 

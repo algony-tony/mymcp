@@ -1,5 +1,6 @@
 tokens.json
 .env
+tests/live/.env.live
 __pycache__/
 *.pyc
 *.pyo
