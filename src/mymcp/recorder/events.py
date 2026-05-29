@@ -127,6 +127,18 @@ class EventTailer:
             offset=self._pending.offset,
         )
 
+    def rollback(self) -> None:
+        """Reset the pending cursor back to the last committed position.
+
+        Call this when a processing error occurs after read_new() but before
+        commit() so the next read_new() will re-yield the same events.
+        """
+        self._pending = Cursor(
+            file=self._committed.file,
+            inode=self._committed.inode,
+            offset=self._committed.offset,
+        )
+
     def pending_offset(self) -> int:
         return self._pending.offset
 
