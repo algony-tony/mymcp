@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from mymcp.observability import instruments
 from mymcp.recorder.cursor import Cursor
 
 log = logging.getLogger("mymcp.recorder")
@@ -108,6 +109,7 @@ class EventTailer:
                     tool = entry.get("tool")
                     if tool not in MUTATING_TOOLS:
                         continue
+                    instruments.recorder_events_consumed.add(1, {"tool": str(tool)})
                     yield AuditEvent(
                         ts=str(entry.get("ts", "")),
                         tool=str(tool),

@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 
+from mymcp.observability import instruments
 from mymcp.recorder.llm.base import (
     LLMClient,
     Message,
@@ -160,6 +161,13 @@ class Bootstrapper:
                     tools=tools,
                     max_tokens=4096,
                 )
+                instruments.recorder_llm_calls.add(1, {"phase": "bootstrap", "result": "success"})
+                instruments.recorder_llm_tokens.add(
+                    resp.usage.input_tokens, {"phase": "bootstrap", "direction": "input"}
+                )
+                instruments.recorder_llm_tokens.add(
+                    resp.usage.output_tokens, {"phase": "bootstrap", "direction": "output"}
+                )
                 tokens += resp.usage_total
                 if tokens > self._token_budget:
                     raise RuntimeError(
@@ -175,6 +183,7 @@ class Bootstrapper:
                         [f"{ts} | bootstrap | initial overview generated (run {run_id})"]
                     )
                     self._state = BootstrapState.SUCCEEDED
+                    instruments.recorder_bootstrap_runs.add(1, {"result": "success"})
                     result = BootstrapResult(
                         state=BootstrapState.SUCCEEDED,
                         run_id=run_id,
@@ -224,6 +233,7 @@ class Bootstrapper:
             raise RuntimeError(f"bootstrap exceeded max iterations ({self._max_iterations})")
         except Exception as e:  # noqa: BLE001
             self._state = BootstrapState.FAILED
+            instruments.recorder_bootstrap_runs.add(1, {"result": "failure"})
             result = BootstrapResult(
                 state=BootstrapState.FAILED,
                 run_id=run_id,

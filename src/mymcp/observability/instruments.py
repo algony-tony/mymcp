@@ -40,6 +40,46 @@ audit_write_failures = _meter.create_counter(
 # --- Saturation gauges (callbacks registered by other modules) ---
 
 
+recorder_events_consumed = _meter.create_counter(
+    "mymcp.recorder.events.consumed",
+    description="Audit events consumed by recorder",
+    unit="1",
+)
+recorder_merge_cycles = _meter.create_counter(
+    "mymcp.recorder.merge.cycles",
+    description="Merge cycles run",
+    unit="1",
+)
+recorder_bootstrap_runs = _meter.create_counter(
+    "mymcp.recorder.bootstrap.runs",
+    description="Bootstrap runs",
+    unit="1",
+)
+recorder_llm_calls = _meter.create_counter(
+    "mymcp.recorder.llm.calls",
+    description="LLM API calls",
+    unit="1",
+)
+recorder_llm_tokens = _meter.create_counter(
+    "mymcp.recorder.llm.tokens",
+    description="LLM tokens (input/output)",
+    unit="1",
+)
+recorder_bash_probe_runs = _meter.create_counter(
+    "mymcp.recorder.bash_probe.runs",
+    description="Internal bash probe invocations",
+    unit="1",
+)
+recorder_event_loss = _meter.create_counter(
+    "mymcp.recorder.event.loss",
+    description="Events lost due to rotation past cursor",
+    unit="1",
+)
+
+
+# --- Saturation gauges (callbacks registered by other modules) ---
+
+
 def register_callback_gauge(name: str, description: str, callback) -> None:
     """Create an observable gauge backed by ``callback`` (called on each export).
 

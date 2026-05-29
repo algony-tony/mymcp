@@ -7,6 +7,7 @@ import socket
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from mymcp.observability import instruments
 from mymcp.recorder.events import AuditEvent, EventTailer
 from mymcp.recorder.llm.base import LLMClient, Message
 from mymcp.recorder.overview import OverviewStore
@@ -75,14 +76,23 @@ class MergeCycle:
                 messages=[Message(role="user", content=prompt)],
                 max_tokens=4096,
             )
+            instruments.recorder_llm_calls.add(1, {"phase": "merge", "result": "success"})
+            instruments.recorder_llm_tokens.add(
+                resp.usage.input_tokens, {"phase": "merge", "direction": "input"}
+            )
+            instruments.recorder_llm_tokens.add(
+                resp.usage.output_tokens, {"phase": "merge", "direction": "output"}
+            )
             parsed = self._parse_response(resp.text)
             # Overview write first (atomic), then changelog, then cursor.
             self._store.write_overview(parsed["updated_overview_md"])
             self._store.append_changelog(parsed.get("new_changelog_lines", []))
         except Exception:
+            instruments.recorder_merge_cycles.add(1, {"result": "failure"})
             self._tailer.rollback()
             raise
         self._tailer.commit()
+        instruments.recorder_merge_cycles.add(1, {"result": "success"})
         log.info(
             "recorder.merge_cycle.done",
             extra={

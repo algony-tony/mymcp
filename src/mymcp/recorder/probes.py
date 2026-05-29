@@ -10,6 +10,7 @@ import contextlib
 from typing import Any
 
 from mymcp.audit_output import truncate_bash_output
+from mymcp.observability import instruments
 from mymcp.recorder.llm.base import ToolSchema
 
 BASH_PROBE_TOOL = ToolSchema(
@@ -76,6 +77,12 @@ async def run_bash_probe(
             "stderr_tail": stderr_summary["stdout_tail"],
         }
     )
+    if timed_out:
+        instruments.recorder_bash_probe_runs.add(1, {"result": "timeout"})
+    elif summary.get("exit_code") == 0:
+        instruments.recorder_bash_probe_runs.add(1, {"result": "success"})
+    else:
+        instruments.recorder_bash_probe_runs.add(1, {"result": "error"})
     return summary
 
 
