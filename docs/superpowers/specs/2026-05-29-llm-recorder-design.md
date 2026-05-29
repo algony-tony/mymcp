@@ -167,11 +167,11 @@ Agent loop:
 messages = [{"role": "user", "content": INITIAL_PROBE_PROMPT}]
 tools = [bash_probe_tool, read_file_probe_tool]
 tokens_spent = 0
-for i in range(MAX_ITERATIONS):  # default 20
+for i in range(MAX_ITERATIONS):  # default 60
     resp = await client.call(system=BOOTSTRAP_SYSTEM_PROMPT, messages=messages,
                               tools=tools, max_tokens=4096)
     tokens_spent += resp.usage_total
-    if tokens_spent > TOKEN_BUDGET:  # default 200_000
+    if tokens_spent > TOKEN_BUDGET:  # default 1_000_000
         raise BootstrapBudgetExceeded
     if resp.stop_reason == "end_turn":
         return parse_final_overview(resp)
@@ -205,7 +205,7 @@ Schema:
 ```python
 {
   "name": "server_overview",
-  "description": "Return the maintained server overview (a progressive-disclosure map of this host's services, apps, data, and recent changes). For full change history, use read_file on the changelog path mentioned in the returned overview.",
+  "description": "Return a maintained map of this server's services, apps, data, and recent changes.",
   "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false }
 }
 ```
@@ -321,8 +321,8 @@ All under `MYMCP_RECORDER_*`, all optional, all read by `pydantic-settings`:
 | `MYMCP_RECORDER_DATA_DIR` | `/var/lib/mymcp/recorder` | Holds `overview/`, `cursor.json`, `bootstrap-trace.log`. |
 | `MYMCP_RECORDER_MERGE_INTERVAL_SEC` | `300` | |
 | `MYMCP_RECORDER_MAX_EVENTS_PER_CYCLE` | `50` | |
-| `MYMCP_RECORDER_BOOTSTRAP_MAX_ITERATIONS` | `20` | |
-| `MYMCP_RECORDER_BOOTSTRAP_TOKEN_BUDGET` | `200000` | |
+| `MYMCP_RECORDER_BOOTSTRAP_MAX_ITERATIONS` | `60` | Generous default — bootstrap rarely runs and must be allowed to finish. |
+| `MYMCP_RECORDER_BOOTSTRAP_TOKEN_BUDGET` | `1000000` | Generous default — guards against runaway loops, not against normal use. |
 | `MYMCP_RECORDER_BOOTSTRAP_PROBE_TIMEOUT_SEC` | `30` | Per bash_probe call. |
 | `MYMCP_RECORDER_BOOTSTRAP_RETRY_INTERVAL_SEC` | `3600` | After failed bootstrap. |
 | `MYMCP_RECORDER_LLM_PROVIDER` | `anthropic` | `anthropic` or `openai`. |
@@ -382,18 +382,56 @@ Touched (not new):
 
 ## Testing
 
-- **Unit**:
-  - cursor: rotation recovery, inode change, missing file
-  - T1 truncation per tool
-  - protected-path read/write mode matrix
-  - LLM client adapters with recorded fixtures (no real API calls)
-- **Integration** (pytest + anyio):
-  - merge cycle with fake LLM client returning canned JSON: audit → events → overview.md/changelog.md updated, cursor advanced
-  - bootstrap with fake LLM that emits N tool_use blocks then end_turn: probes dispatched, final overview written
-  - failure paths: LLM exception → backoff, cursor unchanged; unparseable output → backoff; budget exceeded → bootstrap_state failed
-  - server_overview tool: missing overview returns stub + schedules bootstrap; stale overview prepends banner
-  - protected paths: write_file to overview/ rejected; read_file allowed
-- **No real LLM calls in CI.** Both provider adapters tested via SDK mocking; an opt-in `tests/manual/` script exists for live smoke tests.
+Coverage parity with the existing test suite (pytest + anyio, fixtures via `unittest.mock.patch.multiple("mymcp.config", ...)` and `monkeypatch.setenv` + `reset_settings_cache()`). All new public functions and branches in `mymcp.recorder.*` must be exercised. The CI gate (`pytest tests/ -v --benchmark-disable && ruff check . && ruff format --check . && mypy src/mymcp`) must pass.
+
+### Unit tests
+
+- **events.py**: cursor read/write round-trip; rotation recovery (inode change); rotated-past-cursor recovery + `event_loss_total` increment; corrupted cursor file recovery; filtering of read-only tools and failed events.
+- **audit.py T1 truncation**: each tool's `output` shape; head/tail boundary at exactly N bytes; multibyte UTF-8 safety (no split mid-codepoint); sha256 stability; truncation knobs from env.
+- **protected_paths.py**: legacy single-mode protected paths block both read and write (backwards compat); recorder dir blocks write, allows read; pattern matching corner cases; `MYMCP_PROTECTED_PATHS` env continues to work.
+- **overview.py**: atomic write (interrupted tmp left no half-overview); changelog append concurrency-safe; reading missing files returns documented sentinels.
+- **llm/base.py types**: Message/ToolUse/ToolResult round-trip, validation.
+- **llm/anthropic_client.py & openai_client.py**: SDK-level mocking (no network). Tool-use serialization in both directions. Token-usage extraction. Error propagation for transient vs permanent failures. Lazy import: importing `mymcp.recorder` without the extras installed must not fail; instantiating the client raises a clear error mentioning the install command.
+- **merge_cycle.py**: with a fake LLM returning canned JSON — audit log written → events drained → overview.md & changelog.md updated → cursor advanced. Unparseable JSON → backoff, cursor unchanged. No events → no LLM call, no write.
+- **bootstrap.py**: fake LLM emitting N `tool_use` blocks then `end_turn` — every probe dispatched, results threaded back, final overview written, changelog seeded. Iteration cap hit → `bootstrap_state=failed`. Token budget exceeded → `bootstrap_state=failed`. Concurrent bootstrap requests coalesced (only one runs).
+- **task.py supervisor**: graceful cancellation mid-cycle; cursor persisted on shutdown; restart from cursor without dup or loss.
+- **admin.py**: status endpoint shape stable; bootstrap endpoint idempotent under concurrent calls; both require admin token (rw/ro tokens rejected).
+- **server_overview tool**: missing overview returns stub + schedules bootstrap (exactly once across concurrent calls); stale overview prepends banner; tool is in `READ_TOOLS` (ro token can call it).
+
+### Integration tests
+
+End-to-end through `create_app()` lifespan with `MYMCP_RECORDER_ENABLED=true` and a fake LLM client injected via dependency override:
+
+- Call mutating tools via HTTP → assert audit entries created → wait for one merge cycle (interval shortened to 1s in test config) → assert overview.md/changelog.md content matches expected snapshot.
+- Bootstrap-from-zero: start with no overview → first merge cycle observes missing file → bootstrap task spawned → completes → next merge cycle folds in buffered events.
+- Failure surfacing: inject LLM exception → `last_error` populated on status endpoint, overview gains stale banner.
+- Lifespan: shutdown mid-cycle, restart, verify no event lost and no duplicate changelog entry.
+
+### Live LLM tests (opt-in)
+
+A `tests/live/` directory holds tests marked `@pytest.mark.live`. They are skipped unless `MYMCP_RECORDER_LIVE_TEST_API_KEY` is set in env. Run locally with DeepSeek (per <https://api-docs.deepseek.com/zh-cn/>):
+
+```bash
+# OpenAI-style endpoint (works for the openai adapter)
+export MYMCP_RECORDER_LIVE_TEST_API_KEY="$DEEPSEEK_API_KEY"
+export MYMCP_RECORDER_LIVE_TEST_PROVIDER=openai
+export MYMCP_RECORDER_LIVE_TEST_BASE_URL=https://api.deepseek.com
+export MYMCP_RECORDER_LIVE_TEST_MODEL=deepseek-chat
+pytest tests/live/ -m live -v
+
+# Anthropic-style endpoint (works for the anthropic adapter)
+export MYMCP_RECORDER_LIVE_TEST_PROVIDER=anthropic
+export MYMCP_RECORDER_LIVE_TEST_BASE_URL=https://api.deepseek.com/anthropic
+pytest tests/live/ -m live -v
+```
+
+Live tests cover at minimum: one full merge cycle, one tiny bootstrap (probe budget capped low), JSON-output parseability, token accounting accuracy.
+
+### CI
+
+Default `pytest tests/ -v --benchmark-disable` does **not** invoke live tests (the `live` marker is excluded). Mock-based unit + integration tests run on every PR as today.
+
+For optional live coverage in CI, add `DEEPSEEK_API_KEY` as a GitHub Actions repo secret and add a separate manual workflow (`workflow_dispatch`) that runs `pytest tests/live/ -m live`. Do **not** run live tests on every PR — they cost money, can flake on third-party availability, and a leaked PR could exfiltrate the key. The recommendation is: keep live tests as a local + manual-CI safety net, not a per-PR gate.
 
 ## Open questions
 
