@@ -1,1 +1,1 @@
-"""System-deployment helpers (install-service, migrate-from-legacy, etc.)."""
+"""System-deployment helpers (install-service, uninstall-service, etc.)."""

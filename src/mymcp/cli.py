@@ -300,62 +300,6 @@ def cmd_token_disable_metrics(_args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_migrate_from_legacy(args: argparse.Namespace) -> int:
-    if not _require_root():
-        return 2
-    from pathlib import Path
-
-    from mymcp.deploy import migrate as mig
-    from mymcp.deploy import service, setup
-
-    legacy = Path(args.legacy_dir)
-    if not mig.legacy_dir_present(legacy):
-        print(f"error: no legacy install at {legacy} (.env missing).", file=sys.stderr)
-        return 2
-
-    new_cfg = Path("/etc/mymcp")
-    new_env = new_cfg / ".env"
-    new_tokens = new_cfg / "tokens.json"
-
-    src_text = (legacy / ".env").read_text()
-    rewritten = mig.rewrite_env_keys(src_text, new_cfg_dir=new_cfg)
-
-    plan_lines = [
-        f"  rewrite {legacy / '.env'} → {new_env} (MCP_*→MYMCP_*)",
-        f"  copy   {legacy / 'tokens.json'} → {new_tokens}",
-        "  install systemd unit /etc/systemd/system/mymcp.service",
-        "  systemctl daemon-reload && systemctl restart mymcp",
-    ]
-    if args.dry_run:
-        print("[dry-run] would do:")
-        for line in plan_lines:
-            print(line)
-        return 0
-
-    setup.ensure_directory(new_cfg, mode=0o750)
-    new_env.write_text(rewritten)
-    os.chmod(new_env, 0o600)
-    mig.copy_tokens(legacy, new_tokens)
-
-    if not service.systemd_available():
-        print("warning: systemd not detected; skipping unit install.", file=sys.stderr)
-    else:
-        exec_path = service.resolve_mymcp_executable()
-        unit = service.render_service_unit(
-            service_user="root",
-            env_file=str(new_env),
-            exec_start=f"{exec_path} serve --env-file {new_env}",
-        )
-        service.write_systemd_unit(unit)
-        service.stop_service(check=False)
-        service.daemon_reload()
-        service.enable_service()
-    print("Migration complete. Verify the new service then remove the old install:")
-    print("  sudo systemctl status mymcp")
-    print(f"  sudo rm -rf {legacy}")
-    return 0
-
-
 def _otel_endpoint_from_env_file(env_path: str | None) -> str | None:
     """Read OTEL_EXPORTER_OTLP_ENDPOINT from a .env file.
 
@@ -601,15 +545,6 @@ def build_parser() -> argparse.ArgumentParser:
         "disable-metrics", help="Empty the metrics token, disabling the /metrics endpoint"
     )
     p_tok_dm.set_defaults(func=cmd_token_disable_metrics)
-
-    p_mig = sub.add_parser("migrate-from-legacy", help="Migrate a /opt/mymcp 1.x install to 2.0")
-    p_mig.add_argument(
-        "--legacy-dir", default="/opt/mymcp", help="Path to the 1.x install (default: /opt/mymcp)"
-    )
-    p_mig.add_argument(
-        "--dry-run", action="store_true", help="Print the migration plan without changing anything"
-    )
-    p_mig.set_defaults(func=cmd_migrate_from_legacy)
 
     p_doc = sub.add_parser("doctor", help="System diagnostics, including observability status")
     p_doc.set_defaults(func=cmd_doctor)

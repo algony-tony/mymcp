@@ -11,7 +11,7 @@ A Python MCP server that exposes full Linux system control to AI clients (Claude
 
 ## Features
 
-- **8 MCP tools**: `bash_execute`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`, `prepare_upload`, `prepare_download`
+- **9 MCP tools**: `bash_execute`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`, `prepare_upload`, `prepare_download`, `server_overview` (optional, requires the recorder module)
 - **Binary / large file transfer**: bypass HTTP endpoints (`PUT/GET /files/raw/{ticket}`) for streaming uploads and downloads — file bytes never enter the LLM context window
 - **Per-token permissions**: read-only (`ro`) or read-write (`rw`) roles
 - **Audit logging**: JSON Lines audit trail with error details for all tool invocations
@@ -109,7 +109,6 @@ for full details.
 | `mymcp install-service` | Install the systemd service and config files |
 | `mymcp uninstall-service` | Remove the systemd service |
 | `mymcp token ...` | Manage tokens in the local token store |
-| `mymcp migrate-from-legacy` | Migrate a 1.x `/opt/mymcp` install to 2.x |
 | `mymcp doctor` | Print environment and dependency diagnostics |
 
 ### `mymcp serve`
@@ -178,17 +177,6 @@ Subcommands:
 | `mymcp token rotate-metrics` | Generate and persist a new metrics token |
 | `mymcp token disable-metrics` | Disable the `/metrics` endpoint |
 
-### `mymcp migrate-from-legacy`
-
-```bash
-sudo mymcp migrate-from-legacy --help
-```
-
-| Flag | Description |
-|------|-------------|
-| `--legacy-dir PATH` | Legacy 1.x install root (default `/opt/mymcp`) |
-| `--dry-run` | Show planned migration steps without changing files |
-
 ### `mymcp doctor`
 
 Use this when install, Python path, `rg`, or env-file resolution looks wrong:
@@ -196,29 +184,6 @@ Use this when install, Python path, `rg`, or env-file resolution looks wrong:
 ```bash
 mymcp doctor
 ```
-
-## Upgrading from 1.x to 2.0
-
-Breaking changes:
-- Environment variable prefix renamed: `MCP_*` → `MYMCP_*` (no compat shim).
-- Install layout: `/opt/mymcp/` (1.x) → `/etc/mymcp/` (2.0). Code is now
-  managed by `pipx`, not unpacked into `/opt/mymcp/`.
-- Install method: `git clone + deploy/install.sh` → `pipx install algony-mymcp`.
-
-One-line migration:
-
-```bash
-pipx install algony-mymcp
-sudo mymcp migrate-from-legacy
-sudo rm -rf /opt/mymcp     # after verifying the new service is healthy
-```
-
-`mymcp migrate-from-legacy` reads `/opt/mymcp/.env`, rewrites `MCP_*` keys to
-`MYMCP_*`, copies `tokens.json`, installs the new systemd unit, and restarts
-the service. Pass `--dry-run` to see what it would do without making changes.
-
-The legacy `deploy/install.sh` and `deploy/upgrade.sh` scripts remain in the
-repository through the 2.0.x lifecycle for users who can't migrate yet.
 
 ## Configuration
 
@@ -262,6 +227,26 @@ All limits are configurable via environment variables. Default values work well 
 | `MYMCP_GLOB_MAX_RESULTS` | `1000` | Max file paths returned by glob |
 | `MYMCP_GREP_DEFAULT_MAX_RESULTS` | `500` | grep default max matches |
 | `MYMCP_GREP_MAX_RESULTS` | `5000` | grep hard max matches |
+
+### Recorder (optional)
+
+These only apply when the `[recorder]` / `[recorder-anthropic]` /
+`[recorder-openai]` extra is installed.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MYMCP_RECORDER_ENABLED` | `false` | Enable the background recorder task and `server_overview` tool |
+| `MYMCP_RECORDER_DATA_DIR` | `/var/lib/mymcp/recorder` | Where overview + changelog + cursor live |
+| `MYMCP_RECORDER_MERGE_INTERVAL_SEC` | `300` | How often the merge cycle runs |
+| `MYMCP_RECORDER_MAX_EVENTS_PER_CYCLE` | `50` | Cap on audit events folded per cycle |
+| `MYMCP_RECORDER_BOOTSTRAP_MAX_ITERATIONS` | `200` | Max probe iterations during initial bootstrap |
+| `MYMCP_RECORDER_BOOTSTRAP_TOKEN_BUDGET` | `10000000` | LLM token budget for bootstrap |
+| `MYMCP_RECORDER_BOOTSTRAP_PROBE_TIMEOUT_SEC` | `30` | Per-probe timeout during bootstrap |
+| `MYMCP_RECORDER_BOOTSTRAP_RETRY_INTERVAL_SEC` | `3600` | Retry interval if bootstrap fails |
+| `MYMCP_RECORDER_LLM_PROVIDER` | `anthropic` | `anthropic` or `openai` (OpenAI-compatible) |
+| `MYMCP_RECORDER_LLM_MODEL` | *(provider default)* | Model id override |
+| `MYMCP_RECORDER_LLM_API_KEY` | *(unset)* | API key for the chosen provider |
+| `MYMCP_RECORDER_LLM_BASE_URL` | *(unset)* | Base URL override (e.g. DeepSeek for the OpenAI adapter) |
 
 ## Managing Tokens
 
@@ -394,9 +379,10 @@ claude mcp add linux-server \
 | `grep` | ro | Search file contents with regex |
 | `prepare_upload` | rw | Mint a one-time signed URL for uploading bytes to a server path |
 | `prepare_download` | ro | Mint a one-time signed URL for downloading bytes from a server path |
+| `server_overview` | ro | Return the maintained server overview (requires the recorder module; see below) |
 
-`ro` tokens can only use `read_file`, `glob`, `grep`, and `prepare_download`.  
-`rw` tokens can use all eight tools.
+`ro` tokens can use `read_file`, `glob`, `grep`, `prepare_download`, and
+`server_overview`. `rw` tokens can use all nine tools.
 
 ### `bash_execute` (`rw`)
 
@@ -573,6 +559,19 @@ Workflow:
 `prepare_download` is the mirror: it returns a `GET` URL, you `curl URL -o local`, and bytes stream back.
 
 Tickets are **single-use**, **path-scoped**, **byte-bounded**, and expire after `expires_in` seconds (default 300, max 900). Both endpoints reuse the same `check_protected_path` and audit log as the file tools. Server tunables: `MYMCP_TRANSFER_ENABLED`, `MYMCP_TRANSFER_MAX_BYTES` (default 2 GB), `MYMCP_TRANSFER_DEFAULT_TTL_SEC`, `MYMCP_TRANSFER_MAX_TTL_SEC`, `MYMCP_PUBLIC_BASE_URL` (set when behind a reverse proxy).
+
+### `server_overview` (`ro`)
+
+Returns the current contents of the server overview document maintained by
+the optional recorder module. Only available when the recorder is installed
+and `MYMCP_RECORDER_ENABLED=true`; otherwise the call fails with a clear
+error message. Takes no parameters.
+
+The recorder periodically folds successful mutating audit events into an
+overview of what's installed and recently changed on the host. The
+companion `changelog.md` in the same directory can be read with `read_file`.
+See the "Optional: server overview recorder" section above for setup; full
+design details are in `docs/superpowers/specs/2026-05-29-llm-recorder-design.md`.
 
 ### Tool behavior notes
 

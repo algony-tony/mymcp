@@ -74,18 +74,6 @@ jobs:
             -d "{\"files\":{\"mymcp-coverage.json\":{\"content\":$(echo "$LINE_JSON" | python -c 'import sys,json; print(json.dumps(sys.stdin.read()))')},\"mymcp-branch-coverage.json\":{\"content\":$(echo "$BRANCH_JSON" | python -c 'import sys,json; print(json.dumps(sys.stdin.read()))')}}}" \
             "https://api.github.com/gists/${{ secrets.GIST_ID }}"
 
-  bats:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - name: Install bats
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq bats
-      - name: Run legacy install/upgrade bats tests
-        run: |
-          bats tests/test_install.bats tests/test_upgrade.bats tests/test_upgrade_integration.bats
-
   build:
     runs-on: ubuntu-latest
     needs: [lint, test]
