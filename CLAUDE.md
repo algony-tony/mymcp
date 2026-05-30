@@ -21,9 +21,6 @@ pytest tests/ -v --benchmark-disable
 # Run a single test
 pytest tests/test_files.py::test_read_file_basic -v
 
-# Run bats tests for legacy deploy helpers (kept through 2.0.x)
-bats tests/test_install.bats tests/test_upgrade.bats tests/test_upgrade_integration.bats
-
 # Start dev server (foreground; prints temp admin+rw tokens to stderr)
 mymcp serve
 
@@ -33,18 +30,9 @@ mymcp serve --env-file ./.env
 # Lint and type-check
 ruff check . && ruff format --check . && mypy src/mymcp
 
-# Upgrade an installed mymcp (legacy bash flow, kept for 1.x deployments)
-sudo /opt/mymcp/deploy/upgrade.sh v1.1.0
+# Upgrade an installed mymcp
+pipx upgrade algony-mymcp && sudo systemctl restart mymcp
 ```
-
-### Upgrade flow for MCP clients (legacy)
-
-When an AI client invokes `deploy/upgrade.sh` via `bash_execute`, the script
-detects the process ancestry and automatically detaches. The client receives
-a "started in background" message and should advise the user to reconnect in
-~2 minutes. `bash_execute` bypasses path protection by design, so upgrade
-runs without interference. The pip-based 2.0 install path replaces this with
-`pipx upgrade algony-mymcp && sudo systemctl restart mymcp` (Plan 2/3 work).
 
 ## Architecture
 
