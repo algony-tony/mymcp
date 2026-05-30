@@ -90,6 +90,14 @@ sudo ./install-offline.sh
 sudo mymcp install-service --yes
 ```
 
+## Optional: server overview recorder
+
+`pip install algony-mymcp[recorder-anthropic]` (or `recorder-openai`, or
+`recorder` for both) adds an asyncio module that maintains a self-updating
+server overview document via LLM. Disabled by default; enable with
+`MYMCP_RECORDER_ENABLED=true`. See `docs/superpowers/specs/2026-05-29-llm-recorder-design.md`
+for full details.
+
 ## CLI Reference
 
 ### Top-level commands
