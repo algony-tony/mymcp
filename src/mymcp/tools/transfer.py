@@ -53,7 +53,7 @@ async def prepare_upload(
             "error": "InvalidPath",
             "message": "dest_path must be an absolute path.",
         }
-    err = check_protected_path(dest_path)
+    err = check_protected_path(dest_path, mode="write")
     if err:
         return {"success": False, "error": "ProtectedPath", "message": err}
     if not overwrite and os.path.exists(dest_path):
@@ -133,7 +133,7 @@ async def prepare_download(
             "error": "InvalidPath",
             "message": "src_path must be an absolute path.",
         }
-    err = check_protected_path(src_path)
+    err = check_protected_path(src_path, mode="read")
     if err:
         return {"success": False, "error": "ProtectedPath", "message": err}
     if not os.path.exists(src_path):

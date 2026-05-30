@@ -1,5 +1,7 @@
 """FastAPI app factory for mymcp. No module-level side effects."""
 
+import asyncio
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -10,10 +12,13 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from mymcp import config
 from mymcp.auth import admin_router, get_store
+from mymcp.config import get_settings
 from mymcp.mcp_server import _current_audit_info, server, session_manager  # noqa: F401
 from mymcp.observability import instruments, setup_observability
 from mymcp.observability.request_id import RequestIdMiddleware
 from mymcp.transfer.endpoints import register_transfer_routes
+
+logger = logging.getLogger("mymcp.server")
 
 
 def _validate_token(request: Request) -> tuple[JSONResponse | None, dict | None]:
@@ -101,8 +106,33 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         get_store()
+        settings = get_settings()
+        recorder_task: asyncio.Task | None = None
+        supervisor = None
+        if settings.recorder_enabled:
+            try:
+                from mymcp import mcp_server as _mcp
+                from mymcp.recorder import admin as recorder_admin
+                from mymcp.recorder.wiring import build_supervisor
+
+                supervisor = build_supervisor(settings)
+                recorder_admin.set_supervisor(supervisor)
+                _mcp.set_recorder_supervisor(supervisor)
+                recorder_task = asyncio.create_task(supervisor.run())
+                logger.info("recorder: started")
+            except Exception as e:
+                logger.error("recorder: failed to start: %s", e)
         async with session_manager.run():
-            yield
+            try:
+                yield
+            finally:
+                if supervisor is not None:
+                    supervisor.shutdown()
+                if recorder_task is not None:
+                    try:
+                        await asyncio.wait_for(recorder_task, timeout=10)
+                    except TimeoutError:
+                        recorder_task.cancel()
 
     import mymcp
 
@@ -115,6 +145,9 @@ def create_app() -> FastAPI:
     app.add_middleware(RequestIdMiddleware)  # added last → runs first
 
     app.include_router(admin_router)
+    from mymcp.recorder import admin as recorder_admin
+
+    app.include_router(recorder_admin.router)
     register_transfer_routes(app)
 
     @app.get("/health")

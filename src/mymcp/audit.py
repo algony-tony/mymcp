@@ -68,6 +68,7 @@ def log_tool_call(
     error_code: str | None = None,
     error_message: str | None = None,
     duration_ms: int | None = None,
+    output: dict | None = None,
 ) -> None:
     global _logger
     if not _setup_done:
@@ -100,6 +101,8 @@ def log_tool_call(
         entry["error_message"] = error_message
     if duration_ms is not None:
         entry["duration_ms"] = duration_ms
+    if output is not None:
+        entry["output"] = output
 
     try:
         _logger.info(json.dumps(entry))

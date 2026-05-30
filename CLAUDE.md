@@ -72,6 +72,31 @@ Python MCP server exposing Linux system tools over Streamable HTTP (stateless mo
 - **Stateless transport**: `StreamableHTTPSessionManager(stateless=True)` — no session tracking, each request is independent.
 - **Subprocess cleanup**: bash_execute spawns children with `start_new_session=True` and tracks them in a thread-safe weakref set. The CLI installs SIGTERM/SIGINT handlers that call `shutdown_inflight_processes()` to TERM/KILL the process group with a configurable grace period (`MYMCP_SHUTDOWN_GRACE_SEC`).
 
+### Optional: llm-recorder
+
+When installed (`pip install algony-mymcp[recorder]`, or `[recorder-anthropic]` /
+`[recorder-openai]` for a single provider) and enabled
+(`MYMCP_RECORDER_ENABLED=true`), `mymcp.recorder` runs an asyncio background
+task that:
+
+- Consumes successful mutating events from `audit.log` via a persistent cursor.
+- Periodically (every `MYMCP_RECORDER_MERGE_INTERVAL_SEC`, default 300s) calls
+  an LLM to fold them into `/var/lib/mymcp/recorder/overview/overview.md` and
+  append effect-level summaries to `changelog.md`.
+- Auto-bootstraps the initial overview via a self-built agent loop using
+  internal `bash_probe` / `read_file_probe` tools.
+
+The MCP tool `server_overview` returns the current overview. The changelog is
+read by external LLMs via the existing `read_file` tool — the overview
+directory is registered as write-protected so writes are refused.
+
+LLM provider is `MYMCP_RECORDER_LLM_PROVIDER ∈ {anthropic, openai}`. The
+OpenAI adapter supports OpenAI-compatible endpoints via
+`MYMCP_RECORDER_LLM_BASE_URL` (e.g. DeepSeek).
+
+Spec: `docs/superpowers/specs/2026-05-29-llm-recorder-design.md`.
+Plan: `docs/superpowers/plans/2026-05-29-llm-recorder.md`.
+
 ### Tests
 
 Tests use `pytest` with `anyio` (asyncio backend). Async tests use `@pytest.mark.anyio`. Config is patched via `unittest.mock.patch.multiple("mymcp.config", ...)` in fixtures, or via `monkeypatch.setenv("MYMCP_*")` followed by `mymcp.config.reset_settings_cache()`. No test database or external services needed.

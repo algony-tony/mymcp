@@ -8,7 +8,7 @@ from mcp import types
 from mcp.server import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 
-from mymcp import config
+from mymcp import audit_output, config
 from mymcp.audit import log_tool_call
 from mymcp.observability import instruments
 from mymcp.observability.tracing import get_tracer
@@ -28,9 +28,24 @@ _current_audit_info: contextvars.ContextVar[dict] = contextvars.ContextVar(
 )
 
 # ---------------------------------------------------------------------------
+# Recorder supervisor (optional; None when recorder is disabled)
+# ---------------------------------------------------------------------------
+_recorder_supervisor: object | None = None
+
+
+def set_recorder_supervisor(sup: object | None) -> None:
+    global _recorder_supervisor
+    _recorder_supervisor = sup
+
+
+def get_recorder_supervisor() -> object | None:
+    return _recorder_supervisor
+
+
+# ---------------------------------------------------------------------------
 # Tool role sets
 # ---------------------------------------------------------------------------
-READ_TOOLS: set[str] = {"read_file", "glob", "grep", "prepare_download"}
+READ_TOOLS: set[str] = {"read_file", "glob", "grep", "prepare_download", "server_overview"}
 WRITE_TOOLS: set[str] = {"bash_execute", "write_file", "edit_file", "prepare_upload"}
 ALL_TOOLS: set[str] = READ_TOOLS | WRITE_TOOLS
 
@@ -202,6 +217,11 @@ def _build_tool_definitions() -> dict[str, types.Tool]:
                 "required": ["pattern"],
             },
         ),
+        "server_overview": types.Tool(
+            name="server_overview",
+            description="Return a maintained map of this server's services, apps, data, and recent changes.",  # noqa: E501
+            inputSchema={"type": "object", "properties": {}, "additionalProperties": False},
+        ),
     }
 
 
@@ -323,6 +343,7 @@ async def call_tool(name: str, arguments: dict | None) -> list[types.TextContent
         # Determine result status for audit
         error_code = None
         error_message = None
+        result_data: dict | None = None
         try:
             result_data = json.loads(result_json)
             if result_data.get("success", True) is False:
@@ -356,6 +377,37 @@ async def call_tool(name: str, arguments: dict | None) -> list[types.TextContent
                 ip,
             )
 
+        output_payload: dict | None = None
+        if result_status == "ok":
+            s = config.get_settings()
+            if name == "bash_execute" and isinstance(result_data, dict):
+                # result_data["stdout"] is already truncated to BASH_MAX_OUTPUT_BYTES by the tool.
+                # Re-summarise via T1 head/tail (typically smaller).
+                stdout_str = result_data.get("stdout", "") or ""
+                output_payload = audit_output.truncate_bash_output(
+                    stdout_str.encode("utf-8", errors="replace"),
+                    head_bytes=s.audit_output_bash_head_bytes,
+                    tail_bytes=s.audit_output_bash_tail_bytes,
+                )
+                output_payload["exit_code"] = result_data.get("exit_code")
+                output_payload["timed_out"] = bool(result_data.get("timed_out", False))
+            elif name == "write_file":
+                content_bytes = args.get("content", "").encode("utf-8", errors="replace")
+                output_payload = audit_output.write_file_output(
+                    path=args.get("file_path", ""),
+                    content=content_bytes,
+                )
+            elif name == "edit_file" and isinstance(result_data, dict):
+                replacements = int(result_data.get("replacements", 0))
+                old = args.get("old_string", "")
+                new = args.get("new_string", "")
+                output_payload = audit_output.edit_file_output(
+                    path=args.get("file_path", ""),
+                    lines_added=new.count("\n") * replacements,
+                    lines_removed=old.count("\n") * replacements,
+                    hunk_count=replacements,
+                )
+
         log_tool_call(
             token_name=token_name,
             role=role,
@@ -366,6 +418,7 @@ async def call_tool(name: str, arguments: dict | None) -> list[types.TextContent
             error_code=error_code,
             error_message=error_message,
             duration_ms=duration_ms,
+            output=output_payload,
         )
 
         instruments.tool_calls.add(1, {"tool": name, "role": role, "result": result_status})
@@ -444,6 +497,34 @@ async def dispatch_tool(name: str, args: dict) -> str:
             ),
             case_insensitive=args.get("case_insensitive", False),
         )
+    elif name == "server_overview":
+        sup = _recorder_supervisor
+        if sup is None:
+            result = {
+                "success": False,
+                "error": "RecorderDisabled",
+                "message": "server_overview requires MYMCP_RECORDER_ENABLED=true",
+            }
+        else:
+            from mymcp.recorder.task import RecorderSupervisor
+            from mymcp.recorder.tool import server_overview_handler
+
+            # cast for type checker
+            sup_typed: RecorderSupervisor = sup  # type: ignore[assignment]
+            status = sup_typed.status()
+            stale: float | None = None
+            if (
+                status.last_merge_age_seconds is not None
+                and status.last_merge_age_seconds > 2 * sup_typed.merge_interval
+            ):
+                stale = status.last_merge_age_seconds
+            overview_text = server_overview_handler(
+                store=sup_typed.store,
+                schedule_bootstrap=lambda: sup_typed.request_bootstrap(),
+                stale_seconds=stale,
+                last_error=status.last_error,
+            )
+            result = {"success": True, "overview": overview_text}
     else:
         result = {
             "success": False,

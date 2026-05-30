@@ -54,6 +54,9 @@ otlp = [
     "opentelemetry-instrumentation-asgi>=0.62b0",
     "opentelemetry-instrumentation-logging>=0.62b0",
 ]
+recorder-anthropic = ["anthropic>=0.40"]
+recorder-openai    = ["openai>=1.40"]
+recorder           = ["algony-mymcp[recorder-anthropic,recorder-openai]"]
 
 [project.urls]
 Homepage = "https://github.com/algony-tony/mymcp"
@@ -100,9 +103,10 @@ no_implicit_optional = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--benchmark-disable"
+addopts = "--benchmark-disable -m 'not live'"
 markers = [
     "benchmark: marks tests as benchmarks (deselect with '-m \"not benchmark\"')",
+    "live: tests that hit a real LLM API; require tests/live/.env.live",
 ]
 
 [tool.mutmut]

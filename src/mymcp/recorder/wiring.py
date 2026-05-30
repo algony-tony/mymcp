@@ -1,0 +1,53 @@
+"""Assemble a configured RecorderSupervisor from settings."""
+
+from pathlib import Path
+from typing import Any
+
+from mymcp.config import Settings
+from mymcp.recorder.bootstrap import Bootstrapper
+from mymcp.recorder.events import EventTailer
+from mymcp.recorder.llm.factory import build_llm_client
+from mymcp.recorder.merge_cycle import MergeCycle
+from mymcp.recorder.overview import OverviewStore
+from mymcp.recorder.task import RecorderSupervisor
+from mymcp.tools.files import register_protected_path
+
+
+def build_supervisor(settings: Settings) -> RecorderSupervisor:
+    data_dir = Path(settings.recorder_data_dir)
+    overview_dir = data_dir / "overview"
+    cursor_path = data_dir / "cursor.json"
+
+    # The overview directory is mymcp-owned; external file tools may READ it
+    # (so external LLMs can fetch changelog.md) but not WRITE to it.
+    register_protected_path(str(overview_dir), modes={"write"})
+
+    client: Any = build_llm_client(
+        provider=settings.recorder_llm_provider,
+        api_key=settings.recorder_llm_api_key,
+        model=settings.recorder_llm_model,
+        base_url=settings.recorder_llm_base_url,
+    )
+    store = OverviewStore(overview_dir)
+    tailer = EventTailer(log_dir=Path(settings.audit_log_dir), cursor_path=cursor_path)
+    bootstrapper = Bootstrapper(
+        client=client,
+        store=store,
+        max_iterations=settings.recorder_bootstrap_max_iterations,
+        token_budget=settings.recorder_bootstrap_token_budget,
+        probe_timeout_sec=settings.recorder_bootstrap_probe_timeout_sec,
+    )
+    merge = MergeCycle(
+        client=client,
+        tailer=tailer,
+        store=store,
+        max_events_per_cycle=settings.recorder_max_events_per_cycle,
+        require_bootstrap=True,
+    )
+    return RecorderSupervisor(
+        merge_cycle=merge,
+        bootstrapper=bootstrapper,
+        merge_interval_sec=settings.recorder_merge_interval_sec,
+        provider=settings.recorder_llm_provider,
+        model=settings.recorder_llm_model,
+    )
