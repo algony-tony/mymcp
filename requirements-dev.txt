@@ -197,7 +197,7 @@ pre-commit==4.6.0
     # via algony-mymcp (pyproject.toml)
 prometheus-client==0.25.0
     # via opentelemetry-exporter-prometheus
-protobuf==6.33.6
+protobuf==7.35.0
     # via
     #   googleapis-common-protos
     #   opentelemetry-proto
