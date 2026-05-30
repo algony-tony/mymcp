@@ -103,9 +103,10 @@ no_implicit_optional = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--benchmark-disable"
+addopts = "--benchmark-disable -m 'not live'"
 markers = [
     "benchmark: marks tests as benchmarks (deselect with '-m \"not benchmark\"')",
+    "live: tests that hit a real LLM API; require tests/live/.env.live",
 ]
 
 [tool.mutmut]
