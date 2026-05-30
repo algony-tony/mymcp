@@ -9,6 +9,20 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+    ignore:
+      # pydantic-core is strictly pinned by pydantic (e.g. pydantic 2.13.4
+      # requires pydantic-core==2.46.4). Let pydantic bumps bring the matching
+      # pydantic-core; standalone bumps fail dependency resolution.
+      - dependency-name: "pydantic-core"
+      # protobuf 7.x is incompatible with the current OpenTelemetry stack
+      # (opentelemetry-proto pins protobuf<7). Re-enable once OTel supports
+      # protobuf 7. See PRs #29 and #35.
+      - dependency-name: "protobuf"
+        update-types: ["version-update:semver-major"]
+      # importlib-metadata 9.x is incompatible with opentelemetry-api
+      # (requires importlib-metadata<8.8.0). See PR #30.
+      - dependency-name: "importlib-metadata"
+        update-types: ["version-update:semver-major"]
     groups:
       # OpenTelemetry packages move in lockstep; keep them in one PR.
       # Declared first so otel bumps land here, not in python-minor-patch
