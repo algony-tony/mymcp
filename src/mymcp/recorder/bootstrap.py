@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 
 from mymcp.observability import instruments
+from mymcp.observability.tracing import get_tracer
 from mymcp.recorder.llm.base import (
     LLMClient,
     Message,
@@ -30,6 +31,7 @@ from mymcp.recorder.probes import (
 )
 
 log = logging.getLogger("mymcp.recorder")
+_tracer = get_tracer(__name__)
 
 
 BOOTSTRAP_SYSTEM_PROMPT = """You are building an initial server overview map for a Linux host.
@@ -152,98 +154,120 @@ class Bootstrapper:
         ]
         tokens = 0
         iterations = 0
-        try:
-            while iterations < self._max_iterations:
-                iterations += 1
-                resp = await self._client.call(
-                    system=BOOTSTRAP_SYSTEM_PROMPT,
-                    messages=messages,
-                    tools=tools,
-                    max_tokens=4096,
-                )
-                instruments.recorder_llm_calls.add(1, {"phase": "bootstrap", "result": "success"})
-                instruments.recorder_llm_tokens.add(
-                    resp.usage.input_tokens, {"phase": "bootstrap", "direction": "input"}
-                )
-                instruments.recorder_llm_tokens.add(
-                    resp.usage.output_tokens, {"phase": "bootstrap", "direction": "output"}
-                )
-                tokens += resp.usage_total
-                if tokens > self._token_budget:
-                    raise RuntimeError(
-                        f"bootstrap token budget exceeded ({tokens} > {self._token_budget})"
-                    )
-                if resp.is_end_turn:
-                    overview_md = resp.text.strip()
-                    if not overview_md:
-                        raise RuntimeError("LLM ended turn with empty overview")
-                    self._store.write_overview(overview_md)
-                    ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M")
-                    self._store.append_changelog(
-                        [f"{ts} | bootstrap | initial overview generated (run {run_id})"]
-                    )
-                    self._state = BootstrapState.SUCCEEDED
-                    instruments.recorder_bootstrap_runs.add(1, {"result": "success"})
-                    result = BootstrapResult(
-                        state=BootstrapState.SUCCEEDED,
-                        run_id=run_id,
-                        iterations=iterations,
-                        tokens_used=tokens,
-                    )
-                    self._last_result = result
-                    log.info(
-                        "recorder.bootstrap.success",
-                        extra={"run_id": run_id, "iterations": iterations, "tokens": tokens},
-                    )
-                    return result
-                # Echo assistant turn back into history (preserves tool_use ids)
-                messages.append(
-                    Message(
-                        role="assistant",
-                        content=resp.text,
-                        tool_uses=list(resp.tool_uses),
-                    )
-                )
-                tool_results: list[ToolResult] = []
-                for tu in resp.tool_uses:
-                    try:
-                        if tu.name == "bash_probe":
-                            out = await run_bash_probe(tu.input, timeout_sec=self._probe_timeout)
-                            tool_results.append(
-                                ToolResult(tool_use_id=tu.id, content=json.dumps(out))
+        with _tracer.start_as_current_span("recorder.bootstrap") as root_span:
+            root_span.set_attribute("bootstrap.run_id", run_id)
+            try:
+                while iterations < self._max_iterations:
+                    iterations += 1
+                    with _tracer.start_as_current_span("recorder.agent_iteration") as iter_span:
+                        iter_span.set_attribute("iteration", iterations)
+                        with _tracer.start_as_current_span("recorder.llm_call"):
+                            resp = await self._client.call(
+                                system=BOOTSTRAP_SYSTEM_PROMPT,
+                                messages=messages,
+                                tools=tools,
+                                max_tokens=4096,
                             )
-                        elif tu.name == "read_file_probe":
-                            out = await run_read_file_probe(tu.input)
-                            tool_results.append(
-                                ToolResult(tool_use_id=tu.id, content=json.dumps(out))
-                            )
-                        else:
-                            tool_results.append(
-                                ToolResult(
-                                    tool_use_id=tu.id,
-                                    content=f"unknown tool: {tu.name}",
-                                    is_error=True,
-                                )
-                            )
-                    except Exception as e:  # noqa: BLE001
-                        tool_results.append(
-                            ToolResult(tool_use_id=tu.id, content=str(e), is_error=True)
+                        instruments.recorder_llm_calls.add(
+                            1, {"phase": "bootstrap", "result": "success"}
                         )
-                messages.append(Message(role="user", content="", tool_results=tool_results))
-            raise RuntimeError(f"bootstrap exceeded max iterations ({self._max_iterations})")
-        except Exception as e:  # noqa: BLE001
-            self._state = BootstrapState.FAILED
-            instruments.recorder_bootstrap_runs.add(1, {"result": "failure"})
-            result = BootstrapResult(
-                state=BootstrapState.FAILED,
-                run_id=run_id,
-                iterations=iterations,
-                tokens_used=tokens,
-                error=str(e),
-            )
-            self._last_result = result
-            log.warning(
-                "recorder.bootstrap.failed",
-                extra={"run_id": run_id, "error": str(e)},
-            )
-            return result
+                        instruments.recorder_llm_tokens.add(
+                            resp.usage.input_tokens, {"phase": "bootstrap", "direction": "input"}
+                        )
+                        instruments.recorder_llm_tokens.add(
+                            resp.usage.output_tokens,
+                            {"phase": "bootstrap", "direction": "output"},
+                        )
+                        tokens += resp.usage_total
+                        if tokens > self._token_budget:
+                            raise RuntimeError(
+                                f"bootstrap token budget exceeded ({tokens} > {self._token_budget})"
+                            )
+                        if resp.is_end_turn:
+                            overview_md = resp.text.strip()
+                            if not overview_md:
+                                raise RuntimeError("LLM ended turn with empty overview")
+                            self._store.write_overview(overview_md)
+                            ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M")
+                            self._store.append_changelog(
+                                [f"{ts} | bootstrap | initial overview generated (run {run_id})"]
+                            )
+                            self._state = BootstrapState.SUCCEEDED
+                            instruments.recorder_bootstrap_runs.add(1, {"result": "success"})
+                            result = BootstrapResult(
+                                state=BootstrapState.SUCCEEDED,
+                                run_id=run_id,
+                                iterations=iterations,
+                                tokens_used=tokens,
+                            )
+                            self._last_result = result
+                            log.info(
+                                "recorder.bootstrap.success",
+                                extra={
+                                    "run_id": run_id,
+                                    "iterations": iterations,
+                                    "tokens": tokens,
+                                },
+                            )
+                            return result
+                        # Echo assistant turn back into history (preserves tool_use ids)
+                        messages.append(
+                            Message(
+                                role="assistant",
+                                content=resp.text,
+                                tool_uses=list(resp.tool_uses),
+                            )
+                        )
+                        tool_results: list[ToolResult] = []
+                        for tu in resp.tool_uses:
+                            try:
+                                if tu.name == "bash_probe":
+                                    with _tracer.start_as_current_span(
+                                        "recorder.bash_probe"
+                                    ) as probe_span:
+                                        probe_span.set_attribute("probe.tool", tu.name)
+                                        out = await run_bash_probe(
+                                            tu.input, timeout_sec=self._probe_timeout
+                                        )
+                                    tool_results.append(
+                                        ToolResult(tool_use_id=tu.id, content=json.dumps(out))
+                                    )
+                                elif tu.name == "read_file_probe":
+                                    with _tracer.start_as_current_span(
+                                        "recorder.read_file_probe"
+                                    ) as probe_span:
+                                        probe_span.set_attribute("probe.tool", tu.name)
+                                        out = await run_read_file_probe(tu.input)
+                                    tool_results.append(
+                                        ToolResult(tool_use_id=tu.id, content=json.dumps(out))
+                                    )
+                                else:
+                                    tool_results.append(
+                                        ToolResult(
+                                            tool_use_id=tu.id,
+                                            content=f"unknown tool: {tu.name}",
+                                            is_error=True,
+                                        )
+                                    )
+                            except Exception as e:  # noqa: BLE001
+                                tool_results.append(
+                                    ToolResult(tool_use_id=tu.id, content=str(e), is_error=True)
+                                )
+                        messages.append(Message(role="user", content="", tool_results=tool_results))
+                raise RuntimeError(f"bootstrap exceeded max iterations ({self._max_iterations})")
+            except Exception as e:  # noqa: BLE001
+                self._state = BootstrapState.FAILED
+                instruments.recorder_bootstrap_runs.add(1, {"result": "failure"})
+                result = BootstrapResult(
+                    state=BootstrapState.FAILED,
+                    run_id=run_id,
+                    iterations=iterations,
+                    tokens_used=tokens,
+                    error=str(e),
+                )
+                self._last_result = result
+                log.warning(
+                    "recorder.bootstrap.failed",
+                    extra={"run_id": run_id, "error": str(e)},
+                )
+                return result
