@@ -20,7 +20,7 @@ anyio==4.13.0
     #   watchfiles
 asgiref==3.11.1
     # via opentelemetry-instrumentation-asgi
-ast-serialize==0.3.0
+ast-serialize==0.5.0
     # via mypy
 attrs==26.1.0
     # via
@@ -41,7 +41,7 @@ cfgv==3.5.0
     # via pre-commit
 charset-normalizer==3.4.7
     # via requests
-click==8.3.3
+click==8.4.0
     # via
     #   mutmut
     #   pip-tools
@@ -251,7 +251,7 @@ python-json-logger==4.1.0
     # via
     #   algony-mymcp
     #   algony-mymcp (pyproject.toml)
-python-multipart==0.0.28
+python-multipart==0.0.29
     # via
     #   algony-mymcp
     #   algony-mymcp (pyproject.toml)
@@ -265,7 +265,7 @@ referencing==0.37.0
     # via
     #   jsonschema
     #   jsonschema-specifications
-requests==2.34.1
+requests==2.34.2
     # via opentelemetry-exporter-otlp-proto-http
 rich==15.0.0
     # via textual
@@ -312,7 +312,7 @@ uc-micro-py==2.0.0
     # via linkify-it-py
 urllib3==2.7.0
     # via requests
-uvicorn==0.46.0
+uvicorn==0.47.0
     # via
     #   algony-mymcp
     #   algony-mymcp (pyproject.toml)
