@@ -117,21 +117,56 @@ async def test_timeout_message_includes_seconds():
 
 @pytest.mark.anyio
 async def test_timeout_capped_at_600():
-    """timeout > 600 must clamp to 600 (the inner clamp inside run_bash_execute)."""
-    # We don't want to actually wait 600s; just call a fast command with high timeout.
-    result = await run_bash_execute("true", timeout=10_000)
-    assert result["exit_code"] == 0
-    # Span attribute would say bash.timeout_sec=600, but we can't easily read that.
-    # The behavioural surface: command completes immediately, no error.
-    assert result["timed_out"] is False
+    """timeout > 600 must clamp to 600 — verified by inspecting asyncio.wait_for arg."""
+    import asyncio
+    from unittest.mock import patch
+
+    captured: dict = {}
+    real_wait_for = asyncio.wait_for
+
+    async def spy(coro, timeout):
+        captured["timeout"] = timeout
+        return await real_wait_for(coro, timeout=timeout)
+
+    with patch("mymcp.tools.bash.asyncio.wait_for", side_effect=spy):
+        await run_bash_execute("true", timeout=10_000)
+    assert captured["timeout"] == 600.0
 
 
 @pytest.mark.anyio
 async def test_timeout_floored_at_one():
-    """timeout=0 must be raised to 1 (kills `max(1, timeout)` → `max(0, timeout)`)."""
-    result = await run_bash_execute("true", timeout=0)
-    assert result["exit_code"] == 0
+    """timeout=0 must be raised to 1.
+
+    If `max(1, timeout)` were mutated to `max(0, timeout)`, the internal
+    asyncio.wait_for would receive 0.0 and immediately time out even for an
+    instant command. With the floor working, a short sleep completes cleanly.
+    """
+    result = await run_bash_execute("sleep 0.05", timeout=0)
     assert result["timed_out"] is False
+    assert result["exit_code"] == 0
+
+
+@pytest.mark.anyio
+async def test_max_output_bytes_floored_at_one():
+    """max_output_bytes=0 must be raised to 1 (kills `max(1, ...)` → `max(0, ...)`)."""
+    result = await run_bash_execute("echo hi", max_output_bytes=0)
+    # With floor at 1: 1 byte shown, truncation message appended.
+    # Without floor: 0 bytes shown, division/slice on 0 may behave unexpectedly.
+    assert "[TRUNCATED" in result["stdout"]
+    assert "showing first 1 bytes" in result["stdout"]
+
+
+@pytest.mark.anyio
+async def test_max_output_bytes_capped_at_hard_limit():
+    """max_output_bytes > BASH_MAX_OUTPUT_BYTES_HARD must clamp to that hard limit."""
+    from mymcp import config
+
+    hard = config.BASH_MAX_OUTPUT_BYTES_HARD
+    # Produce output one byte over the hard cap so truncation must fire iff clamp works.
+    cmd = f"python3 -c \"import sys; sys.stdout.write('x' * {hard + 1})\""
+    result = await run_bash_execute(cmd, timeout=30, max_output_bytes=hard * 10)
+    assert "[TRUNCATED" in result["stdout"]
+    assert f"showing first {hard} bytes" in result["stdout"]
 
 
 @pytest.mark.anyio
