@@ -408,3 +408,224 @@ async def test_call_tool_dispatch_success_true_is_ok(set_audit_info):
         await call_tool("write_file", {"file_path": "/tmp/y", "content": "hi"})
         kwargs = mock_log.call_args.kwargs
         assert kwargs["result"] == "ok"
+
+
+# ---------------------------------------------------------------------------
+# dispatch_tool default arguments — pin down every .get() default
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_dispatch_bash_default_working_dir_is_root():
+    """No working_dir arg → cwd must be '/' (kills mutation of the '/' default)."""
+    result = await dispatch_tool("bash_execute", {"command": "pwd"})
+    data = json.loads(result)
+    assert data["stdout"].strip() == "/"
+
+
+@pytest.mark.anyio
+async def test_dispatch_bash_default_timeout_succeeds_quickly():
+    """No timeout arg → default 30s applies; a fast command must succeed."""
+    result = await dispatch_tool("bash_execute", {"command": "true"})
+    data = json.loads(result)
+    assert data["exit_code"] == 0
+    assert data["timed_out"] is False
+
+
+@pytest.mark.anyio
+async def test_dispatch_bash_timeout_capped_at_600():
+    """timeout > 600 is clamped to 600 (kills `min(..., 600)` boundary)."""
+    with patch("mymcp.mcp_server.run_bash_execute") as mock_run:
+        mock_run.return_value = {"stdout": "", "stderr": "", "exit_code": 0, "timed_out": False}
+        await dispatch_tool("bash_execute", {"command": "x", "timeout": 99999})
+        assert mock_run.call_args.kwargs["timeout"] == 600
+
+
+@pytest.mark.anyio
+async def test_dispatch_read_file_default_offset_is_one(tmp_path):
+    """No offset → first data line numbered 1 (kills mutation of default 1)."""
+    f = tmp_path / "f.txt"
+    f.write_text("alpha\nbeta\ngamma\n")
+    result = await dispatch_tool("read_file", {"file_path": str(f)})
+    data = json.loads(result)
+    # content format is "%4d\t<line>"
+    assert data["content"].startswith("   1\talpha")
+
+
+@pytest.mark.anyio
+async def test_dispatch_read_file_limit_clamped(tmp_path):
+    """limit greatly above READ_FILE_MAX_LIMIT is clamped."""
+    from mymcp import config
+
+    f = tmp_path / "f.txt"
+    f.write_text("x\n")
+    with patch("mymcp.mcp_server.read_file") as mock_rf:
+        mock_rf.return_value = {"content": "", "total_lines": 0, "truncated": False}
+        await dispatch_tool("read_file", {"file_path": str(f), "limit": 999_999})
+        assert mock_rf.call_args.kwargs["limit"] == config.READ_FILE_MAX_LIMIT
+
+
+@pytest.mark.anyio
+async def test_dispatch_grep_default_output_mode_is_content(tmp_path):
+    """No output_mode → 'content' branch yields file:line:text formatted results."""
+    f = tmp_path / "f.txt"
+    f.write_text("hello world\n")
+    result = await dispatch_tool("grep", {"pattern": "hello", "path": str(f)})
+    data = json.loads(result)
+    # content mode emits "path:lineno:line"
+    assert f"{f}:1:" in data["results"]
+
+
+@pytest.mark.anyio
+async def test_dispatch_grep_default_case_insensitive_false(tmp_path):
+    """Default case_insensitive=False — uppercase pattern must not match lowercase."""
+    f = tmp_path / "f.txt"
+    f.write_text("hello\n")
+    result = await dispatch_tool("grep", {"pattern": "HELLO", "path": str(f)})
+    data = json.loads(result)
+    assert data["match_count"] == 0
+
+
+@pytest.mark.anyio
+async def test_dispatch_grep_case_insensitive_true(tmp_path):
+    """Explicit case_insensitive=True must match across case."""
+    f = tmp_path / "f.txt"
+    f.write_text("hello\n")
+    result = await dispatch_tool(
+        "grep", {"pattern": "HELLO", "path": str(f), "case_insensitive": True}
+    )
+    data = json.loads(result)
+    assert data["match_count"] >= 1
+
+
+@pytest.mark.anyio
+async def test_dispatch_edit_file_default_replace_all_false(tmp_path):
+    """Default replace_all=False — ambiguous match returns AmbiguousMatch."""
+    f = tmp_path / "f.txt"
+    f.write_text("a a a")
+    result = await dispatch_tool(
+        "edit_file", {"file_path": str(f), "old_string": "a", "new_string": "b"}
+    )
+    data = json.loads(result)
+    assert data["success"] is False
+    assert data["error"] == "AmbiguousMatch"
+
+
+@pytest.mark.anyio
+async def test_dispatch_grep_max_results_clamped(tmp_path):
+    """max_results > GREP_MAX_RESULTS must be clamped."""
+    from mymcp import config
+
+    with patch("mymcp.mcp_server.grep_files") as mock_grep:
+        mock_grep.return_value = {"results": "", "match_count": 0}
+        await dispatch_tool("grep", {"pattern": "x", "path": str(tmp_path), "max_results": 999_999})
+        assert mock_grep.call_args.kwargs["max_results"] == config.GREP_MAX_RESULTS
+
+
+@pytest.mark.anyio
+async def test_dispatch_unknown_tool_exact_error():
+    """UnknownTool error message must include the requested tool name."""
+    result = await dispatch_tool("totally_made_up_tool", {})
+    data = json.loads(result)
+    assert data["success"] is False
+    assert data["error"] == "UnknownTool"
+    assert "totally_made_up_tool" in data["message"]
+
+
+@pytest.mark.anyio
+async def test_dispatch_server_overview_disabled_when_no_supervisor():
+    """No supervisor → RecorderDisabled with exact error code."""
+    import mymcp.mcp_server as mcp
+
+    saved = mcp._recorder_supervisor
+    mcp._recorder_supervisor = None
+    try:
+        result = await dispatch_tool("server_overview", {})
+        data = json.loads(result)
+        assert data["success"] is False
+        assert data["error"] == "RecorderDisabled"
+    finally:
+        mcp._recorder_supervisor = saved
+
+
+# ---------------------------------------------------------------------------
+# call_tool — output_payload assembly (kills bash/write/edit branches)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_call_tool_bash_ok_audit_output_has_stdout_and_exit_code(set_audit_info):
+    """bash_execute success → output_payload carries exit_code and timed_out=False."""
+    with patch("mymcp.mcp_server.log_tool_call") as mock_log:
+        await call_tool("bash_execute", {"command": "echo hello"})
+        kwargs = mock_log.call_args.kwargs
+        assert kwargs["result"] == "ok"
+        payload = kwargs["output"]
+        assert payload is not None
+        assert payload["exit_code"] == 0
+        assert payload["timed_out"] is False
+
+
+@pytest.mark.anyio
+async def test_call_tool_write_file_audit_output_records_path_and_size(set_audit_info, tmp_path):
+    """write_file success → output_payload carries the path/size."""
+    target = str(tmp_path / "w.txt")
+    with patch("mymcp.mcp_server.log_tool_call") as mock_log:
+        await call_tool("write_file", {"file_path": target, "content": "abc"})
+        kwargs = mock_log.call_args.kwargs
+        assert kwargs["result"] == "ok"
+        assert kwargs["output"] is not None
+        # write_file_output structure includes the path & bytes
+        assert target in json.dumps(kwargs["output"])
+
+
+@pytest.mark.anyio
+async def test_call_tool_edit_file_audit_output_reports_hunk_count(set_audit_info, tmp_path):
+    """edit_file success → hunk_count == replacements."""
+    f = tmp_path / "e.txt"
+    f.write_text("foo bar")
+    with patch("mymcp.mcp_server.log_tool_call") as mock_log:
+        await call_tool(
+            "edit_file",
+            {"file_path": str(f), "old_string": "foo", "new_string": "baz"},
+        )
+        kwargs = mock_log.call_args.kwargs
+        assert kwargs["result"] == "ok"
+        assert kwargs["output"]["hunk_count"] == 1
+
+
+@pytest.mark.anyio
+async def test_call_tool_bash_stderr_truncated_to_200(set_audit_info):
+    """Long stderr from non-zero bash is truncated to 200 chars in audit log."""
+    long_stderr = "x" * 500
+    fake_result = json.dumps(
+        {"stdout": "", "stderr": long_stderr, "exit_code": 7, "timed_out": False}
+    )
+    with (
+        patch("mymcp.mcp_server.dispatch_tool", return_value=fake_result),
+        patch("mymcp.mcp_server.log_tool_call") as mock_log,
+    ):
+        await call_tool("bash_execute", {"command": "x"})
+        kwargs = mock_log.call_args.kwargs
+        assert kwargs["error_code"] == "ExitCode:7"
+        assert len(kwargs["error_message"]) == 200
+
+
+@pytest.mark.anyio
+async def test_call_tool_read_only_role_blocked_from_write(set_ro_audit_info):
+    """ro role must be blocked from write_file — message must name the tool + 'rw'."""
+    results = await call_tool("write_file", {"file_path": "/tmp/x", "content": "y"})
+    data = json.loads(results[0].text)
+    assert data["error"] == "PermissionDenied"
+    assert "write_file" in data["message"]
+    assert "rw" in data["message"]
+
+
+@pytest.mark.anyio
+async def test_call_tool_unknown_tool_via_call_tool_path(set_audit_info):
+    """Unknown tool name routed through call_tool returns PermissionDenied
+    (since unknown tools are not in ALL_TOOLS, check_tool_permission rejects them)."""
+    results = await call_tool("not_a_tool", {})
+    data = json.loads(results[0].text)
+    assert data["error"] == "PermissionDenied"
+    assert "Unknown tool" in data["message"]
