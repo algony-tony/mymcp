@@ -568,3 +568,226 @@ async def test_grep_rg_timeout(tmp_path):
         result = await grep_files("pattern", path=str(tmp_path))
     assert result["success"] is False
     assert result["error"] == "TimeoutError"
+
+
+# ---------------------------------------------------------------------------
+# Mutation killers — boundary / format / default-value tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_read_file_content_line_format(tmp_path):
+    """Each output line is exactly '%4d\\t<content>' — pin the format string."""
+    f = tmp_path / "fmt.txt"
+    f.write_text("alpha\nbeta\n")
+    result = await read_file(str(f))
+    lines = result["content"].split("\n")
+    # Right-aligned 4-wide, then tab, then content
+    assert lines[0] == "   1\talpha"
+    assert lines[1] == "   2\tbeta"
+
+
+@pytest.mark.anyio
+async def test_read_file_offset_zero_treated_as_one(tmp_path):
+    """offset=0 must be raised to 1 (kills `max(1, offset)` → `max(0, offset)`)."""
+    f = tmp_path / "f.txt"
+    f.write_text("a\nb\nc\n")
+    result = await read_file(str(f), offset=0)
+    assert result["content"].startswith("   1\ta")
+
+
+@pytest.mark.anyio
+async def test_read_file_limit_zero_treated_as_one(tmp_path):
+    """limit=0 must be raised to 1; returns exactly one line."""
+    f = tmp_path / "f.txt"
+    f.write_text("a\nb\nc\n")
+    result = await read_file(str(f), limit=0)
+    assert result["content"] == "   1\ta"
+
+
+@pytest.mark.anyio
+async def test_read_file_truncated_boundary(tmp_path):
+    """truncated is True iff (offset-1+limit) < total_lines.
+
+    Exactly reading to the last line must have truncated=False.
+    """
+    f = tmp_path / "f.txt"
+    f.write_text("a\nb\nc\n")  # 3 lines
+    # offset=1, limit=3 → covers all → not truncated
+    full = await read_file(str(f), offset=1, limit=3)
+    assert full["truncated"] is False
+    # offset=1, limit=2 → 2 lines remain → truncated
+    partial = await read_file(str(f), offset=1, limit=2)
+    assert partial["truncated"] is True
+
+
+@pytest.mark.anyio
+async def test_read_file_missing_includes_path_and_suggestion(tmp_path):
+    """FileNotFoundError response must include path + a suggestion field."""
+    bad = str(tmp_path / "nope.txt")
+    result = await read_file(bad)
+    assert result["success"] is False
+    assert result["error"] == "FileNotFoundError"
+    assert bad in result["message"]
+    assert "suggestion" in result
+
+
+@pytest.mark.anyio
+async def test_read_file_is_a_directory(tmp_path):
+    """Reading a directory returns IsADirectoryError with the path."""
+    result = await read_file(str(tmp_path))
+    assert result["success"] is False
+    assert result["error"] == "IsADirectoryError"
+    assert str(tmp_path) in result["message"]
+
+
+@pytest.mark.anyio
+async def test_write_file_bytes_written_counts_utf8_bytes(tmp_path):
+    """bytes_written must reflect UTF-8 byte length, not character count."""
+    f = tmp_path / "u.txt"
+    # 中 = 3 bytes UTF-8
+    result = await write_file(str(f), "中")
+    assert result["success"] is True
+    assert result["bytes_written"] == 3
+
+
+@pytest.mark.anyio
+async def test_write_file_too_large_returns_error(tmp_path):
+    """Content over WRITE_FILE_MAX_BYTES returns FileTooLarge with exact byte counts."""
+    from mymcp import config
+
+    f = tmp_path / "huge.txt"
+    big = "x" * (config.WRITE_FILE_MAX_BYTES + 1)
+    result = await write_file(str(f), big)
+    assert result["success"] is False
+    assert result["error"] == "FileTooLarge"
+    assert str(len(big)) in result["message"]
+    assert "suggestion" in result
+
+
+@pytest.mark.anyio
+async def test_edit_file_replacements_count(tmp_path):
+    """replace_all=True returns exact replacements count."""
+    f = tmp_path / "e.txt"
+    f.write_text("a a a a a")
+    result = await edit_file(str(f), "a", "b", replace_all=True)
+    assert result["success"] is True
+    assert result["replacements"] == 5
+    assert f.read_text() == "b b b b b"
+
+
+@pytest.mark.anyio
+async def test_edit_file_single_replacement_when_unique(tmp_path):
+    """Unique old_string with replace_all=False → replacements=1."""
+    f = tmp_path / "e.txt"
+    f.write_text("the only one")
+    result = await edit_file(str(f), "only", "best")
+    assert result["success"] is True
+    assert result["replacements"] == 1
+    assert f.read_text() == "the best one"
+
+
+@pytest.mark.anyio
+async def test_edit_file_ambiguous_message_has_count(tmp_path):
+    """AmbiguousMatch message includes the exact match count."""
+    f = tmp_path / "e.txt"
+    f.write_text("x x x")
+    result = await edit_file(str(f), "x", "y")
+    assert result["error"] == "AmbiguousMatch"
+    assert "3" in result["message"]
+    assert "replace_all" in result["message"]
+
+
+@pytest.mark.anyio
+async def test_edit_file_string_not_found_returns_specific_error(tmp_path):
+    f = tmp_path / "e.txt"
+    f.write_text("hello")
+    result = await edit_file(str(f), "missing", "x")
+    assert result["success"] is False
+    assert result["error"] == "StringNotFound"
+
+
+@pytest.mark.anyio
+async def test_glob_files_sorted_by_mtime_descending(tmp_path):
+    """glob must sort newest mtime first."""
+    import os
+    import time
+
+    old = tmp_path / "old.txt"
+    new = tmp_path / "new.txt"
+    old.write_text("o")
+    time.sleep(0.05)
+    new.write_text("n")
+    # Force mtime ordering deterministically
+    os.utime(str(old), (1000, 1000))
+    os.utime(str(new), (2000, 2000))
+
+    result = await glob_files("*.txt", path=str(tmp_path))
+    assert result["files"][0].endswith("new.txt")
+    assert result["files"][1].endswith("old.txt")
+
+
+@pytest.mark.anyio
+async def test_glob_truncated_field(tmp_path):
+    """When matches > GLOB_MAX_RESULTS, truncated=True and files cap at the limit."""
+    from mymcp import config
+
+    n = config.GLOB_MAX_RESULTS + 5
+    for i in range(n):
+        (tmp_path / f"f{i}.txt").write_text("")
+    result = await glob_files("*.txt", path=str(tmp_path))
+    assert result["count"] == n
+    assert result["truncated"] is True
+    assert len(result["files"]) == config.GLOB_MAX_RESULTS
+
+
+@pytest.mark.anyio
+async def test_grep_python_output_mode_files(tmp_path):
+    """output_mode='files' returns filename-only matches (no line numbers)."""
+    (tmp_path / "a.txt").write_text("hello\n")
+    (tmp_path / "b.txt").write_text("goodbye\n")
+    with patch("shutil.which", return_value=None):  # force python fallback
+        result = await grep_files("hello", path=str(tmp_path), output_mode="files")
+    assert result["match_count"] == 1
+    # files mode → no ':lineno:' separator
+    assert ":1:" not in result["results"]
+    assert "a.txt" in result["results"]
+    assert "b.txt" not in result["results"]
+
+
+@pytest.mark.anyio
+async def test_grep_python_output_mode_count(tmp_path):
+    """output_mode='count' returns 'path: N' format with exact match counts."""
+    (tmp_path / "a.txt").write_text("x\nx\nx\n")
+    with patch("shutil.which", return_value=None):
+        result = await grep_files("x", path=str(tmp_path), output_mode="count")
+    assert ": 3" in result["results"]
+
+
+@pytest.mark.anyio
+async def test_grep_python_case_sensitive_vs_insensitive(tmp_path):
+    (tmp_path / "a.txt").write_text("HELLO world\n")
+    with patch("shutil.which", return_value=None):
+        sensitive = await grep_files("hello", path=str(tmp_path))
+        insensitive = await grep_files("hello", path=str(tmp_path), case_insensitive=True)
+    assert sensitive["match_count"] == 0
+    assert insensitive["match_count"] == 1
+
+
+@pytest.mark.anyio
+async def test_grep_python_invalid_regex_returns_specific_error(tmp_path):
+    with patch("shutil.which", return_value=None):
+        result = await grep_files("[unclosed", path=str(tmp_path))
+    assert result["success"] is False
+    assert result["error"] == "InvalidRegex"
+
+
+@pytest.mark.anyio
+async def test_grep_truncation_message_has_extra_count(tmp_path):
+    """When matches > max_results, TRUNCATED message reports `total - max_results`."""
+    f = tmp_path / "many.txt"
+    f.write_text("\n".join(["hit"] * 10))
+    with patch("shutil.which", return_value=None):
+        result = await grep_files("hit", path=str(f), max_results=3)
+    assert result["match_count"] == 10
+    assert "[TRUNCATED: 7 more matches not shown]" in result["results"]
