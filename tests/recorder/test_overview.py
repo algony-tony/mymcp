@@ -1,4 +1,4 @@
-from mymcp.recorder.overview import OverviewStore
+from mymcp.recorder.overview import OverviewStore, apply_section_updates, parse_sections
 
 
 def test_write_overview_atomic(tmp_path):
@@ -79,3 +79,56 @@ def test_data_dir_created_lazily(tmp_path):
     assert target.exists()
     s.write_overview("hi")
     assert (target / "overview.md").exists()
+
+
+def test_parse_sections_splits_at_h2_headers():
+    text = (
+        "# Server Overview\n"
+        "_meta_\n"
+        "\n"
+        "## TL;DR\n"
+        "Short summary.\n"
+        "\n"
+        "## Installed Services\n"
+        "- nginx\n"
+        "- redis\n"
+    )
+    header, sections = parse_sections(text)
+    assert "# Server Overview" in header and "_meta_" in header
+    assert [name for name, _ in sections] == ["TL;DR", "Installed Services"]
+    assert sections[0][1] == "Short summary."
+    assert "nginx" in sections[1][1] and "redis" in sections[1][1]
+
+
+def test_parse_sections_no_header_block():
+    header, sections = parse_sections("## Only Section\nbody\n")
+    assert header == ""
+    assert sections == [("Only Section", "body")]
+
+
+def test_parse_sections_empty_input():
+    assert parse_sections("") == ("", [])
+
+
+def test_apply_section_updates_replaces_only_listed_sections():
+    current = "# H\n_m_\n\n## TL;DR\nKeep me.\n\n## Known Quirks\n- preserve\n"
+    result = apply_section_updates(current, header=None, section_updates={"TL;DR": "Updated."})
+    assert "Keep me." not in result
+    assert "Updated." in result
+    assert "preserve" in result
+    assert "_m_" in result  # header preserved when header=None
+
+
+def test_apply_section_updates_appends_new_sections_at_end():
+    current = "# H\n\n## A\nfoo\n"
+    result = apply_section_updates(current, header=None, section_updates={"B": "bar"})
+    assert result.index("## A") < result.index("## B")
+    assert "foo" in result and "bar" in result
+
+
+def test_apply_section_updates_overrides_header_when_given():
+    current = "# Old\n_old_\n\n## TL;DR\nx\n"
+    result = apply_section_updates(current, header="# New\n_new_", section_updates={})
+    assert "Old" not in result
+    assert "New" in result and "_new_" in result
+    assert "## TL;DR" in result and "x" in result
