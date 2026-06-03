@@ -130,3 +130,54 @@ def test_anthropic_missing_sdk_raises_clear_error(monkeypatch):
 
     with pytest.raises(RuntimeError, match="recorder-anthropic"):
         AnthropicClient(api_key="x", model="x")
+
+
+@pytest.mark.anyio
+async def test_anthropic_json_schema_forces_tool_use(fake_anthropic):
+    from mymcp.recorder.llm.anthropic_client import AnthropicClient
+
+    block = MagicMock()
+    block.type = "tool_use"
+    block.id = "tu1"
+    block.name = "emit_merge_output"
+    block.input = {"foo": "bar"}
+    resp = MagicMock()
+    resp.content = [block]
+    resp.stop_reason = "tool_use"
+    resp.usage = MagicMock(input_tokens=10, output_tokens=5)
+    fake_anthropic.AsyncAnthropic.return_value.messages.create = AsyncMock(return_value=resp)
+
+    schema = {"type": "object", "properties": {"foo": {"type": "string"}}}
+    c = AnthropicClient(api_key="x", model="claude-test")
+    result = await c.call(
+        system="s",
+        messages=[Message(role="user", content="hi")],
+        max_tokens=100,
+        json_schema=schema,
+    )
+    kwargs = fake_anthropic.AsyncAnthropic.return_value.messages.create.call_args.kwargs
+    assert kwargs["tools"][0]["name"] == "emit_merge_output"
+    assert kwargs["tools"][0]["input_schema"] == schema
+    assert kwargs["tool_choice"] == {"type": "tool", "name": "emit_merge_output"}
+    assert result.tool_uses[0].input == {"foo": "bar"}
+    assert result.text == ""
+
+
+@pytest.mark.anyio
+async def test_anthropic_no_json_schema_omits_tool_choice(fake_anthropic):
+    from mymcp.recorder.llm.anthropic_client import AnthropicClient
+
+    block = MagicMock()
+    block.type = "text"
+    block.text = "plain output"
+    resp = MagicMock()
+    resp.content = [block]
+    resp.stop_reason = "end_turn"
+    resp.usage = MagicMock(input_tokens=1, output_tokens=1)
+    fake_anthropic.AsyncAnthropic.return_value.messages.create = AsyncMock(return_value=resp)
+
+    c = AnthropicClient(api_key="x", model="claude-test")
+    await c.call(system="s", messages=[Message(role="user", content="hi")], max_tokens=10)
+    kwargs = fake_anthropic.AsyncAnthropic.return_value.messages.create.call_args.kwargs
+    assert "tool_choice" not in kwargs
+    assert "tools" not in kwargs
