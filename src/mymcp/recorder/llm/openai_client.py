@@ -26,7 +26,7 @@ _FINISH_REASON_MAP: dict[str, str] = {
 
 def _import_sdk() -> Any:
     try:
-        import openai  # type: ignore[import-not-found]
+        import openai  # type: ignore[import-not-found, unused-ignore]
     except ImportError as e:
         raise RuntimeError(
             "openai SDK not installed. Install with: pip install 'algony-mymcp[recorder-openai]'"
