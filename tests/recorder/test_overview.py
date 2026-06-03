@@ -1,4 +1,9 @@
-from mymcp.recorder.overview import OverviewStore, apply_section_updates, parse_sections
+from mymcp.recorder.overview import (
+    OverviewStore,
+    apply_section_updates,
+    parse_sections,
+    render_recent_changes,
+)
 
 
 def test_write_overview_atomic(tmp_path):
@@ -132,3 +137,31 @@ def test_apply_section_updates_overrides_header_when_given():
     assert "Old" not in result
     assert "New" in result and "_new_" in result
     assert "## TL;DR" in result and "x" in result
+
+
+def test_render_recent_changes_newest_first():
+    tail = [
+        "2026-06-01 10:00 | bash_execute | installed nginx",
+        "2026-06-02 11:00 | write_file | wrote /etc/foo",
+        "2026-06-03 12:00 | bash_execute | restarted nginx",
+    ]
+    out = render_recent_changes(tail)
+    lines = out.splitlines()
+    assert lines[0] == "- 2026-06-03 12:00 | bash_execute | restarted nginx"
+    assert lines[1] == "- 2026-06-02 11:00 | write_file | wrote /etc/foo"
+    assert lines[2] == "- 2026-06-01 10:00 | bash_execute | installed nginx"
+    assert lines[-1] == "_Full changelog: changelog.md (use read_file)_"
+
+
+def test_render_recent_changes_empty():
+    out = render_recent_changes([])
+    assert "_Full changelog:" in out
+    assert not any(line.startswith("- ") for line in out.splitlines())
+
+
+def test_render_recent_changes_caps_at_10():
+    tail = [f"2026-06-{i:02d} 10:00 | bash_execute | event {i}" for i in range(1, 16)]
+    out = render_recent_changes(tail)
+    bullet_lines = [line for line in out.splitlines() if line.startswith("- ")]
+    assert len(bullet_lines) == 10
+    assert "event 15" in bullet_lines[0]

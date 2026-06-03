@@ -74,6 +74,21 @@ def apply_section_updates(
     return "\n\n".join(parts).rstrip("\n") + "\n"
 
 
+def render_recent_changes(changelog_tail: list[str], *, limit: int = 10) -> str:
+    """Render the 'Recent Changes' section body from changelog lines.
+
+    changelog_tail is expected in file order (oldest first). Output is
+    newest-first, capped at ``limit`` entries, with a trailing pointer to
+    the full changelog.
+    """
+    newest_first = list(reversed(changelog_tail))[:limit]
+    bullets = [f"- {line}" for line in newest_first]
+    footer = "_Full changelog: changelog.md (use read_file)_"
+    if bullets:
+        return "\n".join(bullets) + "\n" + footer
+    return footer
+
+
 class OverviewStore:
     def __init__(self, data_dir: Path):
         self._dir = Path(data_dir)
