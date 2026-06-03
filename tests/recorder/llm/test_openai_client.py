@@ -140,3 +140,66 @@ def test_openai_missing_sdk_raises_clear_error(monkeypatch):
 
     with pytest.raises(RuntimeError, match="recorder-openai"):
         OpenAIClient(api_key="x", model="x")
+
+
+@pytest.mark.anyio
+async def test_openai_json_schema_sets_response_format(fake_openai):
+    from mymcp.recorder.llm.openai_client import OpenAIClient
+
+    schema = {"type": "object", "properties": {"x": {"type": "string"}}}
+    c = OpenAIClient(api_key="x", model="m")
+    await c.call(
+        system="output JSON",
+        messages=[Message(role="user", content="hi")],
+        max_tokens=10,
+        json_schema=schema,
+    )
+    kwargs = fake_openai.AsyncOpenAI.return_value.chat.completions.create.call_args.kwargs
+    assert kwargs["response_format"]["type"] == "json_schema"
+    assert kwargs["response_format"]["json_schema"]["schema"] == schema
+    assert kwargs["response_format"]["json_schema"]["strict"] is True
+    assert kwargs["response_format"]["json_schema"]["name"]
+
+
+@pytest.mark.anyio
+async def test_openai_no_json_schema_omits_response_format(fake_openai):
+    from mymcp.recorder.llm.openai_client import OpenAIClient
+
+    c = OpenAIClient(api_key="x", model="m")
+    await c.call(system="s", messages=[Message(role="user", content="hi")], max_tokens=10)
+    kwargs = fake_openai.AsyncOpenAI.return_value.chat.completions.create.call_args.kwargs
+    assert "response_format" not in kwargs
+
+
+@pytest.mark.anyio
+async def test_openai_json_schema_falls_back_to_json_object_on_rejection(fake_openai, monkeypatch):
+    """DeepSeek and other OpenAI-compat providers don't always support
+    strict json_schema. Detect SDK rejection and retry with json_object."""
+    from mymcp.recorder.llm.openai_client import OpenAIClient
+
+    call_count = {"n": 0}
+
+    async def fake_create(**kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            assert kwargs["response_format"]["type"] == "json_schema"
+            raise TypeError("response_format.type 'json_schema' not supported")
+        assert kwargs["response_format"] == {"type": "json_object"}
+        from unittest.mock import MagicMock
+
+        resp = MagicMock()
+        msg = MagicMock(content='{"ok": true}', tool_calls=None)
+        resp.choices = [MagicMock(message=msg, finish_reason="stop")]
+        resp.usage = MagicMock(prompt_tokens=1, completion_tokens=1)
+        return resp
+
+    fake_openai.AsyncOpenAI.return_value.chat.completions.create = fake_create
+    c = OpenAIClient(api_key="x", model="m")
+    resp = await c.call(
+        system="JSON only",
+        messages=[Message(role="user", content="hi")],
+        max_tokens=10,
+        json_schema={"type": "object"},
+    )
+    assert call_count["n"] == 2
+    assert resp.text == '{"ok": true}'

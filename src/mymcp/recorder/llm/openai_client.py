@@ -62,18 +62,40 @@ class OpenAIClient:
         messages: list[Message],
         tools: list[ToolSchema] | None = None,
         max_tokens: int = 4096,
+        json_schema: dict | None = None,
     ) -> LLMResponse:
         sdk_messages: list[dict[str, Any]] = [{"role": "system", "content": system}]
         for m in messages:
             sdk_messages.extend(self._to_sdk_messages(m))
-        kwargs: dict[str, Any] = {
+        base_kwargs: dict[str, Any] = {
             "model": self._model,
             "messages": sdk_messages,
             "max_tokens": max_tokens,
         }
         if tools:
-            kwargs["tools"] = [self._to_sdk_tool(t) for t in tools]
-        resp = await self._client.chat.completions.create(**kwargs)
+            base_kwargs["tools"] = [self._to_sdk_tool(t) for t in tools]
+
+        if json_schema is None:
+            resp = await self._client.chat.completions.create(**base_kwargs)
+            return self._from_sdk_response(resp)
+
+        # Prefer Structured Outputs (strict json_schema); fall back to
+        # json_object mode for providers that don't support it yet (DeepSeek).
+        strict_kwargs = dict(base_kwargs)
+        strict_kwargs["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "merge_output",
+                "schema": json_schema,
+                "strict": True,
+            },
+        }
+        try:
+            resp = await self._client.chat.completions.create(**strict_kwargs)
+        except TypeError:
+            loose_kwargs = dict(base_kwargs)
+            loose_kwargs["response_format"] = {"type": "json_object"}
+            resp = await self._client.chat.completions.create(**loose_kwargs)
         return self._from_sdk_response(resp)
 
     @staticmethod
