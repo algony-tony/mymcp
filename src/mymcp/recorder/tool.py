@@ -22,16 +22,34 @@ def server_overview_handler(
     schedule_bootstrap: Callable[[], None],
     stale_seconds: float | None = None,
     last_error: str | None = None,
+    circuit_open: bool = False,
 ) -> str:
     overview = store.read_overview()
     if overview is None:
         schedule_bootstrap()
         return _STUB_TEMPLATE.format(changelog=str(store.changelog_path))
-    if (stale_seconds is not None and stale_seconds > 0) or last_error:
-        minutes = int((stale_seconds or 0) / 60) if stale_seconds else 0
-        banner = f"_⚠️ overview is {minutes} minutes stale"
-        if last_error:
-            banner += f": {last_error}"
-        banner += "_\n\n"
+    banner = _build_banner(
+        stale_seconds=stale_seconds, last_error=last_error, circuit_open=circuit_open
+    )
+    if banner:
         return banner + overview
     return overview
+
+
+def _build_banner(
+    *, stale_seconds: float | None, last_error: str | None, circuit_open: bool
+) -> str:
+    if circuit_open:
+        msg = "⛔ recorder paused after repeated merge failures; restart service to retry"
+        if last_error:
+            msg += f". Last error: {last_error}"
+        return f"_{msg}_\n\n"
+    if stale_seconds is not None and stale_seconds > 0:
+        minutes = int(stale_seconds / 60)
+        msg = f"⚠️ overview is {minutes} minutes stale"
+        if last_error:
+            msg += f": {last_error}"
+        return f"_{msg}_\n\n"
+    if last_error:
+        return f"_⚠️ last merge cycle failed: {last_error}_\n\n"
+    return ""

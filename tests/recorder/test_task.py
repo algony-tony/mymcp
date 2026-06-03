@@ -132,3 +132,107 @@ async def test_supervisor_records_error_on_failure(tmp_path):
     err = sup.status().last_error
     assert err is not None
     assert "api 500" in err
+
+
+@pytest.mark.anyio
+async def test_supervisor_opens_circuit_after_consecutive_failures(tmp_path):
+    """After threshold consecutive merge failures, supervisor must stop calling
+    the LLM. Each failure on the same poisoned event batch burns API quota
+    forever otherwise."""
+    import json
+
+    # Seed an existing overview so we skip bootstrap and go straight to merge.
+    store = OverviewStore(tmp_path / "overview")
+    store.write_overview("# Server Overview\n\n## TL;DR\nok\n")
+    # Write at least one event so merge actually calls the LLM each cycle.
+    audit = json.dumps(
+        {
+            "ts": "2026-05-29T10:00:00Z",
+            "result": "ok",
+            "tool": "bash_execute",
+            "params": {"command": "ls"},
+            "output": {"stdout_head": "x"},
+        }
+    )
+    (tmp_path / "audit.log").write_text(audit + "\n")
+    tailer = EventTailer(log_dir=tmp_path, cursor_path=tmp_path / "cursor.json")
+    fake = AsyncMock()
+    # Always returns garbage → ValueError in _parse_response every cycle
+    fake.call = AsyncMock(return_value=_end("not json at all"))
+    bootstrapper = Bootstrapper(client=fake, store=store, max_iterations=2)
+    merge_cycle = MergeCycle(
+        client=fake, tailer=tailer, store=store, max_events_per_cycle=10, require_bootstrap=True
+    )
+    sup = RecorderSupervisor(
+        merge_cycle=merge_cycle,
+        bootstrapper=bootstrapper,
+        merge_interval_sec=0.01,
+        circuit_breaker_threshold=3,
+    )
+    # Patch backoff so failures don't wait 30s+ between retries.
+    sup._backoff = 0.01
+    sup._max_backoff = 0.01
+    task = asyncio.create_task(sup.run())
+    for _ in range(200):
+        if sup.status().circuit_open:
+            break
+        await asyncio.sleep(0.02)
+    sup.shutdown()
+    await asyncio.wait_for(task, timeout=2)
+    status = sup.status()
+    assert status.circuit_open is True
+    assert status.consecutive_failures >= 3
+    # After the circuit opens, no further calls happen even if the loop spins.
+    calls_when_opened = fake.call.call_count
+    await asyncio.sleep(0.05)
+    assert fake.call.call_count == calls_when_opened
+
+
+@pytest.mark.anyio
+async def test_supervisor_clears_failure_count_on_success(tmp_path):
+    """A successful cycle resets consecutive_failures so a single hiccup
+    doesn't accumulate forever."""
+    import json
+
+    store = OverviewStore(tmp_path / "overview")
+    store.write_overview("# Server Overview\n\n## TL;DR\nok\n")
+    audit = json.dumps(
+        {
+            "ts": "2026-05-29T10:00:00Z",
+            "result": "ok",
+            "tool": "bash_execute",
+            "params": {"command": "ls"},
+            "output": {"stdout_head": "x"},
+        }
+    )
+    (tmp_path / "audit.log").write_text(audit + "\n")
+    tailer = EventTailer(log_dir=tmp_path, cursor_path=tmp_path / "cursor.json")
+    fake = AsyncMock()
+    fake.call = AsyncMock(
+        side_effect=[
+            _end("not json at all"),  # fail
+            _end('{"new_changelog_lines": [], "section_updates": {"TL;DR": "ok2"}}'),  # success
+        ]
+    )
+    bootstrapper = Bootstrapper(client=fake, store=store, max_iterations=2)
+    merge_cycle = MergeCycle(
+        client=fake, tailer=tailer, store=store, max_events_per_cycle=10, require_bootstrap=True
+    )
+    sup = RecorderSupervisor(
+        merge_cycle=merge_cycle,
+        bootstrapper=bootstrapper,
+        merge_interval_sec=0.01,
+        circuit_breaker_threshold=10,
+    )
+    sup._backoff = 0.01
+    sup._max_backoff = 0.01
+    task = asyncio.create_task(sup.run())
+    for _ in range(200):
+        if "ok2" in (store.read_overview() or ""):
+            break
+        await asyncio.sleep(0.02)
+    sup.shutdown()
+    await asyncio.wait_for(task, timeout=2)
+    status = sup.status()
+    assert status.circuit_open is False
+    assert status.consecutive_failures == 0

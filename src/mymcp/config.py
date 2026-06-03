@@ -91,6 +91,16 @@ class Settings(BaseSettings):
     recorder_llm_model: str | None = Field(default=None)
     recorder_llm_api_key: str | None = Field(default=None)
     recorder_llm_base_url: str | None = Field(default=None)
+    # Per-call ceiling for LLM output. Must be ≤ the chosen model's own max
+    # output (Claude Haiku 4.5: 64k, Sonnet 4.6: 64k, Opus 4.8: 128k,
+    # GPT-5.x: 128k, DeepSeek v4: 384k); the API rejects values above the
+    # model's limit. 16384 is a safe cross-provider default with plenty of
+    # headroom over the recorder's typical ~1-2k tokens output.
+    recorder_llm_max_tokens: int = Field(default=16384)
+    # Recorder pauses LLM calls after this many consecutive merge_cycle
+    # failures (e.g. persistent unparseable JSON). Restart the service to
+    # resume. 0 disables the circuit breaker.
+    recorder_circuit_breaker_threshold: int = Field(default=5)
 
     # T1 truncation knobs
     audit_output_bash_head_bytes: int = Field(default=4096)
@@ -161,6 +171,8 @@ _LEGACY_ATTRS = {
     "RECORDER_LLM_MODEL": "recorder_llm_model",
     "RECORDER_LLM_API_KEY": "recorder_llm_api_key",
     "RECORDER_LLM_BASE_URL": "recorder_llm_base_url",
+    "RECORDER_LLM_MAX_TOKENS": "recorder_llm_max_tokens",
+    "RECORDER_CIRCUIT_BREAKER_THRESHOLD": "recorder_circuit_breaker_threshold",
     "AUDIT_OUTPUT_BASH_HEAD_BYTES": "audit_output_bash_head_bytes",
     "AUDIT_OUTPUT_BASH_TAIL_BYTES": "audit_output_bash_tail_bytes",
 }

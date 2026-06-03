@@ -57,3 +57,36 @@ def test_stub_does_not_schedule_when_callback_is_noop(tmp_path):
     store = OverviewStore(tmp_path)
     result = server_overview_handler(store=store, schedule_bootstrap=lambda: None)
     assert "not initialized" in result.lower()
+
+
+def test_banner_shows_error_without_misleading_zero_minutes_stale(tmp_path):
+    """When stale_seconds is None (merge ran recently) but last_error is set,
+    show the actual error — not the confusing '0 minutes stale' wording the
+    previous logic emitted."""
+    store = OverviewStore(tmp_path)
+    store.write_overview("# Server Overview\n")
+    result = server_overview_handler(
+        store=store,
+        schedule_bootstrap=lambda: None,
+        stale_seconds=None,
+        last_error="Unterminated string",
+    )
+    assert "0 minutes stale" not in result
+    assert "last merge cycle failed" in result
+    assert "Unterminated string" in result
+
+
+def test_banner_shows_circuit_open_state(tmp_path):
+    """Circuit-open state takes precedence and tells the user how to recover."""
+    store = OverviewStore(tmp_path)
+    store.write_overview("# Server Overview\n")
+    result = server_overview_handler(
+        store=store,
+        schedule_bootstrap=lambda: None,
+        stale_seconds=None,
+        last_error="LLM returned unparseable JSON",
+        circuit_open=True,
+    )
+    assert "paused" in result.lower()
+    assert "restart" in result.lower()
+    assert "unparseable JSON" in result

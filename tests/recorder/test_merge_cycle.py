@@ -53,7 +53,7 @@ async def test_merge_with_events_writes_overview_and_changelog(tmp_path):
         return_value=_fake_response(
             {
                 "new_changelog_lines": ["2026-05-29 10:00 | bash_execute | installed nginx"],
-                "updated_overview_md": "# Server Overview\n\n## Installed Services\n- nginx\n",
+                "section_updates": {"Installed Services": "- nginx"},
             }
         )
     )
@@ -66,8 +66,14 @@ async def test_merge_with_events_writes_overview_and_changelog(tmp_path):
     assert result.tokens_out == 20
     overview = store.read_overview() or ""
     assert "nginx" in overview
+    # Untouched section should be preserved.
+    assert "Fresh." in overview
+    # Header is rewritten by Python with current metadata.
+    assert "_Last updated:" in overview
     tail = store.read_changelog_tail(5)
     assert tail and "installed nginx" in tail[-1]
+    # json_mode should be requested for structured output.
+    assert fake.call.call_args.kwargs["json_mode"] is True
 
 
 @pytest.mark.anyio
@@ -137,7 +143,7 @@ async def test_merge_unparseable_json_raises_and_does_not_advance(tmp_path):
         return_value=_fake_response(
             {
                 "new_changelog_lines": ["2026-05-29 10:00 | write_file | wrote /x"],
-                "updated_overview_md": "# New\n",
+                "section_updates": {"TL;DR": "ok"},
             }
         )
     )
@@ -160,7 +166,7 @@ async def test_merge_parses_code_fenced_json(tmp_path):
         + json.dumps(
             {
                 "new_changelog_lines": ["2026-05-29 10:00 | bash_execute | did stuff"],
-                "updated_overview_md": "# Updated\n",
+                "section_updates": {"TL;DR": "Updated."},
             }
         )
         + "\n```"
@@ -177,7 +183,7 @@ async def test_merge_parses_code_fenced_json(tmp_path):
     cycle = MergeCycle(client=fake, tailer=tailer, store=store, max_events_per_cycle=10)
     result = await cycle.run_once()
     assert result.events_consumed == 1
-    assert store.read_overview() == "# Updated\n"
+    assert "Updated." in (store.read_overview() or "")
 
 
 @pytest.mark.anyio
@@ -196,8 +202,132 @@ async def test_merge_caps_events_per_cycle(tmp_path):
     tailer = EventTailer(log_dir=tmp_path, cursor_path=tmp_path / "cursor.json")
     fake = AsyncMock()
     fake.call = AsyncMock(
-        return_value=_fake_response({"new_changelog_lines": ["x"], "updated_overview_md": "# X\n"})
+        return_value=_fake_response({"new_changelog_lines": ["x"], "section_updates": {}})
     )
     cycle = MergeCycle(client=fake, tailer=tailer, store=store, max_events_per_cycle=5)
     result = await cycle.run_once()
     assert result.events_consumed == 5
+
+
+@pytest.mark.anyio
+async def test_merge_empty_response_raises(tmp_path):
+    """Empty LLM response is a known failure (rate limit, model refusal, etc.)
+    and must short-circuit before we try to parse half-JSON."""
+    _write_log(
+        tmp_path,
+        _audit_line(tool="bash_execute", params={"command": "ls"}, output={"stdout_head": "x"}),
+    )
+    store = OverviewStore(tmp_path / "overview")
+    store.write_overview("# Old\n")
+    tailer = EventTailer(log_dir=tmp_path, cursor_path=tmp_path / "cursor.json")
+    fake = AsyncMock()
+    fake.call = AsyncMock(
+        return_value=LLMResponse(
+            text="",
+            tool_uses=[],
+            stop_reason="end_turn",
+            usage=Usage(input_tokens=1, output_tokens=0),
+        )
+    )
+    cycle = MergeCycle(client=fake, tailer=tailer, store=store, max_events_per_cycle=10)
+    with pytest.raises(ValueError, match="empty"):
+        await cycle.run_once()
+    assert store.read_overview() == "# Old\n"  # untouched
+
+
+@pytest.mark.anyio
+async def test_merge_max_tokens_truncation_raises_early(tmp_path):
+    """When the LLM hits max_tokens, the response is truncated mid-JSON.
+    Detect via stop_reason and surface a clear actionable error instead of
+    a confusing 'Unterminated string' downstream."""
+    _write_log(
+        tmp_path,
+        _audit_line(tool="bash_execute", params={"command": "ls"}, output={"stdout_head": "x"}),
+    )
+    store = OverviewStore(tmp_path / "overview")
+    store.write_overview("# Old\n")
+    tailer = EventTailer(log_dir=tmp_path, cursor_path=tmp_path / "cursor.json")
+    fake = AsyncMock()
+    fake.call = AsyncMock(
+        return_value=LLMResponse(
+            text='{"new_changelog_lines": ["abc"], "section_updates": {"TL;DR": "long',
+            tool_uses=[],
+            stop_reason="max_tokens",
+            usage=Usage(input_tokens=100, output_tokens=4096),
+        )
+    )
+    cycle = MergeCycle(
+        client=fake, tailer=tailer, store=store, max_events_per_cycle=10, max_tokens=4096
+    )
+    with pytest.raises(ValueError, match="max_tokens"):
+        await cycle.run_once()
+    assert store.read_overview() == "# Old\n"
+
+
+@pytest.mark.anyio
+async def test_merge_passes_configured_max_tokens(tmp_path):
+    """max_tokens from config flows through to the LLM call."""
+    _write_log(
+        tmp_path,
+        _audit_line(tool="bash_execute", params={"command": "ls"}, output={"stdout_head": "x"}),
+    )
+    store = OverviewStore(tmp_path / "overview")
+    store.write_overview("# Old\n")
+    tailer = EventTailer(log_dir=tmp_path, cursor_path=tmp_path / "cursor.json")
+    fake = AsyncMock()
+    fake.call = AsyncMock(
+        return_value=_fake_response({"new_changelog_lines": [], "section_updates": {}})
+    )
+    cycle = MergeCycle(
+        client=fake, tailer=tailer, store=store, max_events_per_cycle=10, max_tokens=32768
+    )
+    await cycle.run_once()
+    assert fake.call.call_args.kwargs["max_tokens"] == 32768
+
+
+@pytest.mark.anyio
+async def test_merge_preserves_untouched_sections(tmp_path):
+    """Sections not mentioned in section_updates must keep their existing bodies."""
+    _write_log(
+        tmp_path,
+        _audit_line(tool="bash_execute", params={"command": "ls"}, output={"stdout_head": "x"}),
+    )
+    store = OverviewStore(tmp_path / "overview")
+    store.write_overview(
+        "# Server Overview\n\n## TL;DR\nKeep me.\n\n## Known Quirks\n- preserve this\n"
+    )
+    tailer = EventTailer(log_dir=tmp_path, cursor_path=tmp_path / "cursor.json")
+    fake = AsyncMock()
+    fake.call = AsyncMock(
+        return_value=_fake_response(
+            {
+                "new_changelog_lines": [],
+                "section_updates": {"Installed Services": "- nginx"},
+            }
+        )
+    )
+    cycle = MergeCycle(client=fake, tailer=tailer, store=store, max_events_per_cycle=10)
+    await cycle.run_once()
+    overview = store.read_overview() or ""
+    assert "Keep me." in overview
+    assert "preserve this" in overview
+    assert "nginx" in overview
+
+
+@pytest.mark.anyio
+async def test_merge_rejects_wrong_schema_types(tmp_path):
+    """Defensive parse: reject responses whose section_updates isn't an object."""
+    _write_log(
+        tmp_path,
+        _audit_line(tool="bash_execute", params={"command": "ls"}, output={"stdout_head": "x"}),
+    )
+    store = OverviewStore(tmp_path / "overview")
+    store.write_overview("# Old\n")
+    tailer = EventTailer(log_dir=tmp_path, cursor_path=tmp_path / "cursor.json")
+    fake = AsyncMock()
+    fake.call = AsyncMock(
+        return_value=_fake_response({"new_changelog_lines": [], "section_updates": ["wrong shape"]})
+    )
+    cycle = MergeCycle(client=fake, tailer=tailer, store=store, max_events_per_cycle=10)
+    with pytest.raises(ValueError, match="section_updates"):
+        await cycle.run_once()

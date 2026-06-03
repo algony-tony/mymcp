@@ -354,6 +354,7 @@ async def dispatch_tool(name: str, args: dict) -> str:
                 schedule_bootstrap=lambda: sup_typed.request_bootstrap(),
                 stale_seconds=stale,
                 last_error=status.last_error,
+                circuit_open=status.circuit_open,
             )
             result = {"success": True, "overview": overview_text}
     else:

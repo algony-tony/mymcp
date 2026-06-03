@@ -48,6 +48,24 @@ def test_build_supervisor_protects_overview_dir(monkeypatch, tmp_path):
     _runtime_protected.clear()
 
 
+def test_build_supervisor_threads_max_tokens_and_circuit_threshold(monkeypatch, tmp_path):
+    _fake_anthropic(monkeypatch)
+    s = Settings(
+        recorder_enabled=True,
+        recorder_data_dir=str(tmp_path / "recorder"),
+        recorder_llm_provider="anthropic",
+        recorder_llm_api_key="test-key",
+        audit_log_dir=str(tmp_path / "audit"),
+        recorder_llm_max_tokens=32768,
+        recorder_circuit_breaker_threshold=7,
+    )
+    sup = build_supervisor(s)
+    # private attribute reads are the cleanest cross-check available
+    assert sup._merge_cycle._max_tokens == 32768
+    assert sup._bootstrap._max_tokens == 32768
+    assert sup._circuit_threshold == 7
+
+
 def test_build_supervisor_missing_api_key_raises(monkeypatch, tmp_path):
     _fake_anthropic(monkeypatch)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)

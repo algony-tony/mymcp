@@ -62,6 +62,7 @@ class OpenAIClient:
         messages: list[Message],
         tools: list[ToolSchema] | None = None,
         max_tokens: int = 4096,
+        json_mode: bool = False,
     ) -> LLMResponse:
         sdk_messages: list[dict[str, Any]] = [{"role": "system", "content": system}]
         for m in messages:
@@ -73,6 +74,8 @@ class OpenAIClient:
         }
         if tools:
             kwargs["tools"] = [self._to_sdk_tool(t) for t in tools]
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
         resp = await self._client.chat.completions.create(**kwargs)
         return self._from_sdk_response(resp)
 

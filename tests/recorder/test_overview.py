@@ -1,4 +1,4 @@
-from mymcp.recorder.overview import OverviewStore
+from mymcp.recorder.overview import OverviewStore, apply_section_updates, parse_sections
 
 
 def test_write_overview_atomic(tmp_path):
@@ -79,3 +79,78 @@ def test_data_dir_created_lazily(tmp_path):
     assert target.exists()
     s.write_overview("hi")
     assert (target / "overview.md").exists()
+
+
+def test_parse_sections_splits_at_h2_headers():
+    text = (
+        "# Server Overview\n"
+        "_meta_\n"
+        "\n"
+        "## TL;DR\n"
+        "Short summary.\n"
+        "\n"
+        "## Installed Services\n"
+        "- nginx\n"
+        "- redis\n"
+    )
+    header, sections = parse_sections(text)
+    assert "# Server Overview" in header and "_meta_" in header
+    assert [name for name, _ in sections] == ["TL;DR", "Installed Services"]
+    assert sections[0][1] == "Short summary."
+    assert "nginx" in sections[1][1]
+
+
+def test_parse_sections_no_header_block():
+    text = "## Only Section\nbody\n"
+    header, sections = parse_sections(text)
+    assert header == ""
+    assert sections == [("Only Section", "body")]
+
+
+def test_apply_section_updates_preserves_unrelated_sections():
+    current = "# Server Overview\n_meta_\n\n## TL;DR\nKeep me.\n\n## Known Quirks\n- preserve\n"
+    result = apply_section_updates(
+        current,
+        header=None,
+        section_updates={"TL;DR": "Updated summary."},
+    )
+    assert "Keep me." not in result
+    assert "Updated summary." in result
+    assert "preserve" in result
+    # Header preserved when header=None
+    assert "_meta_" in result
+
+
+def test_apply_section_updates_appends_new_section_at_end():
+    current = "# H\n\n## A\nfoo\n"
+    result = apply_section_updates(
+        current,
+        header=None,
+        section_updates={"B": "bar"},
+    )
+    a_idx = result.index("## A")
+    b_idx = result.index("## B")
+    assert a_idx < b_idx
+    assert "foo" in result and "bar" in result
+
+
+def test_apply_section_updates_can_override_header():
+    current = "# Old Header\n_old_\n\n## TL;DR\nx\n"
+    result = apply_section_updates(
+        current,
+        header="# New Header\n_new_",
+        section_updates={},
+    )
+    assert "Old Header" not in result
+    assert "New Header" in result
+    assert "_new_" in result
+    # Existing sections still preserved.
+    assert "## TL;DR" in result and "x" in result
+
+
+def test_apply_section_updates_no_op_when_updates_empty():
+    current = "# H\n\n## A\nfoo\n"
+    result = apply_section_updates(current, header=None, section_updates={})
+    # Roundtrip should preserve section content (whitespace normalized).
+    assert "## A" in result
+    assert "foo" in result

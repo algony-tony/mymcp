@@ -59,7 +59,12 @@ class AnthropicClient:
         messages: list[Message],
         tools: list[ToolSchema] | None = None,
         max_tokens: int = 4096,
+        json_mode: bool = False,
     ) -> LLMResponse:
+        # json_mode: Anthropic has no response_format equivalent. The robust
+        # path is tool_use with a json_schema, which is a larger refactor.
+        # Accepted here as a no-op so callers can request it uniformly.
+        del json_mode
         sdk_messages = [self._to_sdk_message(m) for m in messages]
         kwargs: dict[str, Any] = {
             "model": self._model,

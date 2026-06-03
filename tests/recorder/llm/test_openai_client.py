@@ -133,6 +133,34 @@ async def test_openai_uses_default_model_when_none(fake_openai):
     assert kwargs["model"] == DEFAULT_MODEL
 
 
+@pytest.mark.anyio
+async def test_openai_json_mode_sets_response_format(fake_openai):
+    """json_mode=True forwards response_format={'type':'json_object'} to the SDK."""
+    from mymcp.recorder.llm.openai_client import OpenAIClient
+
+    c = OpenAIClient(api_key="x", model="m")
+    await c.call(
+        system="s with the word JSON in it",
+        messages=[Message(role="user", content="hi")],
+        max_tokens=10,
+        json_mode=True,
+    )
+    kwargs = fake_openai.AsyncOpenAI.return_value.chat.completions.create.call_args.kwargs
+    assert kwargs["response_format"] == {"type": "json_object"}
+
+
+@pytest.mark.anyio
+async def test_openai_default_no_response_format(fake_openai):
+    """Without json_mode, response_format is omitted so existing callers
+    (bootstrap, which outputs markdown) aren't forced into JSON."""
+    from mymcp.recorder.llm.openai_client import OpenAIClient
+
+    c = OpenAIClient(api_key="x", model="m")
+    await c.call(system="s", messages=[Message(role="user", content="hi")], max_tokens=10)
+    kwargs = fake_openai.AsyncOpenAI.return_value.chat.completions.create.call_args.kwargs
+    assert "response_format" not in kwargs
+
+
 def test_openai_missing_sdk_raises_clear_error(monkeypatch):
     monkeypatch.setitem(sys.modules, "openai", None)
     monkeypatch.delitem(sys.modules, "mymcp.recorder.llm.openai_client", raising=False)

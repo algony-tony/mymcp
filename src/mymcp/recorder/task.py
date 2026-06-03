@@ -30,6 +30,8 @@ class RecorderStatus:
     last_error: str | None
     llm_provider: str
     llm_model: str | None
+    consecutive_failures: int = 0
+    circuit_open: bool = False
 
 
 class RecorderSupervisor:
@@ -43,6 +45,7 @@ class RecorderSupervisor:
         merge_interval_sec: float = 300.0,
         provider: str = "anthropic",
         model: str | None = None,
+        circuit_breaker_threshold: int = 5,
     ):
         self._merge_cycle = merge_cycle
         self._bootstrap = bootstrapper
@@ -56,6 +59,9 @@ class RecorderSupervisor:
         self._last_error: str | None = None
         self._backoff = 30.0
         self._max_backoff = 600.0
+        self._circuit_threshold = circuit_breaker_threshold
+        self._consecutive_failures = 0
+        self._circuit_open = False
 
     @property
     def merge_interval(self) -> float:
@@ -77,9 +83,17 @@ class RecorderSupervisor:
                 if self._force_bootstrap or self.store.read_overview() is None:
                     self._force_bootstrap = False
                     await self._do_bootstrap()
+                if self._circuit_open:
+                    # Skip merge calls entirely; just idle until shutdown or
+                    # the next loop tick. Restart of the process is the only
+                    # reset path (intentional — no admin reset endpoint).
+                    with contextlib.suppress(TimeoutError):
+                        await asyncio.wait_for(self._stop.wait(), timeout=self._interval)
+                    continue
                 try:
                     result = await self._merge_cycle.run_once()
                     self._last_merge_ts = time.time()
+                    self._consecutive_failures = 0
                     # Only clear last_error if it didn't originate from a still-failed bootstrap
                     if self._bootstrap.state != BootstrapState.FAILED:
                         self._last_error = None
@@ -88,6 +102,20 @@ class RecorderSupervisor:
                 except Exception as e:  # noqa: BLE001
                     log.exception("recorder.supervisor.cycle_error")
                     self._last_error = str(e)
+                    self._consecutive_failures += 1
+                    if (
+                        self._circuit_threshold > 0
+                        and self._consecutive_failures >= self._circuit_threshold
+                    ):
+                        self._circuit_open = True
+                        log.error(
+                            "recorder.supervisor.circuit_open",
+                            extra={
+                                "consecutive_failures": self._consecutive_failures,
+                                "threshold": self._circuit_threshold,
+                                "last_error": str(e),
+                            },
+                        )
                     self._backoff = min(self._backoff * 2, self._max_backoff)
                     with contextlib.suppress(TimeoutError):
                         await asyncio.wait_for(self._stop.wait(), timeout=self._backoff)
@@ -129,6 +157,8 @@ class RecorderSupervisor:
             last_error=self._last_error,
             llm_provider=self._provider,
             llm_model=self._model,
+            consecutive_failures=self._consecutive_failures,
+            circuit_open=self._circuit_open,
         )
 
 

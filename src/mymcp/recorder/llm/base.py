@@ -81,4 +81,5 @@ class LLMClient(Protocol):
         messages: list[Message],
         tools: list[ToolSchema] | None = None,
         max_tokens: int = 4096,
+        json_mode: bool = False,
     ) -> LLMResponse: ...

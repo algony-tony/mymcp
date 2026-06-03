@@ -36,6 +36,7 @@ def build_supervisor(settings: Settings) -> RecorderSupervisor:
         max_iterations=settings.recorder_bootstrap_max_iterations,
         token_budget=settings.recorder_bootstrap_token_budget,
         probe_timeout_sec=settings.recorder_bootstrap_probe_timeout_sec,
+        max_tokens=settings.recorder_llm_max_tokens,
     )
     merge = MergeCycle(
         client=client,
@@ -43,6 +44,7 @@ def build_supervisor(settings: Settings) -> RecorderSupervisor:
         store=store,
         max_events_per_cycle=settings.recorder_max_events_per_cycle,
         require_bootstrap=True,
+        max_tokens=settings.recorder_llm_max_tokens,
     )
     return RecorderSupervisor(
         merge_cycle=merge,
@@ -50,4 +52,5 @@ def build_supervisor(settings: Settings) -> RecorderSupervisor:
         merge_interval_sec=settings.recorder_merge_interval_sec,
         provider=settings.recorder_llm_provider,
         model=settings.recorder_llm_model,
+        circuit_breaker_threshold=settings.recorder_circuit_breaker_threshold,
     )
