@@ -77,3 +77,14 @@ def test_re_exports_from_init():
     assert ToolResult.__name__ == "ToolResult"
     assert ToolSchema.__name__ == "ToolSchema"
     assert LLMClient.__name__ == "LLMClient"
+
+
+def test_llm_client_protocol_accepts_json_schema():
+    """The Protocol must accept json_schema as a keyword-only argument."""
+    import inspect
+
+    from mymcp.recorder.llm.base import LLMClient
+
+    sig = inspect.signature(LLMClient.call)
+    assert "json_schema" in sig.parameters
+    assert sig.parameters["json_schema"].default is None

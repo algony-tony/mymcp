@@ -72,7 +72,14 @@ class LLMResponse:
 
 
 class LLMClient(Protocol):
-    """Provider-agnostic LLM call interface."""
+    """Provider-agnostic LLM call interface.
+
+    When ``json_schema`` is given, the adapter must coerce the model to emit
+    JSON conforming to that schema. The parsed dict lands in either
+    ``LLMResponse.tool_uses[0].input`` (Anthropic uses forced tool_use) or
+    ``LLMResponse.text`` (OpenAI uses response_format). Callers should look
+    at tool_uses first and fall back to parsing text.
+    """
 
     async def call(
         self,
@@ -81,4 +88,5 @@ class LLMClient(Protocol):
         messages: list[Message],
         tools: list[ToolSchema] | None = None,
         max_tokens: int = 4096,
+        json_schema: dict | None = None,
     ) -> LLMResponse: ...
