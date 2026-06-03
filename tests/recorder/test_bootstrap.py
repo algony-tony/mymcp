@@ -134,3 +134,13 @@ async def test_bootstrap_state_transitions(tmp_path):
     assert b.state == BootstrapState.IDLE
     await b.run_once()
     assert b.state == BootstrapState.SUCCEEDED
+
+
+@pytest.mark.anyio
+async def test_bootstrap_passes_configured_max_tokens(tmp_path):
+    store = OverviewStore(tmp_path / "overview")
+    fake = AsyncMock()
+    fake.call = AsyncMock(return_value=_resp_end("# Server Overview\n\n## TL;DR\nok\n"))
+    bs = Bootstrapper(client=fake, store=store, max_iterations=2, max_tokens=32768)
+    await bs.run_once()
+    assert fake.call.call_args.kwargs["max_tokens"] == 32768

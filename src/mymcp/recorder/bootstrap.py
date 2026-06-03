@@ -104,12 +104,14 @@ class Bootstrapper:
         max_iterations: int = 200,
         token_budget: int = 10_000_000,
         probe_timeout_sec: int = 30,
+        max_tokens: int = 16384,
     ):
         self._client = client
         self._store = store
         self._max_iterations = max_iterations
         self._token_budget = token_budget
         self._probe_timeout = probe_timeout_sec
+        self._max_tokens = max_tokens
         self._lock = asyncio.Lock()
         self._state = BootstrapState.IDLE
         self._last_result: BootstrapResult | None = None
@@ -166,7 +168,7 @@ class Bootstrapper:
                                 system=BOOTSTRAP_SYSTEM_PROMPT,
                                 messages=messages,
                                 tools=tools,
-                                max_tokens=4096,
+                                max_tokens=self._max_tokens,
                             )
                         instruments.recorder_llm_calls.add(
                             1, {"phase": "bootstrap", "result": "success"}
