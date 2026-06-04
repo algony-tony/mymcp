@@ -187,6 +187,54 @@ async def test_supervisor_opens_circuit_after_consecutive_failures(tmp_path):
 
 
 @pytest.mark.anyio
+async def test_supervisor_threshold_zero_disables_circuit(tmp_path):
+    """threshold=0 must mean 'never trip', per config docstring."""
+    import json
+
+    store = OverviewStore(tmp_path / "overview")
+    store.write_overview("# Server Overview\n\n## TL;DR\nok\n")
+    audit_entry = json.dumps(
+        {
+            "ts": "2026-05-29T10:00:00Z",
+            "result": "ok",
+            "tool": "bash_execute",
+            "params": {"command": "ls"},
+            "output": {"stdout_head": "x"},
+        }
+    )
+    (tmp_path / "audit.log").write_text(audit_entry + "\n")
+    tailer = EventTailer(log_dir=tmp_path, cursor_path=tmp_path / "cursor.json")
+    fake = AsyncMock()
+    fake.call = AsyncMock(return_value=_end("not json at all"))
+    bootstrapper = Bootstrapper(client=fake, store=store, max_iterations=2)
+    merge_cycle = MergeCycle(
+        client=fake,
+        tailer=tailer,
+        store=store,
+        max_events_per_cycle=10,
+        require_bootstrap=True,
+    )
+    sup = RecorderSupervisor(
+        merge_cycle=merge_cycle,
+        bootstrapper=bootstrapper,
+        merge_interval_sec=0.01,
+        circuit_breaker_threshold=0,
+    )
+    sup._backoff = 0.01
+    sup._max_backoff = 0.01
+    task = asyncio.create_task(sup.run())
+    for _ in range(50):
+        if sup.status().consecutive_failures >= 5:
+            break
+        await asyncio.sleep(0.02)
+    sup.shutdown()
+    await asyncio.wait_for(task, timeout=2)
+    status = sup.status()
+    assert status.circuit_open is False
+    assert status.consecutive_failures >= 5
+
+
+@pytest.mark.anyio
 async def test_supervisor_clears_failure_count_on_success(tmp_path):
     import json
 

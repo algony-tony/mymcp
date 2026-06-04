@@ -54,6 +54,10 @@ class OpenAIClient:
             kwargs["base_url"] = base_url
         self._client = sdk.AsyncOpenAI(**kwargs)
         self._model = model or DEFAULT_MODEL
+        # SDK exception used when an OpenAI-compatible server rejects strict
+        # json_schema as HTTP 400 (e.g. DeepSeek). Kept on the instance so the
+        # except-clause below stays decoupled from a top-level openai import.
+        self._bad_request_error: type[BaseException] = getattr(sdk, "BadRequestError", Exception)
 
     async def call(
         self,
@@ -92,7 +96,7 @@ class OpenAIClient:
         }
         try:
             resp = await self._client.chat.completions.create(**strict_kwargs)
-        except TypeError:
+        except (TypeError, self._bad_request_error):
             loose_kwargs = dict(base_kwargs)
             loose_kwargs["response_format"] = {"type": "json_object"}
             resp = await self._client.chat.completions.create(**loose_kwargs)

@@ -105,7 +105,10 @@ class RecorderSupervisor:
                     log.exception("recorder.supervisor.cycle_error")
                     self._last_error = str(e)
                     self._consecutive_failures += 1
-                    if self._consecutive_failures >= self._circuit_threshold:
+                    if (
+                        self._circuit_threshold > 0
+                        and self._consecutive_failures >= self._circuit_threshold
+                    ):
                         self._circuit_open = True
                         log.error(
                             "recorder.supervisor.circuit_open",

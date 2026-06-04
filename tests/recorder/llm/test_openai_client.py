@@ -38,6 +38,9 @@ def fake_openai(monkeypatch):
     client_inst.chat.completions = MagicMock()
     client_inst.chat.completions.create = AsyncMock(return_value=resp)
     mod.AsyncOpenAI = MagicMock(return_value=client_inst)
+    # Mirror the real SDK: openai.BadRequestError is a concrete exception
+    # class. Tests use it to simulate server-side 4xx rejections.
+    mod.BadRequestError = type("BadRequestError", (Exception,), {})
 
     monkeypatch.setitem(sys.modules, "openai", mod)
     monkeypatch.delitem(sys.modules, "mymcp.recorder.llm.openai_client", raising=False)
@@ -187,6 +190,39 @@ async def test_openai_json_schema_falls_back_to_json_object_on_rejection(fake_op
         assert kwargs["response_format"] == {"type": "json_object"}
         from unittest.mock import MagicMock
 
+        resp = MagicMock()
+        msg = MagicMock(content='{"ok": true}', tool_calls=None)
+        resp.choices = [MagicMock(message=msg, finish_reason="stop")]
+        resp.usage = MagicMock(prompt_tokens=1, completion_tokens=1)
+        return resp
+
+    fake_openai.AsyncOpenAI.return_value.chat.completions.create = fake_create
+    c = OpenAIClient(api_key="x", model="m")
+    resp = await c.call(
+        system="JSON only",
+        messages=[Message(role="user", content="hi")],
+        max_tokens=10,
+        json_schema={"type": "object"},
+    )
+    assert call_count["n"] == 2
+    assert resp.text == '{"ok": true}'
+
+
+@pytest.mark.anyio
+async def test_openai_json_schema_falls_back_on_bad_request_error(fake_openai):
+    """DeepSeek (and other OpenAI-compat servers) accept the kwarg shape but
+    reject strict json_schema as HTTP 400 → openai.BadRequestError. The
+    fallback must catch it too, not just TypeError."""
+    from mymcp.recorder.llm.openai_client import OpenAIClient
+
+    call_count = {"n": 0}
+
+    async def fake_create(**kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            assert kwargs["response_format"]["type"] == "json_schema"
+            raise fake_openai.BadRequestError("response_format.type 'json_schema' is not supported")
+        assert kwargs["response_format"] == {"type": "json_object"}
         resp = MagicMock()
         msg = MagicMock(content='{"ok": true}', tool_calls=None)
         resp.choices = [MagicMock(message=msg, finish_reason="stop")]
