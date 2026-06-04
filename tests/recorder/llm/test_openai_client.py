@@ -209,6 +209,45 @@ async def test_openai_json_schema_falls_back_to_json_object_on_rejection(fake_op
 
 
 @pytest.mark.anyio
+async def test_openai_json_schema_fallback_does_not_swallow_auth_errors(monkeypatch):
+    """If the SDK lacks BadRequestError, the fallback sentinel must NOT match
+    any other exception. Auth/Timeout/Network errors must propagate, not
+    silently trigger a json_object retry."""
+    mod = MagicMock()
+    client_inst = MagicMock()
+    client_inst.chat = MagicMock()
+    client_inst.chat.completions = MagicMock()
+    mod.AsyncOpenAI = MagicMock(return_value=client_inst)
+    # Critically: no BadRequestError on the fake SDK at all.
+    if hasattr(mod, "BadRequestError"):
+        del mod.BadRequestError
+    # Configure spec so MagicMock auto-attribution doesn't synthesize a child.
+    mod.mock_add_spec(["AsyncOpenAI"])
+    mod.AsyncOpenAI = MagicMock(return_value=client_inst)
+
+    monkeypatch.setitem(sys.modules, "openai", mod)
+    monkeypatch.delitem(sys.modules, "mymcp.recorder.llm.openai_client", raising=False)
+    from mymcp.recorder.llm.openai_client import OpenAIClient
+
+    class FakeAuthError(Exception):
+        pass
+
+    async def fake_create(**kwargs):
+        raise FakeAuthError("invalid api key")
+
+    client_inst.chat.completions.create = fake_create
+
+    c = OpenAIClient(api_key="x", model="m")
+    with pytest.raises(FakeAuthError):
+        await c.call(
+            system="JSON only",
+            messages=[Message(role="user", content="hi")],
+            max_tokens=10,
+            json_schema={"type": "object"},
+        )
+
+
+@pytest.mark.anyio
 async def test_openai_json_schema_falls_back_on_bad_request_error(fake_openai):
     """DeepSeek (and other OpenAI-compat servers) accept the kwarg shape but
     reject strict json_schema as HTTP 400 → openai.BadRequestError. The

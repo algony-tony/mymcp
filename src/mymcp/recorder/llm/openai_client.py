@@ -24,6 +24,13 @@ _FINISH_REASON_MAP: dict[str, str] = {
 }
 
 
+class _NeverRaised(Exception):
+    """Sentinel used as the BadRequestError fallback if the SDK doesn't
+    expose one. Nothing ever raises this, so naming it in an except clause
+    is a safe no-op (vs. catching ``Exception``, which would silently
+    swallow Auth/Timeout/Network errors and mask real failures)."""
+
+
 def _import_sdk() -> Any:
     try:
         import openai  # type: ignore[import-not-found, unused-ignore]
@@ -57,7 +64,10 @@ class OpenAIClient:
         # SDK exception used when an OpenAI-compatible server rejects strict
         # json_schema as HTTP 400 (e.g. DeepSeek). Kept on the instance so the
         # except-clause below stays decoupled from a top-level openai import.
-        self._bad_request_error: type[BaseException] = getattr(sdk, "BadRequestError", Exception)
+        # If the SDK doesn't expose BadRequestError we fall back to a sentinel
+        # that nothing raises — never to `Exception`, which would swallow
+        # auth/timeout/network errors.
+        self._bad_request_error: type[BaseException] = getattr(sdk, "BadRequestError", _NeverRaised)
 
     async def call(
         self,
