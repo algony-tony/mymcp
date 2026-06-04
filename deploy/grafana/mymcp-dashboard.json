@@ -720,6 +720,271 @@
           "legendFormat": "FDs {{instance}}"
         }
       ]
+    },
+    {
+      "id": 50,
+      "type": "row",
+      "title": "Recorder Health",
+      "gridPos": { "x": 0, "y": 39, "w": 24, "h": 1 },
+      "collapsed": false
+    },
+    {
+      "id": 51,
+      "type": "stat",
+      "title": "Merge Success Ratio",
+      "description": "Share of mymcp_recorder_merge_cycles_total with reason='success' over 5m, excluding 'no_events' and 'bootstrap_required' (those aren't outcomes). Red below 90% — the gcp DeepSeek issue would have shown as 0% here.",
+      "gridPos": { "x": 0, "y": 40, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "auto",
+        "orientation": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 90 },
+              { "color": "green", "value": 99 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(mymcp_recorder_merge_cycles_total{job=~\"mymcp.*\",instance=~\"$instance\",reason=\"success\"}[5m])) / sum(rate(mymcp_recorder_merge_cycles_total{job=~\"mymcp.*\",instance=~\"$instance\",reason!~\"no_events|bootstrap_required\"}[5m])) * 100 or vector(100)",
+          "legendFormat": "Success %"
+        }
+      ]
+    },
+    {
+      "id": 52,
+      "type": "stat",
+      "title": "Circuit Breaker",
+      "description": "mymcp_recorder_circuit_open. OPEN means the supervisor has hit its consecutive-failure threshold and stopped calling the LLM until the process restarts.",
+      "gridPos": { "x": 6, "y": 40, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "orientation": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": { "text": "CLOSED", "color": "green" },
+                "1": { "text": "OPEN", "color": "red" }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(mymcp_recorder_circuit_open{job=~\"mymcp.*\",instance=~\"$instance\"})",
+          "legendFormat": "circuit"
+        }
+      ]
+    },
+    {
+      "id": 53,
+      "type": "stat",
+      "title": "Time Since Last Successful Merge",
+      "description": "Seconds since the last successful merge. Red above 1 hour. Shows N/A when no successful merge has happened yet (gauge value = 0).",
+      "gridPos": { "x": 12, "y": 40, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "orientation": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 900 },
+              { "color": "red", "value": 3600 }
+            ]
+          },
+          "mappings": [
+            { "type": "special", "options": { "match": "null", "result": { "text": "N/A", "color": "blue" } } }
+          ]
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(time() - max(mymcp_recorder_merge_last_success_timestamp{job=~\"mymcp.*\",instance=~\"$instance\"})) and on() max(mymcp_recorder_merge_last_success_timestamp{job=~\"mymcp.*\",instance=~\"$instance\"}) > 0",
+          "legendFormat": "age"
+        }
+      ]
+    },
+    {
+      "id": 54,
+      "type": "stat",
+      "title": "Pending Events",
+      "description": "mymcp_recorder_pending_events — mutating audit entries that haven't been folded into the overview yet. Climbing values mean the recorder is falling behind (slow LLM, open circuit).",
+      "gridPos": { "x": 18, "y": 40, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "auto",
+        "orientation": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 200 },
+              { "color": "red", "value": 1000 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(mymcp_recorder_pending_events{job=~\"mymcp.*\",instance=~\"$instance\"})",
+          "legendFormat": "pending"
+        }
+      ]
+    },
+    {
+      "id": 55,
+      "type": "timeseries",
+      "title": "Merge Cycles by Reason",
+      "description": "rate per reason. Healthy: mostly 'success' and 'no_events'. Failure modes (unparseable, max_tokens, empty, schema_invalid, llm_error, apply_error) point at specific root causes — the gcp recorder issue showed up as 'unparseable' here.",
+      "gridPos": { "x": 0, "y": 44, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": { "lineWidth": 2, "fillOpacity": 30, "stacking": { "mode": "normal", "group": "A" } }
+        },
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": ".*success.*" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }] },
+          { "matcher": { "id": "byRegexp", "options": ".*no_events.*" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "blue" } }] },
+          { "matcher": { "id": "byRegexp", "options": ".*(unparseable|max_tokens|empty|schema_invalid|llm_error|apply_error).*" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(mymcp_recorder_merge_cycles_total{job=~\"mymcp.*\",instance=~\"$instance\"}[5m])) by (reason)",
+          "legendFormat": "{{reason}}"
+        }
+      ]
+    },
+    {
+      "id": 56,
+      "type": "timeseries",
+      "title": "Merge Duration Percentiles",
+      "description": "p50/p95/p99 of mymcp_recorder_merge_duration_seconds. Spikes correlate with slow LLM responses or large prompts.",
+      "gridPos": { "x": 12, "y": 44, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "lineWidth": 2, "fillOpacity": 5 }
+        }
+      },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.50, sum(rate(mymcp_recorder_merge_duration_seconds_bucket{job=~\"mymcp.*\",instance=~\"$instance\"}[5m])) by (le))", "legendFormat": "p50" },
+        { "refId": "B", "expr": "histogram_quantile(0.95, sum(rate(mymcp_recorder_merge_duration_seconds_bucket{job=~\"mymcp.*\",instance=~\"$instance\"}[5m])) by (le))", "legendFormat": "p95" },
+        { "refId": "C", "expr": "histogram_quantile(0.99, sum(rate(mymcp_recorder_merge_duration_seconds_bucket{job=~\"mymcp.*\",instance=~\"$instance\"}[5m])) by (le))", "legendFormat": "p99" }
+      ]
+    },
+    {
+      "id": 57,
+      "type": "timeseries",
+      "title": "LLM Tokens (merge phase)",
+      "description": "Input/output token throughput for merge calls. Sustained high output rate combined with merge failures suggests responses are being truncated.",
+      "gridPos": { "x": 0, "y": 52, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "lineWidth": 2, "fillOpacity": 15 }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(mymcp_recorder_llm_tokens_total{job=~\"mymcp.*\",instance=~\"$instance\",phase=\"merge\"}[5m])) by (direction)",
+          "legendFormat": "{{direction}}"
+        }
+      ]
+    },
+    {
+      "id": 58,
+      "type": "timeseries",
+      "title": "Pending Events Backlog",
+      "description": "Time series of mymcp_recorder_pending_events. A flat, growing line is the canonical 'recorder is stuck' signal.",
+      "gridPos": { "x": 12, "y": 52, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "options": {
+        "tooltip": { "mode": "single", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "lineWidth": 2, "fillOpacity": 10 }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(mymcp_recorder_pending_events{job=~\"mymcp.*\",instance=~\"$instance\"})",
+          "legendFormat": "pending"
+        }
+      ]
     }
   ]
 }

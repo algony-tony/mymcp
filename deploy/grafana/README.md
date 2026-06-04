@@ -15,13 +15,20 @@ the clicked `tool` label.
 
 ## What it shows
 
-Four sections, ten data panels:
+Five sections:
 
 - **Overview Stats** — total calls (over the selected time range), error rate, p95 latency, service `up`
 - **Tool Call Rate** — per-tool rate split by `result` (ok/error)
 - **Latency Percentiles** — p50/p95/p99 of `mymcp_tool_duration_seconds` per tool
 - **HTTP Requests** — request rate by method, path, and status
 - **Process Health** — RSS, CPU, open file descriptors
+- **Recorder Health** *(populated only when the `[recorder]` extra is installed)* —
+  merge success ratio, circuit-breaker state, age since last successful
+  merge, pending-events backlog, cycles split by `reason`, merge-duration
+  percentiles, and merge-phase token throughput.
+
+Recorder panel queries reference `mymcp_recorder_*` series; full metric list
+is documented under **Recorder metrics** in the top-level README.
 
 ## Prometheus scrape config
 

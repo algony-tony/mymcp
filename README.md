@@ -642,7 +642,9 @@ export OTEL_SERVICE_NAME=mymcp
 mymcp serve
 ```
 
-Import `deploy/observability/dashboard.json` into Grafana Cloud.
+Import `deploy/grafana/mymcp-dashboard.json` (metrics, incl. the Recorder
+Health row) and `deploy/grafana/mymcp-logs-dashboard.json` (Loki+Tempo) into
+Grafana Cloud.
 
 ### Recipe 2 — Self-hosted LGTM stack
 
@@ -687,6 +689,27 @@ scrape_configs:
 ```
 
 Import the dashboard JSON; the Traces and Logs panels remain empty (this is expected).
+
+### Recorder metrics (`[recorder]` extra)
+
+When the recorder is enabled, these extra series appear on `/metrics`:
+
+| Metric | Type | Labels | Use |
+|---|---|---|---|
+| `mymcp_recorder_merge_cycles_total` | counter | `reason` | One outcome per cycle. Reasons: `success`, `no_events`, `bootstrap_required`, `llm_error`, `max_tokens`, `empty`, `unparseable`, `schema_invalid`, `apply_error`. |
+| `mymcp_recorder_merge_duration_seconds` | histogram | `reason` | Wall-clock per merge cycle (incl. LLM). p95: `histogram_quantile(0.95, sum(rate(..._bucket[5m])) by (le))`. |
+| `mymcp_recorder_llm_calls_total` | counter | `phase`, `result` | HTTP boundary only — `success` means a response object was returned, not that it was usable. Response-quality failures flow through `merge_cycles{reason=…}`. |
+| `mymcp_recorder_llm_tokens_total` | counter | `phase`, `direction` | Throughput by `input`/`output`. |
+| `mymcp_recorder_pending_events` | gauge | — | Backlog: mutating audit events past the cursor. A growing line means the recorder is stuck. |
+| `mymcp_recorder_merge_last_success_timestamp` | gauge | — | Unix seconds. `0` = never. Stale-recorder alert: `time() - X > 3600 unless X == 0`. |
+| `mymcp_recorder_circuit_open` | gauge | — | `1` once the supervisor has tripped its consecutive-failure breaker (restart-only recovery). |
+| `mymcp_recorder_event_loss_total` | counter | — | Audit lines lost because rotation moved the file past the cursor. |
+| `mymcp_recorder_events_consumed_total` | counter | `tool` | Per-tool count of mutating events folded into the overview. |
+
+The Grafana metrics dashboard's **Recorder Health** row materialises all of
+the above. The supervisor's per-tick work runs inside a
+`recorder.supervisor.cycle` span so `recorder.supervisor.cycle_error` log
+lines carry the matching `trace_id`/`span_id` for jumping into Tempo from Loki.
 
 ### Configuration knobs
 

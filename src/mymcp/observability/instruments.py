@@ -75,6 +75,11 @@ recorder_event_loss = _meter.create_counter(
     description="Events lost due to rotation past cursor",
     unit="1",
 )
+recorder_merge_duration = _meter.create_histogram(
+    "mymcp.recorder.merge.duration",
+    description="Wall-clock duration of one recorder merge cycle (incl. LLM call)",
+    unit="s",
+)
 
 
 # --- Saturation gauges (callbacks registered by other modules) ---
