@@ -53,3 +53,30 @@ def test_recorder_uppercase_alias(monkeypatch):
     monkeypatch.setenv("MYMCP_RECORDER_ENABLED", "true")
     config.reset_settings_cache()
     assert config.RECORDER_ENABLED is True
+
+
+def test_recorder_llm_max_tokens_default(monkeypatch):
+    monkeypatch.delenv("MYMCP_RECORDER_LLM_MAX_TOKENS", raising=False)
+    from mymcp.config import Settings, reset_settings_cache
+
+    reset_settings_cache()
+    s = Settings()
+    assert s.recorder_llm_max_tokens == 16384
+
+
+def test_recorder_llm_max_tokens_override(monkeypatch):
+    monkeypatch.setenv("MYMCP_RECORDER_LLM_MAX_TOKENS", "65536")
+    from mymcp.config import Settings, reset_settings_cache
+
+    reset_settings_cache()
+    s = Settings()
+    assert s.recorder_llm_max_tokens == 65536
+
+
+def test_recorder_circuit_breaker_threshold_default(monkeypatch):
+    monkeypatch.delenv("MYMCP_RECORDER_CIRCUIT_BREAKER_THRESHOLD", raising=False)
+    from mymcp.config import Settings, reset_settings_cache
+
+    reset_settings_cache()
+    s = Settings()
+    assert s.recorder_circuit_breaker_threshold == 5

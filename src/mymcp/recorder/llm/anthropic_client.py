@@ -59,6 +59,7 @@ class AnthropicClient:
         messages: list[Message],
         tools: list[ToolSchema] | None = None,
         max_tokens: int = 4096,
+        json_schema: dict | None = None,
     ) -> LLMResponse:
         sdk_messages = [self._to_sdk_message(m) for m in messages]
         kwargs: dict[str, Any] = {
@@ -67,8 +68,27 @@ class AnthropicClient:
             "messages": sdk_messages,
             "max_tokens": max_tokens,
         }
+
+        sdk_tools: list[dict[str, Any]] = []
         if tools:
-            kwargs["tools"] = [self._to_sdk_tool(t) for t in tools]
+            sdk_tools.extend(self._to_sdk_tool(t) for t in tools)
+        if json_schema is not None:
+            # Inject a forced-call tool so Claude must emit conforming JSON
+            # as its input. The result lands in LLMResponse.tool_uses.
+            sdk_tools.append(
+                {
+                    "name": "emit_merge_output",
+                    "description": (
+                        "Emit the structured merge output. The arguments object"
+                        " must match the input_schema exactly."
+                    ),
+                    "input_schema": json_schema,
+                }
+            )
+            kwargs["tool_choice"] = {"type": "tool", "name": "emit_merge_output"}
+        if sdk_tools:
+            kwargs["tools"] = sdk_tools
+
         resp = await self._client.messages.create(**kwargs)
         return self._from_sdk_response(resp)
 

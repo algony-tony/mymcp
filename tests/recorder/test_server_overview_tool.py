@@ -57,3 +57,38 @@ def test_stub_does_not_schedule_when_callback_is_noop(tmp_path):
     store = OverviewStore(tmp_path)
     result = server_overview_handler(store=store, schedule_bootstrap=lambda: None)
     assert "not initialized" in result.lower()
+
+
+def test_circuit_open_banner_takes_priority_over_stale(tmp_path):
+    """When circuit is open we must clearly tell the operator to restart;
+    stale-age info still useful but circuit-open is the load-bearing fact."""
+    store = OverviewStore(tmp_path)
+    store.write_overview("# Server Overview\nbody\n")
+    result = server_overview_handler(
+        store=store,
+        schedule_bootstrap=lambda: None,
+        stale_seconds=3600,
+        last_error="boom",
+        circuit_open=True,
+    )
+    assert "circuit" in result.lower()
+    assert "restart" in result.lower()
+    # original overview still included after the banner
+    assert "body" in result
+
+
+def test_recent_failure_banner_when_not_stale(tmp_path):
+    """A single recent failure (not yet stale) still surfaces a warning,
+    but a softer one than the stale or circuit-open variants."""
+    store = OverviewStore(tmp_path)
+    store.write_overview("# Server Overview\nbody\n")
+    result = server_overview_handler(
+        store=store,
+        schedule_bootstrap=lambda: None,
+        stale_seconds=None,
+        last_error="rate-limited",
+        circuit_open=False,
+    )
+    assert "last merge failed" in result.lower()
+    assert "rate-limited" in result
+    assert "body" in result

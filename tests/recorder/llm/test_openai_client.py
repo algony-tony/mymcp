@@ -38,6 +38,9 @@ def fake_openai(monkeypatch):
     client_inst.chat.completions = MagicMock()
     client_inst.chat.completions.create = AsyncMock(return_value=resp)
     mod.AsyncOpenAI = MagicMock(return_value=client_inst)
+    # Mirror the real SDK: openai.BadRequestError is a concrete exception
+    # class. Tests use it to simulate server-side 4xx rejections.
+    mod.BadRequestError = type("BadRequestError", (Exception,), {})
 
     monkeypatch.setitem(sys.modules, "openai", mod)
     monkeypatch.delitem(sys.modules, "mymcp.recorder.llm.openai_client", raising=False)
@@ -140,3 +143,138 @@ def test_openai_missing_sdk_raises_clear_error(monkeypatch):
 
     with pytest.raises(RuntimeError, match="recorder-openai"):
         OpenAIClient(api_key="x", model="x")
+
+
+@pytest.mark.anyio
+async def test_openai_json_schema_sets_response_format(fake_openai):
+    from mymcp.recorder.llm.openai_client import OpenAIClient
+
+    schema = {"type": "object", "properties": {"x": {"type": "string"}}}
+    c = OpenAIClient(api_key="x", model="m")
+    await c.call(
+        system="output JSON",
+        messages=[Message(role="user", content="hi")],
+        max_tokens=10,
+        json_schema=schema,
+    )
+    kwargs = fake_openai.AsyncOpenAI.return_value.chat.completions.create.call_args.kwargs
+    assert kwargs["response_format"]["type"] == "json_schema"
+    assert kwargs["response_format"]["json_schema"]["schema"] == schema
+    assert kwargs["response_format"]["json_schema"]["strict"] is True
+    assert kwargs["response_format"]["json_schema"]["name"]
+
+
+@pytest.mark.anyio
+async def test_openai_no_json_schema_omits_response_format(fake_openai):
+    from mymcp.recorder.llm.openai_client import OpenAIClient
+
+    c = OpenAIClient(api_key="x", model="m")
+    await c.call(system="s", messages=[Message(role="user", content="hi")], max_tokens=10)
+    kwargs = fake_openai.AsyncOpenAI.return_value.chat.completions.create.call_args.kwargs
+    assert "response_format" not in kwargs
+
+
+@pytest.mark.anyio
+async def test_openai_json_schema_falls_back_to_json_object_on_rejection(fake_openai, monkeypatch):
+    """DeepSeek and other OpenAI-compat providers don't always support
+    strict json_schema. Detect SDK rejection and retry with json_object."""
+    from mymcp.recorder.llm.openai_client import OpenAIClient
+
+    call_count = {"n": 0}
+
+    async def fake_create(**kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            assert kwargs["response_format"]["type"] == "json_schema"
+            raise TypeError("response_format.type 'json_schema' not supported")
+        assert kwargs["response_format"] == {"type": "json_object"}
+        from unittest.mock import MagicMock
+
+        resp = MagicMock()
+        msg = MagicMock(content='{"ok": true}', tool_calls=None)
+        resp.choices = [MagicMock(message=msg, finish_reason="stop")]
+        resp.usage = MagicMock(prompt_tokens=1, completion_tokens=1)
+        return resp
+
+    fake_openai.AsyncOpenAI.return_value.chat.completions.create = fake_create
+    c = OpenAIClient(api_key="x", model="m")
+    resp = await c.call(
+        system="JSON only",
+        messages=[Message(role="user", content="hi")],
+        max_tokens=10,
+        json_schema={"type": "object"},
+    )
+    assert call_count["n"] == 2
+    assert resp.text == '{"ok": true}'
+
+
+@pytest.mark.anyio
+async def test_openai_json_schema_fallback_does_not_swallow_auth_errors(monkeypatch):
+    """If the SDK lacks BadRequestError, the fallback sentinel must NOT match
+    any other exception. Auth/Timeout/Network errors must propagate, not
+    silently trigger a json_object retry."""
+    mod = MagicMock()
+    client_inst = MagicMock()
+    client_inst.chat = MagicMock()
+    client_inst.chat.completions = MagicMock()
+    mod.AsyncOpenAI = MagicMock(return_value=client_inst)
+    # Critically: no BadRequestError on the fake SDK at all.
+    if hasattr(mod, "BadRequestError"):
+        del mod.BadRequestError
+    # Configure spec so MagicMock auto-attribution doesn't synthesize a child.
+    mod.mock_add_spec(["AsyncOpenAI"])
+    mod.AsyncOpenAI = MagicMock(return_value=client_inst)
+
+    monkeypatch.setitem(sys.modules, "openai", mod)
+    monkeypatch.delitem(sys.modules, "mymcp.recorder.llm.openai_client", raising=False)
+    from mymcp.recorder.llm.openai_client import OpenAIClient
+
+    class FakeAuthError(Exception):
+        pass
+
+    async def fake_create(**kwargs):
+        raise FakeAuthError("invalid api key")
+
+    client_inst.chat.completions.create = fake_create
+
+    c = OpenAIClient(api_key="x", model="m")
+    with pytest.raises(FakeAuthError):
+        await c.call(
+            system="JSON only",
+            messages=[Message(role="user", content="hi")],
+            max_tokens=10,
+            json_schema={"type": "object"},
+        )
+
+
+@pytest.mark.anyio
+async def test_openai_json_schema_falls_back_on_bad_request_error(fake_openai):
+    """DeepSeek (and other OpenAI-compat servers) accept the kwarg shape but
+    reject strict json_schema as HTTP 400 → openai.BadRequestError. The
+    fallback must catch it too, not just TypeError."""
+    from mymcp.recorder.llm.openai_client import OpenAIClient
+
+    call_count = {"n": 0}
+
+    async def fake_create(**kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            assert kwargs["response_format"]["type"] == "json_schema"
+            raise fake_openai.BadRequestError("response_format.type 'json_schema' is not supported")
+        assert kwargs["response_format"] == {"type": "json_object"}
+        resp = MagicMock()
+        msg = MagicMock(content='{"ok": true}', tool_calls=None)
+        resp.choices = [MagicMock(message=msg, finish_reason="stop")]
+        resp.usage = MagicMock(prompt_tokens=1, completion_tokens=1)
+        return resp
+
+    fake_openai.AsyncOpenAI.return_value.chat.completions.create = fake_create
+    c = OpenAIClient(api_key="x", model="m")
+    resp = await c.call(
+        system="JSON only",
+        messages=[Message(role="user", content="hi")],
+        max_tokens=10,
+        json_schema={"type": "object"},
+    )
+    assert call_count["n"] == 2
+    assert resp.text == '{"ok": true}'

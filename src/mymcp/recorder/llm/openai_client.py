@@ -24,9 +24,16 @@ _FINISH_REASON_MAP: dict[str, str] = {
 }
 
 
+class _NeverRaised(Exception):
+    """Sentinel used as the BadRequestError fallback if the SDK doesn't
+    expose one. Nothing ever raises this, so naming it in an except clause
+    is a safe no-op (vs. catching ``Exception``, which would silently
+    swallow Auth/Timeout/Network errors and mask real failures)."""
+
+
 def _import_sdk() -> Any:
     try:
-        import openai  # type: ignore[import-not-found]
+        import openai  # type: ignore[import-not-found, unused-ignore]
     except ImportError as e:
         raise RuntimeError(
             "openai SDK not installed. Install with: pip install 'algony-mymcp[recorder-openai]'"
@@ -54,6 +61,13 @@ class OpenAIClient:
             kwargs["base_url"] = base_url
         self._client = sdk.AsyncOpenAI(**kwargs)
         self._model = model or DEFAULT_MODEL
+        # SDK exception used when an OpenAI-compatible server rejects strict
+        # json_schema as HTTP 400 (e.g. DeepSeek). Kept on the instance so the
+        # except-clause below stays decoupled from a top-level openai import.
+        # If the SDK doesn't expose BadRequestError we fall back to a sentinel
+        # that nothing raises — never to `Exception`, which would swallow
+        # auth/timeout/network errors.
+        self._bad_request_error: type[BaseException] = getattr(sdk, "BadRequestError", _NeverRaised)
 
     async def call(
         self,
@@ -62,18 +76,40 @@ class OpenAIClient:
         messages: list[Message],
         tools: list[ToolSchema] | None = None,
         max_tokens: int = 4096,
+        json_schema: dict | None = None,
     ) -> LLMResponse:
         sdk_messages: list[dict[str, Any]] = [{"role": "system", "content": system}]
         for m in messages:
             sdk_messages.extend(self._to_sdk_messages(m))
-        kwargs: dict[str, Any] = {
+        base_kwargs: dict[str, Any] = {
             "model": self._model,
             "messages": sdk_messages,
             "max_tokens": max_tokens,
         }
         if tools:
-            kwargs["tools"] = [self._to_sdk_tool(t) for t in tools]
-        resp = await self._client.chat.completions.create(**kwargs)
+            base_kwargs["tools"] = [self._to_sdk_tool(t) for t in tools]
+
+        if json_schema is None:
+            resp = await self._client.chat.completions.create(**base_kwargs)
+            return self._from_sdk_response(resp)
+
+        # Prefer Structured Outputs (strict json_schema); fall back to
+        # json_object mode for providers that don't support it yet (DeepSeek).
+        strict_kwargs = dict(base_kwargs)
+        strict_kwargs["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "merge_output",
+                "schema": json_schema,
+                "strict": True,
+            },
+        }
+        try:
+            resp = await self._client.chat.completions.create(**strict_kwargs)
+        except (TypeError, self._bad_request_error):
+            loose_kwargs = dict(base_kwargs)
+            loose_kwargs["response_format"] = {"type": "json_object"}
+            resp = await self._client.chat.completions.create(**loose_kwargs)
         return self._from_sdk_response(resp)
 
     @staticmethod
