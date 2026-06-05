@@ -100,7 +100,11 @@ class RecorderSupervisor:
                 with _tracer.start_as_current_span("recorder.supervisor.cycle"):
                     try:
                         result = await self._merge_cycle.run_once()
-                        self._last_merge_ts = time.time()
+                        # Only advance "last successful merge" when a real merge happened.
+                        # Idle ticks (no_events / bootstrap_required) would otherwise mask
+                        # a silently broken event processor from the stale-merge SLO alert.
+                        if result.skipped_reason is None:
+                            self._last_merge_ts = time.time()
                         # Only clear last_error if it didn't originate from a still-failed bootstrap
                         if self._bootstrap.state != BootstrapState.FAILED:
                             self._last_error = None
