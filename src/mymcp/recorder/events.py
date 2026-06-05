@@ -146,3 +146,57 @@ class EventTailer:
 
     def committed_offset(self) -> int:
         return self._committed.offset or 0
+
+    def pending_count(self) -> int:
+        """Count mutating-and-successful events sitting unconsumed past the cursor.
+
+        Read-only: does not advance or mutate the cursor. Iterates the file
+        from the committed offset to EOF, applying the same mutating-tool +
+        success-result filter as ``read_new``. Intended for the Prometheus
+        backlog gauge, so safe to call on every scrape.
+        """
+        audit_path = self._log_dir / "audit.log"
+        if not audit_path.exists():
+            return 0
+        try:
+            st = audit_path.stat()
+        except OSError:
+            return 0
+        count = 0
+        # Rotation case: count the unread tail of the previous file too.
+        if self._committed.inode is not None and self._committed.inode != st.st_ino:
+            rotated = self._log_dir / "audit.log.1"
+            if rotated.exists():
+                try:
+                    if rotated.stat().st_ino == self._committed.inode:
+                        count += self._count_from(rotated, self._committed.offset)
+                except OSError:
+                    pass
+            count += self._count_from(audit_path, 0)
+        else:
+            start = self._committed.offset or 0
+            count += self._count_from(audit_path, start)
+        return count
+
+    @staticmethod
+    def _count_from(path: Path, start_offset: int) -> int:
+        try:
+            with path.open("rb") as f:
+                f.seek(start_offset)
+                n = 0
+                for raw in f:
+                    line = raw.decode("utf-8", errors="replace").strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if entry.get("result") not in _SUCCESS_RESULTS:
+                        continue
+                    if entry.get("tool") not in MUTATING_TOOLS:
+                        continue
+                    n += 1
+                return n
+        except OSError:
+            return 0

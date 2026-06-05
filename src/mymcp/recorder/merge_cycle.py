@@ -4,6 +4,7 @@ import json
 import logging
 import platform
 import socket
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -57,6 +58,15 @@ class MergeResult:
     tokens_out: int = 0
 
 
+class _MergeFailure(Exception):
+    """Internal carrier for the failure reason → metric label."""
+
+    def __init__(self, reason: str, message: str):
+        super().__init__(message)
+        self.reason = reason
+        self.message = message
+
+
 class MergeCycle:
     """Drains pending events and asks an LLM to update the overview + changelog.
 
@@ -83,10 +93,18 @@ class MergeCycle:
         self._require_bootstrap = require_bootstrap
         self._max_tokens = max_tokens
 
+    def _record_outcome(self, reason: str, *, start: float) -> None:
+        """Increment cycle counter AND record duration histogram for one outcome."""
+        labels = {"reason": reason}
+        instruments.recorder_merge_cycles.add(1, labels)
+        instruments.recorder_merge_duration.record(time.perf_counter() - start, labels)
+
     async def run_once(self) -> MergeResult:
+        start = time.perf_counter()
         with _tracer.start_as_current_span("recorder.merge_cycle") as span:
             if self._require_bootstrap and self._store.read_overview() is None:
                 span.set_attribute("events.in", 0)
+                self._record_outcome("bootstrap_required", start=start)
                 return MergeResult(events_consumed=0, skipped_reason="bootstrap_required")
 
             events: list[AuditEvent] = []
@@ -96,6 +114,7 @@ class MergeCycle:
                     break
             span.set_attribute("events.in", len(events))
             if not events:
+                self._record_outcome("no_events", start=start)
                 return MergeResult(events_consumed=0, skipped_reason="no_events")
 
             current_overview = self._store.read_overview()
@@ -109,6 +128,8 @@ class MergeCycle:
                     "now": datetime.now(UTC).isoformat(),
                 },
             )
+
+            # LLM HTTP boundary — http_error covers connection/auth/quota failures.
             try:
                 resp = await self._client.call(
                     system=MERGE_SYSTEM_PROMPT,
@@ -116,51 +137,75 @@ class MergeCycle:
                     max_tokens=self._max_tokens,
                     json_schema=MERGE_OUTPUT_SCHEMA,
                 )
-                instruments.recorder_llm_calls.add(1, {"phase": "merge", "result": "success"})
-                instruments.recorder_llm_tokens.add(
-                    resp.usage.input_tokens, {"phase": "merge", "direction": "input"}
-                )
-                instruments.recorder_llm_tokens.add(
-                    resp.usage.output_tokens, {"phase": "merge", "direction": "output"}
-                )
-                span.set_attribute("tokens.in", resp.usage.input_tokens)
-                span.set_attribute("tokens.out", resp.usage.output_tokens)
+            except Exception:
+                instruments.recorder_llm_calls.add(1, {"phase": "merge", "result": "http_error"})
+                self._record_outcome("llm_error", start=start)
+                self._tailer.rollback()
+                raise
 
-                # Early-fail on truncated / empty responses before parse.
+            instruments.recorder_llm_calls.add(1, {"phase": "merge", "result": "success"})
+            instruments.recorder_llm_tokens.add(
+                resp.usage.input_tokens, {"phase": "merge", "direction": "input"}
+            )
+            instruments.recorder_llm_tokens.add(
+                resp.usage.output_tokens, {"phase": "merge", "direction": "output"}
+            )
+            span.set_attribute("tokens.in", resp.usage.input_tokens)
+            span.set_attribute("tokens.out", resp.usage.output_tokens)
+
+            # Response-quality boundary — each failure mode gets its own reason.
+            try:
+                # max_tokens takes priority over JSON parse: a truncated string
+                # is also unparseable, but the actionable signal is "raise the
+                # token cap", not "the LLM emitted garbage".
                 if resp.stop_reason == "max_tokens":
-                    raise ValueError(
+                    raise _MergeFailure(
+                        "max_tokens",
                         f"LLM hit max_tokens ({self._max_tokens}); response"
                         " truncated. Raise MYMCP_RECORDER_LLM_MAX_TOKENS (must"
-                        " stay under your model's output limit)."
+                        " stay under your model's output limit).",
                     )
-                parsed = self._extract_payload(resp)
-                self._validate_payload(parsed)
+                if not resp.tool_uses and not (resp.text or "").strip():
+                    raise _MergeFailure("empty", "LLM returned empty response")
+                try:
+                    parsed = self._extract_payload(resp)
+                except ValueError as e:
+                    raise _MergeFailure("unparseable", str(e)) from e
+                try:
+                    self._validate_payload(parsed)
+                except ValueError as e:
+                    raise _MergeFailure("schema_invalid", str(e)) from e
+            except _MergeFailure as f:
+                self._record_outcome(f.reason, start=start)
+                self._tailer.rollback()
+                raise ValueError(f.message) from f.__cause__
 
-                section_updates = dict(parsed.get("section_updates") or {})
-                # Python owns Recent Changes — drop whatever the LLM put there.
-                section_updates.pop("Recent Changes", None)
-                changelog_lines = list(parsed.get("new_changelog_lines") or [])
+            section_updates = dict(parsed.get("section_updates") or {})
+            # Python owns Recent Changes — drop whatever the LLM put there.
+            section_updates.pop("Recent Changes", None)
+            changelog_lines = list(parsed.get("new_changelog_lines") or [])
 
-                # Render Recent Changes from existing-tail + about-to-append lines.
-                existing_tail = self._store.read_changelog_tail(10)
-                effective_tail = existing_tail + changelog_lines
-                section_updates["Recent Changes"] = render_recent_changes(effective_tail)
+            existing_tail = self._store.read_changelog_tail(10)
+            effective_tail = existing_tail + changelog_lines
+            section_updates["Recent Changes"] = render_recent_changes(effective_tail)
 
-                new_overview = apply_section_updates(
-                    current_overview or "",
-                    header=self._build_header(),
-                    section_updates=section_updates,
-                )
+            new_overview = apply_section_updates(
+                current_overview or "",
+                header=self._build_header(),
+                section_updates=section_updates,
+            )
 
-                # Atomic: write overview first, then append changelog, then commit cursor.
+            # Atomic: write overview first, then append changelog, then commit cursor.
+            try:
                 self._store.write_overview(new_overview)
                 self._store.append_changelog(changelog_lines)
             except Exception:
-                instruments.recorder_merge_cycles.add(1, {"result": "failure"})
+                self._record_outcome("apply_error", start=start)
                 self._tailer.rollback()
                 raise
+
             self._tailer.commit()
-            instruments.recorder_merge_cycles.add(1, {"result": "success"})
+            self._record_outcome("success", start=start)
             log.info(
                 "recorder.merge_cycle.done",
                 extra={

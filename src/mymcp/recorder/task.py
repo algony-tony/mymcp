@@ -12,11 +12,13 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from mymcp.observability.tracing import get_tracer
 from mymcp.recorder.bootstrap import Bootstrapper, BootstrapState
 from mymcp.recorder.merge_cycle import MergeCycle
 from mymcp.recorder.overview import OverviewStore
 
 log = logging.getLogger("mymcp.recorder")
+_tracer = get_tracer(__name__)
 
 
 @dataclass
@@ -92,36 +94,44 @@ class RecorderSupervisor:
                 if self._force_bootstrap or self.store.read_overview() is None:
                     self._force_bootstrap = False
                     await self._do_bootstrap()
-                try:
-                    result = await self._merge_cycle.run_once()
-                    self._last_merge_ts = time.time()
-                    # Only clear last_error if it didn't originate from a still-failed bootstrap
-                    if self._bootstrap.state != BootstrapState.FAILED:
-                        self._last_error = None
-                    self._backoff = 30.0
-                    self._consecutive_failures = 0
-                    _ = result  # could record events_consumed if needed
-                except Exception as e:  # noqa: BLE001
-                    log.exception("recorder.supervisor.cycle_error")
-                    self._last_error = str(e)
-                    self._consecutive_failures += 1
-                    if (
-                        self._circuit_threshold > 0
-                        and self._consecutive_failures >= self._circuit_threshold
-                    ):
-                        self._circuit_open = True
-                        log.error(
-                            "recorder.supervisor.circuit_open",
-                            extra={
-                                "consecutive_failures": self._consecutive_failures,
-                                "threshold": self._circuit_threshold,
-                                "last_error": self._last_error,
-                            },
-                        )
-                    self._backoff = min(self._backoff * 2, self._max_backoff)
-                    with contextlib.suppress(TimeoutError):
-                        await asyncio.wait_for(self._stop.wait(), timeout=self._backoff)
-                    continue
+                # Wrap each tick in its own span so the error log below picks
+                # up trace_id/span_id via _ContextFilter, and so the merge_cycle
+                # span attaches as a child for trace-view correlation.
+                with _tracer.start_as_current_span("recorder.supervisor.cycle"):
+                    try:
+                        result = await self._merge_cycle.run_once()
+                        # Only advance "last successful merge" when a real merge happened.
+                        # Idle ticks (no_events / bootstrap_required) would otherwise mask
+                        # a silently broken event processor from the stale-merge SLO alert.
+                        if result.skipped_reason is None:
+                            self._last_merge_ts = time.time()
+                        # Only clear last_error if it didn't originate from a still-failed bootstrap
+                        if self._bootstrap.state != BootstrapState.FAILED:
+                            self._last_error = None
+                        self._backoff = 30.0
+                        self._consecutive_failures = 0
+                        _ = result  # could record events_consumed if needed
+                    except Exception as e:  # noqa: BLE001
+                        log.exception("recorder.supervisor.cycle_error")
+                        self._last_error = str(e)
+                        self._consecutive_failures += 1
+                        if (
+                            self._circuit_threshold > 0
+                            and self._consecutive_failures >= self._circuit_threshold
+                        ):
+                            self._circuit_open = True
+                            log.error(
+                                "recorder.supervisor.circuit_open",
+                                extra={
+                                    "consecutive_failures": self._consecutive_failures,
+                                    "threshold": self._circuit_threshold,
+                                    "last_error": self._last_error,
+                                },
+                            )
+                        self._backoff = min(self._backoff * 2, self._max_backoff)
+                        with contextlib.suppress(TimeoutError):
+                            await asyncio.wait_for(self._stop.wait(), timeout=self._backoff)
+                        continue
                 with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(self._stop.wait(), timeout=self._interval)
         finally:
@@ -149,13 +159,17 @@ class RecorderSupervisor:
     def status(self) -> RecorderStatus:
         now = time.time()
         age = (now - self._last_merge_ts) if self._last_merge_ts is not None else None
+        try:
+            pending = int(self._merge_cycle._tailer.pending_count())
+        except Exception:
+            pending = 0
         return RecorderStatus(
             enabled=True,
             bootstrap_state=self._bootstrap.state,
             last_bootstrap_ts=_iso(self._last_bootstrap_ts),
             last_merge_ts=_iso(self._last_merge_ts),
             last_merge_age_seconds=age,
-            pending_events=0,  # filled when EventTailer exposes pending count
+            pending_events=pending,
             last_error=self._last_error,
             llm_provider=self._provider,
             llm_model=self._model,

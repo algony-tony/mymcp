@@ -82,6 +82,35 @@ LLM provider is `MYMCP_RECORDER_LLM_PROVIDER ∈ {anthropic, openai}`. The
 OpenAI adapter supports OpenAI-compatible endpoints via
 `MYMCP_RECORDER_LLM_BASE_URL` (e.g. DeepSeek).
 
+**Recorder observability** (all surfaced through `/metrics`):
+
+- `mymcp_recorder_merge_cycles_total{reason}` — one outcome per cycle. Reason ∈
+  `success / no_events / bootstrap_required / llm_error / max_tokens / empty /
+  unparseable / schema_invalid / apply_error`. The success ratio query is
+  `rate(...{reason="success"}) / rate(...{reason!~"no_events|bootstrap_required"})`.
+- `mymcp_recorder_merge_duration_seconds` — histogram of wall-clock per cycle,
+  labelled with the same `reason`. Use `histogram_quantile(0.95, …)` for p95.
+- `mymcp_recorder_llm_calls_total{phase,result}` — phase is `merge` or
+  `bootstrap`; result is `success` or `http_error`. Only the HTTP layer here;
+  response-quality failures are accounted via `merge_cycles{reason=…}`.
+- `mymcp_recorder_llm_tokens_total{phase,direction}` — direction ∈
+  `input / output`.
+- `mymcp_recorder_pending_events` — gauge (callback in `wiring.py`) backed by
+  `EventTailer.pending_count()`; the unconsumed mutating-event backlog.
+- `mymcp_recorder_merge_last_success_timestamp` — gauge in Unix seconds; `0`
+  means "never". SLO alert:
+  `time() - mymcp_recorder_merge_last_success_timestamp > 3600
+   unless mymcp_recorder_merge_last_success_timestamp == 0`.
+- `mymcp_recorder_circuit_open` — gauge, 1 when the breaker has tripped.
+
+The `recorder.supervisor.cycle` span wraps each tick so the
+`recorder.supervisor.cycle_error` log line carries the merge_cycle's
+`trace_id`/`span_id` for Loki↔Tempo correlation.
+
+Dashboards (`deploy/grafana/`) include a **Recorder Health** row with the
+above queries. The `server_overview` banner surfaces circuit/stale/error
+state in priority order.
+
 Spec: `docs/superpowers/specs/2026-05-29-llm-recorder-design.md`.
 Plan: `docs/superpowers/plans/2026-05-29-llm-recorder.md`.
 
