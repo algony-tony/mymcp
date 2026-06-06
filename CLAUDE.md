@@ -131,6 +131,21 @@ state in priority order.
 Spec: `docs/superpowers/specs/2026-05-29-llm-recorder-design.md`.
 Plan: `docs/superpowers/plans/2026-05-29-llm-recorder.md`.
 
+### Audit log integrity
+
+- `mymcp_audit_write_failures_total` — counter, incremented whenever the
+  audit log writer fails (disk full, permission denied, rotation race).
+  Tool calls in this state return `InternalError` to the client. Silent
+  audit loss is a SOC red line.
+
+The project ships an `Audit Log Integrity` row in the Grafana dashboard
+(cumulative + rate panels). It does NOT ship alert rules — recommended
+PromQL for operators:
+
+```
+rate(mymcp_audit_write_failures_total[5m]) > 0
+```
+
 ### Tests
 
 Tests use `pytest` with `anyio` (asyncio backend). Async tests use `@pytest.mark.anyio`. Config is patched via `unittest.mock.patch.multiple("mymcp.config", ...)` in fixtures, or via `monkeypatch.setenv("MYMCP_*")` followed by `mymcp.config.reset_settings_cache()`. No test database or external services needed.
