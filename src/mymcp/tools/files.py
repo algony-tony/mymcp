@@ -4,11 +4,36 @@ import os
 import shutil
 from typing import Literal
 
+import anyio.to_thread
+
 from mymcp import config
 
 # Runtime registry for additional protected paths with per-mode blocking.
 # Each entry is (pattern, frozenset({"read","write",...}))
 _runtime_protected: list[tuple[str, frozenset[str]]] = []
+
+
+# ---------------------------------------------------------------------------
+# blocking I/O helpers — run via anyio.to_thread.run_sync so a slow disk
+# doesn't pin the asyncio event loop.
+# ---------------------------------------------------------------------------
+
+
+def _read_bytes_lines(path: str) -> list[bytes]:
+    with open(path, "rb") as f:
+        return f.readlines()
+
+
+def _read_text(path: str) -> str:
+    with open(path, encoding="utf-8", errors="replace") as f:
+        return f.read()
+
+
+def _write_text(path: str, content: str) -> None:
+    parent = os.path.dirname(os.path.abspath(path))
+    os.makedirs(parent, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
 
 
 def register_protected_path(pattern: str, *, modes: set[str]) -> None:
@@ -76,8 +101,9 @@ async def read_file(
         return {"success": False, "error": "ProtectedPath", "message": err}
 
     try:
-        with open(file_path, "rb") as f:
-            raw_lines = f.readlines()
+        # Off the event loop: a large file or slow disk would otherwise pin
+        # the FastAPI worker for the duration of the read.
+        raw_lines = await anyio.to_thread.run_sync(_read_bytes_lines, file_path)
     except FileNotFoundError:
         return {
             "success": False,
@@ -142,10 +168,7 @@ async def write_file(file_path: str, content: str) -> dict:
             "suggestion": "Use the /files/upload endpoint for large files",
         }
     try:
-        parent = os.path.dirname(os.path.abspath(file_path))
-        os.makedirs(parent, exist_ok=True)
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(content)
+        await anyio.to_thread.run_sync(_write_text, file_path, content)
         return {"success": True, "bytes_written": len(content_bytes)}
     except PermissionError as e:
         return {
@@ -185,8 +208,7 @@ async def edit_file(
         }
 
     try:
-        with open(file_path, encoding="utf-8", errors="replace") as f:
-            content = f.read()
+        content = await anyio.to_thread.run_sync(_read_text, file_path)
     except FileNotFoundError:
         return {
             "success": False,
@@ -221,8 +243,7 @@ async def edit_file(
         replacements = 1
 
     try:
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(new_content)
+        await anyio.to_thread.run_sync(_write_text, file_path, new_content)
         return {"success": True, "replacements": replacements}
     except PermissionError as e:
         return {"success": False, "error": "PermissionError", "message": str(e)}
