@@ -247,6 +247,8 @@ These only apply when the `[recorder]` / `[recorder-anthropic]` /
 | `MYMCP_RECORDER_LLM_MODEL` | *(provider default)* | Model id override |
 | `MYMCP_RECORDER_LLM_API_KEY` | *(unset)* | API key for the chosen provider |
 | `MYMCP_RECORDER_LLM_BASE_URL` | *(unset)* | Base URL override (e.g. DeepSeek for the OpenAI adapter) |
+| `MYMCP_RECORDER_LLM_MAX_TOKENS` | `16384` | Per-call output ceiling for the recorder's LLM. Must stay ≤ the chosen model's `max_output_tokens`. Larger values let the recorder cover more sections per cycle but cost more per call. |
+| `MYMCP_RECORDER_CIRCUIT_BREAKER_THRESHOLD` | `5` | Consecutive merge failures before the breaker opens. Once open, recovery is event-driven (a new event triggers a single retry; success clears the breaker). Set to `0` to disable. |
 
 ## Managing Tokens
 
