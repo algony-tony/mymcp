@@ -47,7 +47,7 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          python -m pytest tests/ -v --cov=src/mymcp --cov-branch --cov-report=term-missing --benchmark-disable
+          python -m pytest tests/ -v --cov=src/mymcp --cov-branch --cov-report=term-missing --cov-fail-under=85 --benchmark-disable
 
       - name: Update coverage badges
         if: github.ref == 'refs/heads/master' && matrix.python-version == '3.12'
