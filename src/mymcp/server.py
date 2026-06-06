@@ -90,11 +90,27 @@ class MetricsMiddleware:
             instruments.http_requests.add(
                 1,
                 {
-                    "path": scope.get("path", ""),
+                    "path": _path_label(scope),
                     "method": scope.get("method", ""),
                     "status": str(status_code),
                 },
             )
+
+
+def _path_label(scope: Scope) -> str:
+    """Bounded `path` label for HTTP metrics.
+
+    Uses the matched route's template (e.g. ``/files/raw/{ticket_id}``) when
+    Starlette has populated ``scope["route"]``. Falls back to the raw path
+    for unmatched requests, with a sentinel for 404s to keep cardinality
+    bounded against scanners hammering distinct URLs.
+    """
+    route = scope.get("route")
+    if route is not None:
+        path = getattr(route, "path", None) or getattr(route, "path_format", None)
+        if path:
+            return str(path)
+    return scope.get("path", "<unmatched>")
 
 
 def create_app() -> FastAPI:
