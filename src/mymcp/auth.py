@@ -1,4 +1,6 @@
+import contextlib
 import json
+import os
 import secrets
 import threading
 from datetime import datetime, timezone
@@ -33,19 +35,49 @@ class TokenStore:
             self._save()
 
     def _save(self) -> None:
+        """Atomic write: tmp file + os.replace. A crash mid-write leaves the
+        old file intact — previously a partial write could lock out admin.
+
+        Callers must hold ``self._lock`` (or be running single-threaded, e.g.
+        startup / shutdown).
+        """
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.path, "w") as f:
-            json.dump(self._data, f, indent=2)
+        tmp = self.path.with_suffix(self.path.suffix + ".tmp")
+        try:
+            with open(tmp, "w") as f:
+                json.dump(self._data, f, indent=2)
+            with contextlib.suppress(OSError):
+                os.chmod(tmp, 0o600)
+            os.replace(tmp, self.path)
+        except Exception:
+            with contextlib.suppress(FileNotFoundError):
+                tmp.unlink()
+            raise
 
     def validate(self, token: str) -> dict | None:
-        """Returns token info dict if valid and enabled, else None."""
+        """Returns token info dict if valid and enabled, else None.
+
+        last_used is updated in memory only; the disk copy is flushed at
+        shutdown via ``flush()``. Previously every request rewrote the whole
+        token file under a lock — a global throughput ceiling at one token
+        validation per JSON serialise + fsync.
+        """
         with self._lock:
             info = self._data["tokens"].get(token)
             if info is None or not info.get("enabled", False):
                 return None
             info["last_used"] = datetime.now(timezone.utc).isoformat()  # noqa: UP017
-            self._save()
             return dict(info)
+
+    def flush(self) -> None:
+        """Persist in-memory state (e.g. updated last_used) to disk.
+
+        Called at FastAPI lifespan shutdown so the disk copy isn't permanently
+        stale across restarts. Failures are logged (via the caller) but don't
+        block shutdown — last_used is a soft observability hint, not auth state.
+        """
+        with self._lock:
+            self._save()
 
     def create_token(self, name: str, role: str = "ro") -> str:
         if role not in ("ro", "rw"):

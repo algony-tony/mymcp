@@ -133,6 +133,14 @@ def create_app() -> FastAPI:
                         await asyncio.wait_for(recorder_task, timeout=10)
                     except TimeoutError:
                         recorder_task.cancel()
+                # Persist soft observability state (last_used per token) to
+                # the token file. last_used is updated in-memory on every
+                # validate; flushing here keeps the disk copy honest across
+                # restarts without the per-request fsync cost.
+                try:
+                    get_store().flush()
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("auth: flush token store failed: %s", e)
 
     import mymcp
 
