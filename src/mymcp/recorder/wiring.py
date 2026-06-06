@@ -94,10 +94,9 @@ def _observe_pending_events() -> list[Observation]:
 def _observe_last_success_ts() -> list[Observation]:
     """Unix seconds of the last successful merge cycle; 0 if never.
 
-    Alert recipe:
-      time() - mymcp_recorder_merge_last_success_timestamp > 3600
-      unless mymcp_recorder_merge_last_success_timestamp == 0
-    The `unless` clause keeps the 0 sentinel from paging during bootstrap.
+    Informational only — kept for historical health trending. The canonical
+    staleness signal is now the composite of pending_events and
+    last_attempt_timestamp (see _observe_last_attempt_ts).
     """
     from mymcp.mcp_server import get_recorder_supervisor
 
@@ -108,6 +107,27 @@ def _observe_last_success_ts() -> list[Observation]:
     return [Observation(ts if ts is not None else 0)]
 
 
+def _observe_last_attempt_ts() -> list[Observation]:
+    """Unix seconds of the last merge attempt (success OR failure); 0 if never.
+
+    Differs from last_success_timestamp: this advances even when the LLM
+    failed, but does NOT advance on idle ticks (pending_count == 0). Together
+    with pending_events it is the canonical 'recorder is stuck' signal:
+
+        Recommended composite (project ships no alert rules):
+          ( mymcp_recorder_pending_events > 0
+            AND time() - mymcp_recorder_merge_last_attempt_timestamp > 1800 )
+          OR mymcp_recorder_circuit_open == 1
+    """
+    from mymcp.mcp_server import get_recorder_supervisor
+
+    sup = get_recorder_supervisor()
+    if sup is None:
+        return [Observation(0)]
+    ts = getattr(sup, "_last_merge_attempt_ts", None)
+    return [Observation(ts if ts is not None else 0)]
+
+
 register_callback_gauge(
     "mymcp.recorder.circuit_open",
     "1 when the recorder's merge-failure circuit breaker has tripped, else 0",
@@ -115,8 +135,13 @@ register_callback_gauge(
 )
 register_callback_gauge(
     "mymcp.recorder.merge.last_success_timestamp",
-    "Unix seconds of the last successful recorder merge cycle; 0 if never",
+    "Unix seconds of the last successful recorder merge cycle; 0 if never (informational)",
     _observe_last_success_ts,
+)
+register_callback_gauge(
+    "mymcp.recorder.merge.last_attempt_timestamp",
+    "Unix seconds of the last recorder merge attempt (success or failure); 0 if never",
+    _observe_last_attempt_ts,
 )
 register_callback_gauge(
     "mymcp.recorder.pending_events",
