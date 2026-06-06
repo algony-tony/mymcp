@@ -67,16 +67,30 @@ def _audit_redeem(
     error_code: str | None,
     client_ip: str,
 ) -> None:
+    """Audit one ticket redemption.
+
+    The ``role`` field records the issuer's MCP role (the token that called
+    prepare_upload/prepare_download) — NOT a fabricated role for the
+    redeemer, who is just a ticket bearer and may have no MCP credentials.
+    Tool name is direction-specific (``transfer_upload`` / ``transfer_download``)
+    so audit search and the recorder can tell them apart. Previously the
+    synthetic ``transfer_redeem`` + hardcoded ``rw/ro`` role conflated
+    issuer and redeemer.
+    """
+    tool = "transfer_upload" if ticket.op == "upload" else "transfer_download"
     log_tool_call(
         token_name=ticket.created_by,
-        role="rw" if ticket.op == "upload" else "ro",
+        role=ticket.created_by_role,
         ip=client_ip,
-        tool="transfer_redeem",
+        tool=tool,
         params={
             "op": ticket.op,
             "path": ticket.path,
             "ticket": ticket.ticket_id[:8],
             "bytes": bytes_count,
+            "issuer_token_name": ticket.created_by,
+            "issuer_role": ticket.created_by_role,
+            "redeemer_ip": client_ip,
         },
         result="ok" if success else "error",
         error_code=error_code,

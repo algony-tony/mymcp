@@ -240,8 +240,14 @@ async def test_upload_writes_audit_entry(client, tmp_path, monkeypatch):
         log_path = audit_dir / "audit.log"
         assert log_path.exists()
         text = log_path.read_text()
-        assert "transfer_redeem" in text
+        # Direction-specific audit name: upload → transfer_upload.
+        assert "transfer_upload" in text
+        assert "transfer_redeem" not in text
+        # Issuer identity (token that minted the ticket) is recorded.
         assert "rwc" in text
+        assert "issuer_token_name" in text
+        assert "issuer_role" in text
+        assert "redeemer_ip" in text
         assert '"bytes": 5' in text
     finally:
         monkeypatch.delenv("MYMCP_AUDIT_ENABLED", raising=False)
@@ -294,8 +300,11 @@ async def test_download_writes_audit_entry(client, tmp_path, monkeypatch):
         assert r.status_code == 200
         assert r.content == b"abcd"
         text = (audit_dir / "audit.log").read_text()
-        assert "transfer_redeem" in text
+        # Direction-specific audit name: download → transfer_download.
+        assert "transfer_download" in text
+        assert "transfer_redeem" not in text
         assert "roc" in text
+        assert "issuer_token_name" in text
         assert '"bytes": 4' in text
     finally:
         monkeypatch.delenv("MYMCP_AUDIT_ENABLED", raising=False)
@@ -423,7 +432,9 @@ async def test_download_error_writes_audit(client, tmp_path, monkeypatch):
         monkeypatch.undo()
 
         text = (audit_dir / "audit.log").read_text()
-        assert "transfer_redeem" in text
+        # Download failure → audited as transfer_download with stream_aborted.
+        assert "transfer_download" in text
+        assert "transfer_redeem" not in text
         assert "stream_aborted" in text
     finally:
         monkeypatch.delenv("MYMCP_AUDIT_ENABLED", raising=False)

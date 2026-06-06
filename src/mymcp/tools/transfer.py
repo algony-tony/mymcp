@@ -40,6 +40,7 @@ async def prepare_upload(
     expires_in: int | None = None,
     overwrite: bool = True,
     token_name: str = "unknown",
+    token_role: str = "unknown",
 ) -> dict:
     if not config.TRANSFER_ENABLED:
         return {
@@ -90,6 +91,7 @@ async def prepare_upload(
         max_bytes=effective_max,
         ttl_sec=effective_ttl,
         created_by=token_name,
+        created_by_role=token_role,
     )
     url = _build_url(ticket.ticket_id)
     return {
@@ -120,6 +122,7 @@ async def prepare_download(
     src_path: str,
     expires_in: int | None = None,
     token_name: str = "unknown",
+    token_role: str = "unknown",
 ) -> dict:
     if not config.TRANSFER_ENABLED:
         return {
@@ -167,6 +170,7 @@ async def prepare_download(
         max_bytes=size,
         ttl_sec=effective_ttl,
         created_by=token_name,
+        created_by_role=token_role,
     )
     url = _build_url(ticket.ticket_id)
     return {

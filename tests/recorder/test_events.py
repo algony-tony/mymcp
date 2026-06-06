@@ -143,3 +143,12 @@ def test_mutating_tools_set_membership():
     assert "edit_file" in MUTATING_TOOLS
     assert "read_file" not in MUTATING_TOOLS
     assert "glob" not in MUTATING_TOOLS
+
+
+def test_transfer_upload_is_mutating():
+    """The endpoint-side audit name `transfer_upload` (in transfer/endpoints.py)
+    must be visible to the recorder so the changelog records files actually
+    written via the bypass HTTP endpoint — not just MCP write_file calls."""
+    assert "transfer_upload" in MUTATING_TOOLS
+    # transfer_download is a read-side audit name; it must NOT be mutating.
+    assert "transfer_download" not in MUTATING_TOOLS

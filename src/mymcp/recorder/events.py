@@ -26,6 +26,11 @@ log = logging.getLogger("mymcp.recorder")
 # Tools whose successful invocations mutate the host state and should be
 # folded into the overview by the recorder. The recorder ignores read-only
 # tools (read_file, glob, grep) and any tool that returned an error/denied.
+#
+# transfer_upload is the *endpoint* audit name (in transfer/endpoints.py) for
+# a successful ticket redemption that wrote bytes — distinct from the MCP
+# tool `prepare_upload` which just mints the ticket. Without this entry the
+# recorder is blind to files actually pushed through the transfer endpoint.
 MUTATING_TOOLS: frozenset[str] = frozenset(
     {
         "bash_execute",
@@ -33,6 +38,7 @@ MUTATING_TOOLS: frozenset[str] = frozenset(
         "edit_file",
         "prepare_upload",
         "prepare_download",
+        "transfer_upload",
     }
 )
 
