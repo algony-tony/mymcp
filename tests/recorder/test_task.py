@@ -79,6 +79,8 @@ async def test_supervisor_status_initial_shape(tmp_path):
     assert status.bootstrap_state == BootstrapState.IDLE
     assert status.last_bootstrap_ts is None
     assert status.last_merge_ts is None
+    assert status.last_merge_attempt_ts is None
+    assert status.last_merge_attempt_age_seconds is None
     assert status.last_error is None
     assert status.llm_provider == "anthropic"
 

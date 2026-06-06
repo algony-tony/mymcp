@@ -28,6 +28,8 @@ class RecorderStatus:
     last_bootstrap_ts: str | None
     last_merge_ts: str | None
     last_merge_age_seconds: float | None
+    last_merge_attempt_ts: str | None
+    last_merge_attempt_age_seconds: float | None
     pending_events: int
     last_error: str | None
     llm_provider: str
@@ -57,8 +59,13 @@ class RecorderSupervisor:
         self._stop = asyncio.Event()
         self._force_bootstrap = False
         self._last_merge_ts: float | None = None
+        self._last_merge_attempt_ts: float | None = None
         self._last_bootstrap_ts: float | None = None
         self._last_error: str | None = None
+        # When the circuit is open, this records pending_count at the moment
+        # the breaker tripped. The supervisor only retries when pending grows
+        # past it — i.e. genuinely new work has arrived.
+        self._circuit_open_pending_high_water: int = 0
         self._backoff = 30.0
         self._max_backoff = 600.0
         self._circuit_threshold = circuit_breaker_threshold
@@ -159,6 +166,11 @@ class RecorderSupervisor:
     def status(self) -> RecorderStatus:
         now = time.time()
         age = (now - self._last_merge_ts) if self._last_merge_ts is not None else None
+        attempt_age = (
+            (now - self._last_merge_attempt_ts)
+            if self._last_merge_attempt_ts is not None
+            else None
+        )
         try:
             pending = int(self._merge_cycle._tailer.pending_count())
         except Exception:
@@ -169,6 +181,8 @@ class RecorderSupervisor:
             last_bootstrap_ts=_iso(self._last_bootstrap_ts),
             last_merge_ts=_iso(self._last_merge_ts),
             last_merge_age_seconds=age,
+            last_merge_attempt_ts=_iso(self._last_merge_attempt_ts),
+            last_merge_attempt_age_seconds=attempt_age,
             pending_events=pending,
             last_error=self._last_error,
             llm_provider=self._provider,
