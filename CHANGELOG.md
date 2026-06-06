@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- (#48) Recorder reason labels on merge-cycle metrics
+  (`mymcp_recorder_merge_cycles_total{reason}`, duration histogram labelled
+  with the same `reason`); SLO gauges (`mymcp_recorder_circuit_open`,
+  `mymcp_recorder_merge_last_success_timestamp`,
+  `mymcp_recorder_pending_events`); Recorder Health row in the Grafana
+  dashboard; `server_overview` banner surfaces circuit/stale/error state in
+  priority order.
+- (#43) 57 mutation-killer tests covering audit/dispatch/bash/files paths
+  alongside a 5-shard `mutation-full` CI matrix that publishes a mutation
+  score badge.
+
+### Changed
+- (#47) Recorder resilience overhaul — supervisor circuit breaker, structured
+  output protocol so the LLM returns section-level edits (header + Recent
+  Changes are Python-owned), JSON-schema enforcement per provider, and a
+  prioritised banner in `server_overview`.
+- (#45) Tool definitions split out of `mcp_server.py` into
+  `mymcp/tool_definitions.py`.
+- (#44) Routine dependency bumps grouped by Dependabot.
+
 ## [2.1.1] - 2026-05-15
 
 ### Fixed
