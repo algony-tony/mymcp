@@ -99,11 +99,13 @@ def _observe_last_success_ts() -> list[Observation]:
     last_attempt_timestamp (see _observe_last_attempt_ts).
     """
     from mymcp.mcp_server import get_recorder_supervisor
+    from mymcp.recorder.task import RecorderSupervisor
 
     sup = get_recorder_supervisor()
     if sup is None:
         return [Observation(0)]
-    ts = getattr(sup, "_last_merge_ts", None)
+    sup_typed: RecorderSupervisor = sup  # type: ignore[assignment]
+    ts = sup_typed.last_merge_ts_unix  # public; mypy catches rename
     return [Observation(ts if ts is not None else 0)]
 
 
@@ -120,11 +122,13 @@ def _observe_last_attempt_ts() -> list[Observation]:
           OR mymcp_recorder_circuit_open == 1
     """
     from mymcp.mcp_server import get_recorder_supervisor
+    from mymcp.recorder.task import RecorderSupervisor
 
     sup = get_recorder_supervisor()
     if sup is None:
         return [Observation(0)]
-    ts = getattr(sup, "_last_merge_attempt_ts", None)
+    sup_typed: RecorderSupervisor = sup  # type: ignore[assignment]
+    ts = sup_typed.last_merge_attempt_ts_unix  # public; mypy catches rename
     return [Observation(ts if ts is not None else 0)]
 
 

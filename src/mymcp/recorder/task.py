@@ -84,6 +84,25 @@ class RecorderSupervisor:
     def circuit_open(self) -> bool:
         return self._circuit_open
 
+    @property
+    def last_merge_ts_unix(self) -> float | None:
+        """Public read of the last successful merge timestamp.
+
+        Use this from observability callbacks instead of the private
+        ``_last_merge_ts`` attribute — a future rename then fails mypy
+        loudly rather than silently emitting `0` forever from the gauge.
+        """
+        return self._last_merge_ts
+
+    @property
+    def last_merge_attempt_ts_unix(self) -> float | None:
+        """Public read of the last merge attempt timestamp (success OR fail).
+
+        Counterpart to ``last_merge_ts_unix``; ``None`` until the first
+        non-idle tick has run.
+        """
+        return self._last_merge_attempt_ts
+
     def _pending_count_safe(self) -> int:
         """Cheap, exception-swallowing read of the audit-log backlog size."""
         try:
@@ -153,13 +172,21 @@ class RecorderSupervisor:
                         log.exception("recorder.supervisor.cycle_error")
                         self._last_error = str(e)
                         self._consecutive_failures += 1
+                        # MergeCycle.run_once() may have advanced (or rolled
+                        # back) the tailer cursor before raising, so the
+                        # backlog after the failure can differ from the value
+                        # we read at the top of the loop. Read it again so
+                        # the high-water reflects post-failure reality;
+                        # otherwise the next-tick guard `pending <= high_water`
+                        # could livelock until N more events arrive.
+                        post_failure_pending = self._pending_count_safe()
                         if (
                             self._circuit_threshold > 0
                             and self._consecutive_failures >= self._circuit_threshold
                             and not self._circuit_open
                         ):
                             self._circuit_open = True
-                            self._circuit_open_pending_high_water = pending
+                            self._circuit_open_pending_high_water = post_failure_pending
                             log.error(
                                 "recorder.supervisor.circuit_open",
                                 extra={
@@ -172,7 +199,7 @@ class RecorderSupervisor:
                             # Already open and we just retried because new
                             # work arrived; bump the high-water so the next
                             # retry waits for further new events.
-                            self._circuit_open_pending_high_water = pending
+                            self._circuit_open_pending_high_water = post_failure_pending
                         self._backoff = min(self._backoff * 2, self._max_backoff)
                         with contextlib.suppress(TimeoutError):
                             await asyncio.wait_for(self._stop.wait(), timeout=self._backoff)
