@@ -11,5 +11,24 @@ ExecStart={exec_start}
 Restart=on-failure
 RestartSec=5
 
+# --- Security hardening ---
+# Always on: prevents the process and its children from gaining capabilities
+# via setuid/setgid binaries (no sudo, no su). Does NOT restrict which files
+# mymcp can read or write — the LLM still has full access to the filesystem.
+NoNewPrivileges=true
+
+# Opt-in stronger isolation. By design mymcp is meant to operate the host so
+# enabling these will break common LLM workflows (apt install, editing /etc,
+# touching files under /home, sharing /tmp with other processes). Uncomment
+# only if your deployment accepts the trade-off.
+#
+# ProtectSystem=strict
+# ProtectHome=true
+# PrivateTmp=true
+# Update the ReadWritePaths list to match your deploy (defaults shown):
+# ReadWritePaths=/etc/mymcp /var/log/mymcp /var/lib/mymcp
+# CapabilityBoundingSet=
+# RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
 [Install]
 WantedBy=multi-user.target

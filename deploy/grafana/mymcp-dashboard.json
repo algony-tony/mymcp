@@ -985,6 +985,72 @@
           "legendFormat": "pending"
         }
       ]
+    },
+    {
+      "id": 59,
+      "type": "row",
+      "title": "Audit Log Integrity",
+      "gridPos": { "x": 0, "y": 60, "w": 24, "h": 1 },
+      "collapsed": false
+    },
+    {
+      "id": 60,
+      "type": "stat",
+      "title": "Audit Write Failures (cumulative)",
+      "description": "mymcp_audit_write_failures_total. Non-zero means audit log writes are being rejected (disk full, perms, rotation race). Tool calls return InternalError; without this panel the operator is otherwise blind. The project ships no alert rules — a recommended PromQL recipe is: rate(mymcp_audit_write_failures_total[5m]) > 0",
+      "gridPos": { "x": 0, "y": 61, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "orientation": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(mymcp_audit_write_failures_total{job=~\"mymcp.*\",instance=~\"$instance\"})",
+          "legendFormat": "failures"
+        }
+      ]
+    },
+    {
+      "id": 61,
+      "type": "timeseries",
+      "title": "Audit Write Failure Rate",
+      "description": "rate(mymcp_audit_write_failures_total[5m]). A sustained non-zero rate is the SOC red line — silent audit loss.",
+      "gridPos": { "x": 6, "y": 61, "w": 18, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "options": {
+        "tooltip": { "mode": "single", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": { "lineWidth": 2, "fillOpacity": 10 }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(mymcp_audit_write_failures_total{job=~\"mymcp.*\",instance=~\"$instance\"}[5m])",
+          "legendFormat": "failures/s"
+        }
+      ]
     }
   ]
 }

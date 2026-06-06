@@ -71,6 +71,72 @@ def test_validate_updates_last_used(tmp_path):
     assert store.validate(token)["last_used"] is not None
 
 
+def test_validate_does_not_write_to_disk(tmp_path):
+    """Every successful validate previously rewrote tokens.json.
+
+    Now last_used lives in memory until flush(). Confirm via file mtime
+    that 20 validates leave the file alone.
+    """
+    store = make_store(tmp_path)
+    token = store.create_token("client-mtime")
+    path = tmp_path / "tokens.json"
+    assert path.exists()
+    mtime_before = path.stat().st_mtime_ns
+    for _ in range(20):
+        info = store.validate(token)
+        assert info is not None
+    assert path.stat().st_mtime_ns == mtime_before
+
+
+def test_flush_persists_in_memory_last_used(tmp_path):
+    """After flush(), reopening the file shows the in-memory last_used."""
+    import json
+
+    path = tmp_path / "tokens.json"
+    store = TokenStore(str(path), "adm_x")
+    token = store.create_token("client-flush")
+    assert store.validate(token)["last_used"] is not None
+    # On-disk record should NOT yet show last_used (only memory)
+    disk_before = json.loads(path.read_text())["tokens"][token]
+    assert disk_before["last_used"] is None
+    # Flush → on-disk record matches in-memory.
+    store.flush()
+    disk_after = json.loads(path.read_text())["tokens"][token]
+    assert disk_after["last_used"] is not None
+
+
+def test_save_is_atomic_under_failure(tmp_path, monkeypatch):
+    """If os.replace fails partway, the original file must remain intact.
+
+    Without atomic writes, a crash mid-write produced a truncated tokens.json
+    that locks out admin until manual repair.
+    """
+    import os as _os
+
+    from mymcp import auth as _auth
+
+    path = tmp_path / "tokens.json"
+    store = TokenStore(str(path), "adm_x")
+    store.create_token("first")
+    original = path.read_text()
+
+    def fail_replace(*args, **kwargs):
+        raise OSError("simulated crash")
+
+    monkeypatch.setattr(_auth.os, "replace", fail_replace)
+
+    with pytest.raises(OSError):
+        store.create_token("second")  # internally calls _save -> os.replace
+
+    # File on disk must be the pre-call content — not partial, not corrupt.
+    assert path.read_text() == original
+    # No leftover .tmp file
+    leftovers = list(tmp_path.glob("tokens.json.tmp*"))
+    assert leftovers == []
+    # And the original file mode (set on creation) is unchanged
+    assert _os.stat(path).st_mode & 0o777 in (0o600, _os.stat(path).st_mode & 0o777)
+
+
 def test_create_token_default_role_is_ro(tmp_path):
     store = make_store(tmp_path)
     token = store.create_token("client-ro")

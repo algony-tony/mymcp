@@ -720,6 +720,21 @@ scrape_configs:
 
 Import the dashboard JSON; the Traces and Logs panels remain empty (this is expected).
 
+### Audit log integrity
+
+| Metric | Type | Description |
+|---|---|---|
+| `mymcp_audit_write_failures_total` | counter | Audit log writes rejected (disk full, permission denied, rotation race). Tool calls in this state return `InternalError`. |
+
+Silent audit loss is a SOC red line, so the Grafana dashboard ships an
+**Audit Log Integrity** row (cumulative + per-second-rate panels). The
+project does NOT ship alert rules — alerting is deployment-specific.
+Recommended PromQL recipe for operators:
+
+```
+rate(mymcp_audit_write_failures_total[5m]) > 0
+```
+
 ### Recorder metrics (`[recorder]` extra)
 
 When the recorder is enabled, these extra series appear on `/metrics`:

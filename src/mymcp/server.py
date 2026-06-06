@@ -90,11 +90,30 @@ class MetricsMiddleware:
             instruments.http_requests.add(
                 1,
                 {
-                    "path": scope.get("path", ""),
+                    "path": _path_label(scope),
                     "method": scope.get("method", ""),
                     "status": str(status_code),
                 },
             )
+
+
+def _path_label(scope: Scope) -> str:
+    """Bounded `path` label for HTTP metrics.
+
+    Returns the matched route's template (e.g. ``/files/raw/{ticket_id}``)
+    when Starlette has populated ``scope["route"]``. Otherwise — including
+    every unmatched 404 — returns the literal sentinel ``<unmatched>``. This
+    is what keeps cardinality bounded against scanners hammering distinct
+    URLs (``/wp-login.php``, ``/.git/config``, …); using the raw path here
+    would create one label value per probe URL.
+    """
+    route = scope.get("route")
+    if route is None:
+        return "<unmatched>"
+    path = getattr(route, "path", None) or getattr(route, "path_format", None)
+    if path:
+        return str(path)
+    return "<unmatched>"
 
 
 def create_app() -> FastAPI:
@@ -133,6 +152,14 @@ def create_app() -> FastAPI:
                         await asyncio.wait_for(recorder_task, timeout=10)
                     except TimeoutError:
                         recorder_task.cancel()
+                # Persist soft observability state (last_used per token) to
+                # the token file. last_used is updated in-memory on every
+                # validate; flushing here keeps the disk copy honest across
+                # restarts without the per-request fsync cost.
+                try:
+                    get_store().flush()
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("auth: flush token store failed: %s", e)
 
     import mymcp
 
