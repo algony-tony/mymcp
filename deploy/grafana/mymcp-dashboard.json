@@ -769,7 +769,7 @@
       "id": 52,
       "type": "stat",
       "title": "Circuit Breaker",
-      "description": "mymcp_recorder_circuit_open. OPEN means the supervisor has hit its consecutive-failure threshold and stopped calling the LLM until the process restarts.",
+      "description": "mymcp_recorder_circuit_open. OPEN means the supervisor has hit its consecutive-failure threshold. Recovery is event-driven: a new audit event past the high-water mark triggers one retry; success clears the breaker. No restart required.",
       "gridPos": { "x": 6, "y": 40, "w": 6, "h": 4 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "options": {
@@ -810,8 +810,8 @@
     {
       "id": 53,
       "type": "stat",
-      "title": "Time Since Last Successful Merge",
-      "description": "Seconds since the last successful merge. Red above 1 hour. Shows N/A when no successful merge has happened yet (gauge value = 0).",
+      "title": "Time Since Last Attempt (when there's a backlog)",
+      "description": "Seconds since the last recorder merge attempt (success OR failure), gated by pending_events > 0. Read together with the Pending Events panel: 'pending > 0 AND this large' is the canonical stuck signal. When the backlog is zero this shows N/A — an idle system has nothing to be stalled on. The last_success_timestamp is kept as an informational metric only.",
       "gridPos": { "x": 12, "y": 40, "w": 6, "h": 4 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "options": {
@@ -829,7 +829,7 @@
             "steps": [
               { "color": "green", "value": null },
               { "color": "yellow", "value": 900 },
-              { "color": "red", "value": 3600 }
+              { "color": "red", "value": 1800 }
             ]
           },
           "mappings": [
@@ -840,7 +840,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "(time() - max(mymcp_recorder_merge_last_success_timestamp{job=~\"mymcp.*\",instance=~\"$instance\"})) and on() max(mymcp_recorder_merge_last_success_timestamp{job=~\"mymcp.*\",instance=~\"$instance\"}) > 0",
+          "expr": "(time() - max(mymcp_recorder_merge_last_attempt_timestamp{job=~\"mymcp.*\",instance=~\"$instance\"})) and on() max(mymcp_recorder_pending_events{job=~\"mymcp.*\",instance=~\"$instance\"}) > 0 and on() max(mymcp_recorder_merge_last_attempt_timestamp{job=~\"mymcp.*\",instance=~\"$instance\"}) > 0",
           "legendFormat": "age"
         }
       ]
