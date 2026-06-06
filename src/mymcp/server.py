@@ -110,7 +110,8 @@ def _path_label(scope: Scope) -> str:
         path = getattr(route, "path", None) or getattr(route, "path_format", None)
         if path:
             return str(path)
-    return scope.get("path", "<unmatched>")
+    raw_path = scope.get("path", "<unmatched>")
+    return str(raw_path) if raw_path else "<unmatched>"
 
 
 def create_app() -> FastAPI:
