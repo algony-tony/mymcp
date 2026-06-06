@@ -21,6 +21,27 @@ async def test_read_file_basic(tmp_path):
 
 
 @pytest.mark.anyio
+async def test_read_file_default_limit_reads_current_settings(tmp_path):
+    """Default for `limit` must be resolved at call time, not at import.
+
+    Regression: previously `limit: int = config.READ_FILE_DEFAULT_LIMIT` was
+    evaluated once at module import and captured in `__defaults__`, so
+    patching the setting had no effect when the test called read_file()
+    without an explicit limit kwarg.
+    """
+    f = tmp_path / "many.txt"
+    f.write_text("\n".join(f"line{i}" for i in range(50)) + "\n")
+    with patch("mymcp.config.READ_FILE_DEFAULT_LIMIT", 5):
+        result = await read_file(str(f))  # no limit kwarg
+    # File has 50 lines; with default=5 only the first 5 must come back.
+    assert "line0" in result["content"]
+    assert "line4" in result["content"]
+    assert "line5" not in result["content"]
+    assert result["truncated"] is True
+    assert result["total_lines"] == 50
+
+
+@pytest.mark.anyio
 async def test_read_file_offset_and_limit(tmp_path):
     f = tmp_path / "big.txt"
     lines = [f"line {i}" for i in range(1, 201)]

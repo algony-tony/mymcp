@@ -60,8 +60,14 @@ def _filter_protected(paths: list[str]) -> list[str]:
 async def read_file(
     file_path: str,
     offset: int = 1,
-    limit: int = config.READ_FILE_DEFAULT_LIMIT,
+    limit: int | None = None,
 ) -> dict:
+    # Resolve defaults at call time, not at module import. Previously the
+    # default expression `config.READ_FILE_DEFAULT_LIMIT` was evaluated once
+    # and captured in __defaults__, so reset_settings_cache + a new env var
+    # were silently ignored by tests calling without an explicit kwarg.
+    if limit is None:
+        limit = config.READ_FILE_DEFAULT_LIMIT
     limit = min(max(1, limit), config.READ_FILE_MAX_LIMIT)
     offset = max(1, offset)
 
