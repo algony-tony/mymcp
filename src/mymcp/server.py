@@ -100,18 +100,20 @@ class MetricsMiddleware:
 def _path_label(scope: Scope) -> str:
     """Bounded `path` label for HTTP metrics.
 
-    Uses the matched route's template (e.g. ``/files/raw/{ticket_id}``) when
-    Starlette has populated ``scope["route"]``. Falls back to the raw path
-    for unmatched requests, with a sentinel for 404s to keep cardinality
-    bounded against scanners hammering distinct URLs.
+    Returns the matched route's template (e.g. ``/files/raw/{ticket_id}``)
+    when Starlette has populated ``scope["route"]``. Otherwise — including
+    every unmatched 404 — returns the literal sentinel ``<unmatched>``. This
+    is what keeps cardinality bounded against scanners hammering distinct
+    URLs (``/wp-login.php``, ``/.git/config``, …); using the raw path here
+    would create one label value per probe URL.
     """
     route = scope.get("route")
-    if route is not None:
-        path = getattr(route, "path", None) or getattr(route, "path_format", None)
-        if path:
-            return str(path)
-    raw_path = scope.get("path", "<unmatched>")
-    return str(raw_path) if raw_path else "<unmatched>"
+    if route is None:
+        return "<unmatched>"
+    path = getattr(route, "path", None) or getattr(route, "path_format", None)
+    if path:
+        return str(path)
+    return "<unmatched>"
 
 
 def create_app() -> FastAPI:
