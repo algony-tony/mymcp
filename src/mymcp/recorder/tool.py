@@ -89,18 +89,14 @@ def _build_banner(
         and last_merge_attempt_age_seconds > stale_threshold
     ):
         minutes = int(last_merge_attempt_age_seconds / 60)
-        msg = (
-            f"_⚠️ {pending_events} events pending; merge stalled for {minutes} minutes_"
-        )
+        msg = f"_⚠️ {pending_events} events pending; merge stalled for {minutes} minutes_"
         if last_error:
             msg = msg.rstrip("_") + f": {last_error}_"
         return msg + "\n\n"
 
     # Priority 3: backlog with a recent failure (not yet stale).
     if pending_events > 0 and consecutive_failures > 0 and last_error:
-        return (
-            f"_⚠️ last merge failed: {last_error} — will retry on next event_\n\n"
-        )
+        return f"_⚠️ last merge failed: {last_error} — will retry on next event_\n\n"
 
     # Idle (pending==0) or healthy — no banner.
     return ""

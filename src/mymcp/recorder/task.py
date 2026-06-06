@@ -118,10 +118,7 @@ class RecorderSupervisor:
                 # Circuit open: only retry when genuinely new work has arrived
                 # since the breaker tripped. Avoids hammering a still-broken
                 # LLM but does NOT require a service restart to recover.
-                if (
-                    self._circuit_open
-                    and pending <= self._circuit_open_pending_high_water
-                ):
+                if self._circuit_open and pending <= self._circuit_open_pending_high_water:
                     with contextlib.suppress(TimeoutError):
                         await asyncio.wait_for(self._stop.wait(), timeout=self._interval)
                     continue
@@ -208,9 +205,7 @@ class RecorderSupervisor:
         now = time.time()
         age = (now - self._last_merge_ts) if self._last_merge_ts is not None else None
         attempt_age = (
-            (now - self._last_merge_attempt_ts)
-            if self._last_merge_attempt_ts is not None
-            else None
+            (now - self._last_merge_attempt_ts) if self._last_merge_attempt_ts is not None else None
         )
         try:
             pending = int(self._merge_cycle._tailer.pending_count())

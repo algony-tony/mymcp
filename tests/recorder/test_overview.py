@@ -48,11 +48,7 @@ def test_write_overview_stamps_last_updated_after_h1(tmp_path):
 def test_write_overview_replaces_existing_last_updated(tmp_path):
     """Stamping is idempotent — old marker is replaced, not duplicated."""
     s = OverviewStore(tmp_path)
-    seeded = (
-        "# Server Overview\n\n"
-        "_Last updated: 2020-01-01T00:00:00Z_\n\n"
-        "body\n"
-    )
+    seeded = "# Server Overview\n\n_Last updated: 2020-01-01T00:00:00Z_\n\nbody\n"
     s.write_overview(seeded)
     text = (tmp_path / "overview.md").read_text()
     assert text.count("_Last updated:") == 1
