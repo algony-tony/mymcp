@@ -26,10 +26,15 @@ def test_transfer_tools_registered():
     assert "prepare_download" in READ_TOOLS
 
 
-def test_prepare_upload_descriptions_minimal():
-    """Tool descriptions are loaded into every client session — keep them short."""
-    assert len(_TOOL_DEFS["prepare_upload"].description) < 120
-    assert len(_TOOL_DEFS["prepare_download"].description) < 120
+def test_prepare_upload_descriptions_bounded():
+    """Tool descriptions are loaded into every client session — keep them bounded.
+
+    Cap is set high enough to allow the curl-on-client workflow note that
+    LLMs need to use these tools correctly (returning a ticket URL, not
+    pulling from the client). It is NOT meant to fit long-form docs.
+    """
+    assert len(_TOOL_DEFS["prepare_upload"].description) < 400
+    assert len(_TOOL_DEFS["prepare_download"].description) < 400
 
 
 def test_ro_role_cannot_call_prepare_upload():

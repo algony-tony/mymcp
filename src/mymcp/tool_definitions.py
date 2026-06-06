@@ -16,7 +16,13 @@ def build_tool_definitions() -> dict[str, types.Tool]:
             name="bash_execute",
             description=(
                 "Execute any shell command on the Linux server. "
-                "Stateless: each call is a fresh subprocess, no persistent shell state."
+                "Stateless: each call is a fresh subprocess, no persistent shell state.\n\n"
+                "WARNING: bash_execute is NOT subject to MYMCP_PROTECTED_PATHS. It can read "
+                "or modify any path the service user can access (including audit logs and "
+                "tokens.json). Untrusted clients should be issued ro tokens, which cannot "
+                "call this tool.\n\n"
+                "Defaults: working_dir='/' if omitted; timeout 30s (max 600s, clamped). "
+                "On timeout, exit_code is -1 and timed_out is true."
             ),
             inputSchema={
                 "type": "object",
@@ -36,6 +42,7 @@ def build_tool_definitions() -> dict[str, types.Tool]:
                     },
                 },
                 "required": ["command"],
+                "additionalProperties": False,
             },
         ),
         "read_file": types.Tool(
@@ -48,10 +55,14 @@ def build_tool_definitions() -> dict[str, types.Tool]:
                     "offset": {"type": "integer", "description": "Start line 1-based (default 1)"},
                     "limit": {
                         "type": "integer",
-                        "description": "Lines to read (default 2000, max 10000)",
+                        "description": (
+                            "Lines to read (default MYMCP_READ_FILE_DEFAULT_LIMIT=2000, "
+                            "max MYMCP_READ_FILE_MAX_LIMIT=50000)"
+                        ),
                     },
                 },
                 "required": ["file_path"],
+                "additionalProperties": False,
             },
         ),
         "write_file": types.Tool(
@@ -64,6 +75,7 @@ def build_tool_definitions() -> dict[str, types.Tool]:
                     "content": {"type": "string", "description": "File content (max 10MB)"},
                 },
                 "required": ["file_path", "content"],
+                "additionalProperties": False,
             },
         ),
         "edit_file": types.Tool(
@@ -81,6 +93,7 @@ def build_tool_definitions() -> dict[str, types.Tool]:
                     },
                 },
                 "required": ["file_path", "old_string", "new_string"],
+                "additionalProperties": False,
             },
         ),
         "glob": types.Tool(
@@ -93,11 +106,18 @@ def build_tool_definitions() -> dict[str, types.Tool]:
                     "path": {"type": "string", "description": "Root directory (default /)"},
                 },
                 "required": ["pattern"],
+                "additionalProperties": False,
             },
         ),
         "prepare_upload": types.Tool(
             name="prepare_upload",
-            description="Mint a signed URL for uploading bytes to a server path.",
+            description=(
+                "Mint a one-shot ticket URL for uploading bytes to a server path.\n\n"
+                "Workflow: this tool RETURNS a ticket URL; it does NOT pull from the "
+                "client. The client must then upload via:\n"
+                "    curl -X PUT --data-binary @/local/path <ticket_url>\n"
+                "Tickets are single-use and expire (default MYMCP_TRANSFER_DEFAULT_TTL_SEC=300s)."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -119,11 +139,18 @@ def build_tool_definitions() -> dict[str, types.Tool]:
                     },
                 },
                 "required": ["dest_path"],
+                "additionalProperties": False,
             },
         ),
         "prepare_download": types.Tool(
             name="prepare_download",
-            description="Mint a signed URL for downloading bytes from a server path.",
+            description=(
+                "Mint a one-shot ticket URL for downloading bytes from a server path.\n\n"
+                "Workflow: this tool RETURNS a ticket URL; it does NOT push to the "
+                "client. The client must then fetch via:\n"
+                "    curl -o /local/path <ticket_url>\n"
+                "Tickets are single-use and expire (default MYMCP_TRANSFER_DEFAULT_TTL_SEC=300s)."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -137,6 +164,7 @@ def build_tool_definitions() -> dict[str, types.Tool]:
                     },
                 },
                 "required": ["src_path"],
+                "additionalProperties": False,
             },
         ),
         "grep": types.Tool(
@@ -170,6 +198,7 @@ def build_tool_definitions() -> dict[str, types.Tool]:
                     },
                 },
                 "required": ["pattern"],
+                "additionalProperties": False,
             },
         ),
         "server_overview": types.Tool(

@@ -47,7 +47,7 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          python -m pytest tests/ -v --cov=src/mymcp --cov-branch --cov-report=term-missing --benchmark-disable
+          python -m pytest tests/ -v --cov=src/mymcp --cov-branch --cov-report=term-missing --cov-fail-under=85 --benchmark-disable
 
       - name: Update coverage badges
         if: github.ref == 'refs/heads/master' && matrix.python-version == '3.12'
@@ -73,6 +73,22 @@ jobs:
             -H "Authorization: token ${{ secrets.GIST_TOKEN }}" \
             -d "{\"files\":{\"mymcp-coverage.json\":{\"content\":$(echo "$LINE_JSON" | python -c 'import sys,json; print(json.dumps(sys.stdin.read()))')},\"mymcp-branch-coverage.json\":{\"content\":$(echo "$BRANCH_JSON" | python -c 'import sys,json; print(json.dumps(sys.stdin.read()))')}}}" \
             "https://api.github.com/gists/${{ secrets.GIST_ID }}"
+
+  security-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install pip-audit
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-audit
+      - name: Scan locked dev dependencies
+        run: pip-audit --strict --requirement requirements-dev.txt
 
   build:
     runs-on: ubuntu-latest

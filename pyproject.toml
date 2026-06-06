@@ -40,6 +40,8 @@ dev = [
     "pytest-anyio",
     "pytest-benchmark",
     "pytest-cov",
+    "pytest-timeout",
+    "pytest-randomly",
     "ruff>=0.6",
     "mypy>=1.11",
     "pre-commit>=3.7",
@@ -104,6 +106,8 @@ no_implicit_optional = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--benchmark-disable -m 'not live'"
+timeout = 30
+timeout_method = "thread"
 markers = [
     "benchmark: marks tests as benchmarks (deselect with '-m \"not benchmark\"')",
     "live: tests that hit a real LLM API; require tests/live/.env.live",

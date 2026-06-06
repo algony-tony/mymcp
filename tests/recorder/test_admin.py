@@ -62,8 +62,20 @@ def _make_app(supervisor, monkeypatch, tmp_path):
 
 
 @pytest.fixture(autouse=True)
-def _reset_supervisor():
+def _reset_singletons():
+    """Reset module-level singletons that other tests may have populated.
+
+    auth._store is a process-wide singleton bound to whatever MYMCP_ADMIN_TOKEN
+    was set at first get_store() — any test that seeded a different admin
+    token earlier in the run would otherwise produce 403 here regardless of
+    how monkeypatch.setenv is used in _make_app.
+    """
+    from mymcp import auth as _auth
+
+    _auth._store = None
+    recorder_admin.set_supervisor(None)
     yield
+    _auth._store = None
     recorder_admin.set_supervisor(None)
 
 

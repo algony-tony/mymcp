@@ -90,6 +90,34 @@ sudo ./install-offline.sh
 sudo mymcp install-service --yes
 ```
 
+### Why we don't ship a Dockerfile
+
+mymcp's purpose is to let an LLM operate the host Linux system: install
+packages, edit config under `/etc`, manage processes, read/write files
+under `/home`. Running mymcp inside a container defeats this — by default
+the container sees only its own filesystem and PID namespace, so the LLM
+can only operate the container itself.
+
+To make a containerised mymcp actually control the host you'd need at
+minimum `--privileged --pid=host --net=host -v /:/host` and a convention
+that the LLM works against `/host`. At that point the container provides
+no isolation; it's an awkward installer.
+
+If you really want a container (e.g. as a sidecar that manages another
+containerised service), it is ~10 lines:
+
+```dockerfile
+FROM python:3.13-slim
+RUN pip install algony-mymcp
+EXPOSE 8080
+ENV MYMCP_HOST=0.0.0.0 MYMCP_PORT=8080
+CMD ["mymcp", "serve"]
+```
+
+The recommended deployment is `pipx install algony-mymcp` + the shipped
+systemd unit (`mymcp install-service`), which gives the service direct
+host access matching the product's purpose.
+
 ## Optional: server overview recorder
 
 `pip install algony-mymcp[recorder-anthropic]` (or `recorder-openai`, or
@@ -247,6 +275,8 @@ These only apply when the `[recorder]` / `[recorder-anthropic]` /
 | `MYMCP_RECORDER_LLM_MODEL` | *(provider default)* | Model id override |
 | `MYMCP_RECORDER_LLM_API_KEY` | *(unset)* | API key for the chosen provider |
 | `MYMCP_RECORDER_LLM_BASE_URL` | *(unset)* | Base URL override (e.g. DeepSeek for the OpenAI adapter) |
+| `MYMCP_RECORDER_LLM_MAX_TOKENS` | `16384` | Per-call output ceiling for the recorder's LLM. Must stay ≤ the chosen model's `max_output_tokens`. Larger values let the recorder cover more sections per cycle but cost more per call. |
+| `MYMCP_RECORDER_CIRCUIT_BREAKER_THRESHOLD` | `5` | Consecutive merge failures before the breaker opens. Once open, recovery is event-driven (a new event triggers a single retry; success clears the breaker). Set to `0` to disable. |
 
 ## Managing Tokens
 
