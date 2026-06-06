@@ -286,3 +286,154 @@ async def test_supervisor_clears_failure_count_on_success(tmp_path):
     status = sup.status()
     assert status.circuit_open is False
     assert status.consecutive_failures == 0
+
+
+@pytest.mark.anyio
+async def test_idle_supervisor_does_not_call_llm(tmp_path):
+    """pending_count == 0 → supervisor must not invoke merge_cycle.
+
+    Previously the supervisor woke every merge_interval_sec and ran a
+    cycle that returned no_events. That still cost an asyncio frame and
+    pinned the event loop. Now we skip cheaply.
+    """
+    store = OverviewStore(tmp_path / "overview")
+    store.write_overview("# Server Overview\n\n## TL;DR\nok\n")
+    # No audit.log at all — pending_count() returns 0.
+    tailer = EventTailer(log_dir=tmp_path, cursor_path=tmp_path / "cursor.json")
+    fake = AsyncMock()
+    fake.call = AsyncMock(return_value=_end("# never called\n"))
+    bootstrapper = Bootstrapper(client=fake, store=store, max_iterations=2)
+    merge_cycle = MergeCycle(
+        client=fake,
+        tailer=tailer,
+        store=store,
+        max_events_per_cycle=10,
+        require_bootstrap=True,
+    )
+    sup = RecorderSupervisor(
+        merge_cycle=merge_cycle,
+        bootstrapper=bootstrapper,
+        merge_interval_sec=0.01,
+    )
+    task = asyncio.create_task(sup.run())
+    await asyncio.sleep(0.15)  # ~15 idle ticks worth
+    sup.shutdown()
+    await asyncio.wait_for(task, timeout=2)
+    # The LLM was never asked anything.
+    assert fake.call.call_count == 0
+    # And no failure was recorded — idle is not failure.
+    assert sup.status().consecutive_failures == 0
+    assert sup.status().last_error is None
+
+
+@pytest.mark.anyio
+async def test_idle_does_not_advance_last_merge_attempt_ts(tmp_path):
+    """No events ⇒ no attempt ⇒ last_merge_attempt_ts stays None.
+
+    The new banner uses this field; idle systems must not look stalled.
+    """
+    store = OverviewStore(tmp_path / "overview")
+    store.write_overview("# Server Overview\n\n## TL;DR\nok\n")
+    tailer = EventTailer(log_dir=tmp_path, cursor_path=tmp_path / "cursor.json")
+    fake = AsyncMock()
+    bootstrapper = Bootstrapper(client=fake, store=store, max_iterations=2)
+    merge_cycle = MergeCycle(
+        client=fake,
+        tailer=tailer,
+        store=store,
+        max_events_per_cycle=10,
+        require_bootstrap=True,
+    )
+    sup = RecorderSupervisor(
+        merge_cycle=merge_cycle,
+        bootstrapper=bootstrapper,
+        merge_interval_sec=0.01,
+    )
+    task = asyncio.create_task(sup.run())
+    await asyncio.sleep(0.15)
+    sup.shutdown()
+    await asyncio.wait_for(task, timeout=2)
+    assert sup.status().last_merge_attempt_ts is None
+
+
+@pytest.mark.anyio
+async def test_circuit_open_retries_when_pending_grows(tmp_path):
+    """New events arriving after the breaker tripped must trigger one retry.
+
+    This is the recovery path: previously the breaker required service
+    restart. Now success on the retry clears it; failure leaves it open
+    until further new work arrives.
+    """
+    import json
+
+    def _audit_entry(i: int) -> str:
+        return json.dumps(
+            {
+                "ts": f"2026-05-29T10:00:{i:02d}Z",
+                "result": "ok",
+                "tool": "bash_execute",
+                "params": {"command": f"ls {i}"},
+                "output": {"stdout_head": "x"},
+            }
+        )
+
+    store = OverviewStore(tmp_path / "overview")
+    store.write_overview("# Server Overview\n\n## TL;DR\nok\n")
+    audit_path = tmp_path / "audit.log"
+    audit_path.write_text(_audit_entry(0) + "\n")
+    tailer = EventTailer(log_dir=tmp_path, cursor_path=tmp_path / "cursor.json")
+    fake = AsyncMock()
+    # First 3 attempts fail (trips breaker at threshold=3); then succeed.
+    fake.call = AsyncMock(
+        side_effect=[
+            _end("not json"),
+            _end("not json"),
+            _end("not json"),
+            _end('{"new_changelog_lines": [], "section_updates": {"TL;DR": "after"}}'),
+        ]
+    )
+    bootstrapper = Bootstrapper(client=fake, store=store, max_iterations=2)
+    merge_cycle = MergeCycle(
+        client=fake,
+        tailer=tailer,
+        store=store,
+        max_events_per_cycle=10,
+        require_bootstrap=True,
+    )
+    sup = RecorderSupervisor(
+        merge_cycle=merge_cycle,
+        bootstrapper=bootstrapper,
+        merge_interval_sec=0.01,
+        circuit_breaker_threshold=3,
+    )
+    sup._backoff = 0.01
+    sup._max_backoff = 0.01
+
+    task = asyncio.create_task(sup.run())
+    # Wait for breaker to trip
+    for _ in range(200):
+        if sup.status().circuit_open:
+            break
+        await asyncio.sleep(0.01)
+    assert sup.status().circuit_open is True
+    calls_when_opened = fake.call.call_count
+
+    # While breaker is open and no new work arrives, no retries happen.
+    await asyncio.sleep(0.05)
+    assert fake.call.call_count == calls_when_opened
+
+    # New event arrives — pending grows past the high-water mark.
+    with audit_path.open("a") as f:
+        f.write(_audit_entry(1) + "\n")
+
+    # Wait for the retry to fire (success path clears the breaker).
+    for _ in range(200):
+        if not sup.status().circuit_open:
+            break
+        await asyncio.sleep(0.01)
+
+    sup.shutdown()
+    await asyncio.wait_for(task, timeout=2)
+    assert sup.status().circuit_open is False
+    # Exactly one extra LLM call past the trip point — the recovery retry.
+    assert fake.call.call_count == calls_when_opened + 1
