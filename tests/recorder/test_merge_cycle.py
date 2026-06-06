@@ -152,9 +152,13 @@ async def test_merge_unparseable_text_raises_and_rolls_back(tmp_path):
         )
     )
     cycle = MergeCycle(client=fake, tailer=tailer, store=store, max_events_per_cycle=10)
+    before = store.read_overview()
     with pytest.raises(ValueError):
         await cycle.run_once()
-    assert store.read_overview() == "# Existing\n"
+    # Rollback: overview file content must be unchanged from before the
+    # failed cycle (including its existing _Last updated_ stamp).
+    assert store.read_overview() == before
+    assert "# Existing" in store.read_overview()
 
 
 @pytest.mark.anyio
@@ -176,9 +180,11 @@ async def test_merge_empty_response_raises_early(tmp_path):
         )
     )
     cycle = MergeCycle(client=fake, tailer=tailer, store=store, max_events_per_cycle=10)
+    before = store.read_overview()
     with pytest.raises(ValueError, match="empty"):
         await cycle.run_once()
-    assert store.read_overview() == "# Old\n"
+    assert store.read_overview() == before
+    assert "# Old" in store.read_overview()
 
 
 @pytest.mark.anyio
@@ -206,9 +212,11 @@ async def test_merge_max_tokens_truncation_raises_early(tmp_path):
         max_events_per_cycle=10,
         max_tokens=4096,
     )
+    before = store.read_overview()
     with pytest.raises(ValueError, match="max_tokens"):
         await cycle.run_once()
-    assert store.read_overview() == "# Old\n"
+    assert store.read_overview() == before
+    assert "# Old" in store.read_overview()
 
 
 @pytest.mark.anyio

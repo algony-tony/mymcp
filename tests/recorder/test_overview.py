@@ -9,7 +9,11 @@ from mymcp.recorder.overview import (
 def test_write_overview_atomic(tmp_path):
     s = OverviewStore(tmp_path)
     s.write_overview("# Server Overview\n\nbody\n")
-    assert (tmp_path / "overview.md").read_text() == "# Server Overview\n\nbody\n"
+    written = (tmp_path / "overview.md").read_text()
+    # Original content + injected _Last updated_ marker.
+    assert "# Server Overview" in written
+    assert "body" in written
+    assert "_Last updated:" in written
     assert not list(tmp_path.glob("*.tmp"))
 
 
@@ -19,9 +23,59 @@ def test_read_overview_missing(tmp_path):
 
 
 def test_read_overview_present(tmp_path):
+    """write/read round-trip — content survives plus the stamp."""
     s = OverviewStore(tmp_path)
     s.write_overview("hello")
-    assert s.read_overview() == "hello"
+    out = s.read_overview()
+    assert out is not None
+    assert "hello" in out
+
+
+def test_write_overview_stamps_last_updated_after_h1(tmp_path):
+    """Stamp goes right after the H1 line, before any body."""
+    s = OverviewStore(tmp_path)
+    s.write_overview("# Server Overview\n\nintro line\n\n## TL;DR\nyes\n")
+    text = (tmp_path / "overview.md").read_text()
+    lines = text.splitlines()
+    # First line is the H1; the stamp should appear within the next 3 lines.
+    assert lines[0] == "# Server Overview"
+    head_block = "\n".join(lines[:5])
+    assert "_Last updated: " in head_block
+    # Ordering: H1, blank, marker, blank, then body resumes
+    assert "intro line" in text
+
+
+def test_write_overview_replaces_existing_last_updated(tmp_path):
+    """Stamping is idempotent — old marker is replaced, not duplicated."""
+    s = OverviewStore(tmp_path)
+    seeded = "# Server Overview\n\n_Last updated: 2020-01-01T00:00:00Z_\n\nbody\n"
+    s.write_overview(seeded)
+    text = (tmp_path / "overview.md").read_text()
+    assert text.count("_Last updated:") == 1
+    assert "2020-01-01" not in text
+
+
+def test_write_overview_stamps_iso_8601_utc(tmp_path):
+    """Marker uses a parseable ISO 8601 timestamp ending with Z."""
+    import re
+
+    s = OverviewStore(tmp_path)
+    s.write_overview("# X\nbody\n")
+    text = (tmp_path / "overview.md").read_text()
+    m = re.search(r"_Last updated: (\S+)_", text)
+    assert m is not None
+    ts = m.group(1)
+    # Must look like 2026-06-06T01:23:45Z
+    assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", ts), ts
+
+
+def test_write_overview_with_no_h1_prepends_marker(tmp_path):
+    """If the LLM produces no H1, prepend the marker so it's still visible."""
+    s = OverviewStore(tmp_path)
+    s.write_overview("just body\nmore body\n")
+    text = (tmp_path / "overview.md").read_text()
+    assert text.startswith("_Last updated:")
+    assert "just body" in text
 
 
 def test_append_changelog_creates_file(tmp_path):

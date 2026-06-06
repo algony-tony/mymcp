@@ -343,18 +343,18 @@ async def dispatch_tool(name: str, args: dict) -> str:
             # cast for type checker
             sup_typed: RecorderSupervisor = sup  # type: ignore[assignment]
             status = sup_typed.status()
-            stale: float | None = None
-            if (
-                status.last_merge_age_seconds is not None
-                and status.last_merge_age_seconds > 2 * sup_typed.merge_interval
-            ):
-                stale = status.last_merge_age_seconds
+            # Backlog-based staleness: the handler decides whether to show a
+            # banner from pending_events + last_merge_attempt_age_seconds.
+            # Idle (pending==0) systems must not look stale.
             overview_text = server_overview_handler(
                 store=sup_typed.store,
                 schedule_bootstrap=lambda: sup_typed.request_bootstrap(),
-                stale_seconds=stale,
+                pending_events=status.pending_events,
+                last_merge_attempt_age_seconds=status.last_merge_attempt_age_seconds,
+                consecutive_failures=status.consecutive_failures,
                 last_error=status.last_error,
                 circuit_open=status.circuit_open,
+                merge_interval_sec=sup_typed.merge_interval,
             )
             result = {"success": True, "overview": overview_text}
     else:

@@ -10,7 +10,14 @@ into the existing overview without rewriting unchanged sections.
 """
 
 import os
+import re
+from datetime import UTC, datetime
 from pathlib import Path
+
+# Stamp the overview with the time of the most recent merge so the timestamp
+# is visible in the file itself — across restarts, in offline copies, and to
+# consumers reading the markdown directly without scraping Prometheus.
+_LAST_UPDATED_RE = re.compile(r"^_Last updated: [^_]+_\s*$", re.MULTILINE)
 
 
 def parse_sections(text: str) -> tuple[str, list[tuple[str, str]]]:
@@ -74,6 +81,29 @@ def apply_section_updates(
     return "\n\n".join(parts).rstrip("\n") + "\n"
 
 
+def _stamp_last_updated(content: str) -> str:
+    """Inject a `_Last updated: ISO8601_` line into overview content.
+
+    Placed immediately after the first H1 if present, otherwise at the top.
+    Idempotent — replaces any prior `_Last updated:_` marker.
+    """
+    now = datetime.now(tz=UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    marker = f"_Last updated: {now}_"
+    # Strip any prior marker(s), normalising trailing newlines.
+    stripped = _LAST_UPDATED_RE.sub("", content)
+    # Collapse blank-line runs left behind by the strip — keep one blank.
+    stripped = re.sub(r"\n{3,}", "\n\n", stripped)
+
+    lines = stripped.splitlines(keepends=True)
+    for i, line in enumerate(lines):
+        if line.startswith("# "):
+            # Insert marker right after the H1 line.
+            tail = "".join(lines[i + 1 :]).lstrip("\n")
+            return "".join(lines[: i + 1]) + "\n" + marker + "\n\n" + tail
+    # No H1 — prepend.
+    return marker + "\n\n" + stripped.lstrip("\n")
+
+
 def render_recent_changes(changelog_tail: list[str], *, limit: int = 10) -> str:
     """Render the 'Recent Changes' section body from changelog lines.
 
@@ -105,8 +135,9 @@ class OverviewStore:
         return self._changelog
 
     def write_overview(self, content: str) -> None:
+        stamped = _stamp_last_updated(content)
         tmp = self._overview.with_suffix(self._overview.suffix + ".tmp")
-        tmp.write_text(content)
+        tmp.write_text(stamped)
         os.replace(tmp, self._overview)
 
     def read_overview(self) -> str | None:
