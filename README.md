@@ -90,6 +90,34 @@ sudo ./install-offline.sh
 sudo mymcp install-service --yes
 ```
 
+### Why we don't ship a Dockerfile
+
+mymcp's purpose is to let an LLM operate the host Linux system: install
+packages, edit config under `/etc`, manage processes, read/write files
+under `/home`. Running mymcp inside a container defeats this — by default
+the container sees only its own filesystem and PID namespace, so the LLM
+can only operate the container itself.
+
+To make a containerised mymcp actually control the host you'd need at
+minimum `--privileged --pid=host --net=host -v /:/host` and a convention
+that the LLM works against `/host`. At that point the container provides
+no isolation; it's an awkward installer.
+
+If you really want a container (e.g. as a sidecar that manages another
+containerised service), it is ~10 lines:
+
+```dockerfile
+FROM python:3.13-slim
+RUN pip install algony-mymcp
+EXPOSE 8080
+ENV MYMCP_HOST=0.0.0.0 MYMCP_PORT=8080
+CMD ["mymcp", "serve"]
+```
+
+The recommended deployment is `pipx install algony-mymcp` + the shipped
+systemd unit (`mymcp install-service`), which gives the service direct
+host access matching the product's purpose.
+
 ## Optional: server overview recorder
 
 `pip install algony-mymcp[recorder-anthropic]` (or `recorder-openai`, or
