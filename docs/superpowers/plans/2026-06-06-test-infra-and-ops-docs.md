@@ -468,7 +468,7 @@ async def _running_server(monkeypatch, port: int):
     """Start uvicorn in a background asyncio Task; ensure clean shutdown."""
     monkeypatch.setenv("MYMCP_HOST", "127.0.0.1")
     monkeypatch.setenv("MYMCP_PORT", str(port))
-    monkeypatch.setenv("MYMCP_TOKEN_STORE_PATH", "/tmp/mymcp-e2e-tokens.json")
+    monkeypatch.setenv("MYMCP_TOKEN_FILE", "/tmp/mymcp-e2e-tokens.json")
 
     from mymcp.config import reset_settings_cache
     reset_settings_cache()

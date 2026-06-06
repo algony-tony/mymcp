@@ -60,7 +60,7 @@ MYMCP_LOG_LEVEL=INFO
 
 # --- Paths ---
 MYMCP_AUDIT_LOG_DIR=/var/log/mymcp
-MYMCP_TOKEN_STORE_PATH=/etc/mymcp/tokens.json
+MYMCP_TOKEN_FILE=/etc/mymcp/tokens.json
 # Extra paths that file tools may not read/write/edit (audit log dir is always protected).
 # MYMCP_PROTECTED_PATHS=/etc/shadow,/root/.ssh
 
