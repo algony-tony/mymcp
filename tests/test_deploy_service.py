@@ -18,6 +18,48 @@ def test_render_service_unit_substitutes_fields():
     assert out.strip().startswith("[Unit]")
 
 
+def test_rendered_unit_has_no_new_privileges_enabled():
+    """Always-on hardening: NoNewPrivileges=true must ship as a live directive."""
+    from mymcp.deploy.service import render_service_unit
+
+    out = render_service_unit(
+        service_user="mymcp",
+        env_file="/etc/mymcp/.env",
+        exec_start="/usr/local/bin/mymcp serve",
+    )
+    # Active (not just commented out)
+    assert "\nNoNewPrivileges=true\n" in out
+
+
+def test_rendered_unit_keeps_opt_in_hardening_as_comments():
+    """Stronger isolation must ship commented — uncommenting limits LLM scope."""
+    from mymcp.deploy.service import render_service_unit
+
+    out = render_service_unit(
+        service_user="mymcp",
+        env_file="/etc/mymcp/.env",
+        exec_start="/usr/local/bin/mymcp serve",
+    )
+    for directive in (
+        "ProtectSystem",
+        "ProtectHome",
+        "PrivateTmp",
+        "ReadWritePaths",
+        "CapabilityBoundingSet",
+        "RestrictAddressFamilies",
+    ):
+        # Must be present in commented form…
+        assert f"# {directive}" in out, f"{directive} missing as opt-in comment"
+        # …and NOT present as an active directive
+        for line in out.splitlines():
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                continue
+            assert not stripped.startswith(f"{directive}="), (
+                f"{directive} must ship commented, not active"
+            )
+
+
 def test_resolve_mymcp_executable_uses_which(monkeypatch):
     from mymcp.deploy import service
 
