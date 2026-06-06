@@ -97,11 +97,28 @@ OpenAI adapter supports OpenAI-compatible endpoints via
   `input / output`.
 - `mymcp_recorder_pending_events` — gauge (callback in `wiring.py`) backed by
   `EventTailer.pending_count()`; the unconsumed mutating-event backlog.
+- `mymcp_recorder_merge_last_attempt_timestamp` — gauge in Unix seconds of the
+  last merge attempt (success OR failure); `0` means "never". Does NOT advance
+  on idle ticks. Together with `pending_events` this is the canonical "stuck"
+  signal.
 - `mymcp_recorder_merge_last_success_timestamp` — gauge in Unix seconds; `0`
-  means "never". SLO alert:
-  `time() - mymcp_recorder_merge_last_success_timestamp > 3600
-   unless mymcp_recorder_merge_last_success_timestamp == 0`.
+  means "never". **Informational only** (kept for health trending); previously
+  the SLO alert source, now superseded by the composite below.
 - `mymcp_recorder_circuit_open` — gauge, 1 when the breaker has tripped.
+  Recovery is event-driven: the next mutating audit event past the high-water
+  mark triggers one retry; success clears the breaker. No restart required.
+
+Recommended stale-recorder PromQL (project ships no alert rules — recipe only):
+
+```
+( mymcp_recorder_pending_events > 0
+  AND time() - mymcp_recorder_merge_last_attempt_timestamp > 1800 )
+OR mymcp_recorder_circuit_open == 1
+```
+
+The two terms together avoid the historical false positive where an idle
+server (no events to process) appeared "stale" because `last_success_timestamp`
+hadn't moved.
 
 The `recorder.supervisor.cycle` span wraps each tick so the
 `recorder.supervisor.cycle_error` log line carries the merge_cycle's

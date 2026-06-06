@@ -731,10 +731,24 @@ When the recorder is enabled, these extra series appear on `/metrics`:
 | `mymcp_recorder_llm_calls_total` | counter | `phase`, `result` | HTTP boundary only — `success` means a response object was returned, not that it was usable. Response-quality failures flow through `merge_cycles{reason=…}`. |
 | `mymcp_recorder_llm_tokens_total` | counter | `phase`, `direction` | Throughput by `input`/`output`. |
 | `mymcp_recorder_pending_events` | gauge | — | Backlog: mutating audit events past the cursor. A growing line means the recorder is stuck. |
-| `mymcp_recorder_merge_last_success_timestamp` | gauge | — | Unix seconds. `0` = never. Stale-recorder alert: `time() - X > 3600 unless X == 0`. |
-| `mymcp_recorder_circuit_open` | gauge | — | `1` once the supervisor has tripped its consecutive-failure breaker (restart-only recovery). |
+| `mymcp_recorder_merge_last_attempt_timestamp` | gauge | — | Unix seconds of the last merge attempt (success OR failure). Does not advance on idle ticks. Pair with `pending_events` for the canonical stuck signal. |
+| `mymcp_recorder_merge_last_success_timestamp` | gauge | — | Unix seconds. `0` = never. Informational only (health trending); use the composite recipe below for staleness detection. |
+| `mymcp_recorder_circuit_open` | gauge | — | `1` once the supervisor has tripped its consecutive-failure breaker. Recovery is event-driven: a new event past the high-water triggers one retry; success clears the breaker. No restart required. |
 | `mymcp_recorder_event_loss_total` | counter | — | Audit lines lost because rotation moved the file past the cursor. |
 | `mymcp_recorder_events_consumed_total` | counter | `tool` | Per-tool count of mutating events folded into the overview. |
+
+**Recommended stale-recorder query** (project ships metrics and dashboards
+only; alert rules are deployment-specific and not bundled):
+
+```
+( mymcp_recorder_pending_events > 0
+  AND time() - mymcp_recorder_merge_last_attempt_timestamp > 1800 )
+OR mymcp_recorder_circuit_open == 1
+```
+
+Both terms together avoid the historical false positive where an idle server
+(no events to process) appeared "stale" because the success-timestamp gauge
+hadn't moved.
 
 The Grafana metrics dashboard's **Recorder Health** row materialises all of
 the above. The supervisor's per-tick work runs inside a
