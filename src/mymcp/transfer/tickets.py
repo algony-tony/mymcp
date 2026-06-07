@@ -21,6 +21,12 @@ class Ticket:
     max_bytes: int
     expires_at: float
     created_by: str
+    # MCP role of the token that minted this ticket (the issuer). The party
+    # that REDEEMS the ticket may not even have an MCP token — they hold the
+    # ticket URL as a one-shot bearer credential. So this is the issuer's
+    # role, not the redeemer's. Used in audit so the trail names who
+    # actually authorised the transfer.
+    created_by_role: str = "unknown"
     consumed: bool = False
 
 
@@ -39,6 +45,7 @@ class TicketStore:
         max_bytes: int,
         ttl_sec: int,
         created_by: str,
+        created_by_role: str = "unknown",
     ) -> Ticket:
         self.sweep_expired()
         ticket_id = secrets.token_urlsafe(24)
@@ -49,6 +56,7 @@ class TicketStore:
             max_bytes=max_bytes,
             expires_at=time.time() + ttl_sec,
             created_by=created_by,
+            created_by_role=created_by_role,
         )
         with self._lock:
             self._tickets[ticket_id] = ticket

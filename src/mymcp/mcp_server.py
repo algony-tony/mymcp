@@ -302,6 +302,7 @@ async def dispatch_tool(name: str, args: dict) -> str:
             expires_in=args.get("expires_in"),
             overwrite=args.get("overwrite", True),
             token_name=info.get("token_name", "unknown"),
+            token_role=info.get("role", "unknown"),
         )
     elif name == "prepare_download":
         info = _current_audit_info.get()
@@ -309,6 +310,7 @@ async def dispatch_tool(name: str, args: dict) -> str:
             src_path=args["src_path"],
             expires_in=args.get("expires_in"),
             token_name=info.get("token_name", "unknown"),
+            token_role=info.get("role", "unknown"),
         )
     elif name == "glob":
         result = await glob_files(

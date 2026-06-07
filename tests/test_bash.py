@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import pytest
 
 from mymcp.tools.bash import run_bash_execute
@@ -10,6 +12,22 @@ async def test_simple_command_succeeds():
     assert result["stderr"] == ""
     assert result["exit_code"] == 0
     assert result["timed_out"] is False
+
+
+@pytest.mark.anyio
+async def test_bash_default_max_output_bytes_reads_current_settings():
+    """Default for `max_output_bytes` must resolve at call time, not import.
+
+    Regression: previously `max_output_bytes: int = config.BASH_MAX_OUTPUT_BYTES`
+    was evaluated once at module import and captured into the function's
+    `__defaults__`, so a patched setting had no effect when calling
+    run_bash_execute() without an explicit kwarg.
+    """
+    # 10-byte output, default = 5 → truncated path must fire.
+    with patch("mymcp.config.BASH_MAX_OUTPUT_BYTES", 5):
+        result = await run_bash_execute("printf '0123456789'")
+    assert "[TRUNCATED:" in result["stdout"]
+    assert result["stdout"].startswith("01234")
 
 
 @pytest.mark.anyio

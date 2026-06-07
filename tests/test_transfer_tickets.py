@@ -23,9 +23,26 @@ def test_mint_upload_returns_ticket_with_id(store):
     assert t.path == "/tmp/foo.bin"
     assert t.max_bytes == 1024
     assert t.created_by == "rw-client"
+    # No explicit role → default sentinel kept so audit can distinguish
+    # "ticket minted without role context" from a real role.
+    assert t.created_by_role == "unknown"
     assert t.consumed is False
     assert isinstance(t.ticket_id, str) and len(t.ticket_id) >= 32
     assert t.expires_at > time.time()
+
+
+def test_mint_records_created_by_role(store):
+    """The MCP role of the issuing token must be persisted on the ticket so
+    audit at redemption time can name the authoriser (not the bearer)."""
+    t = store.mint(
+        op="upload",
+        path="/tmp/x",
+        max_bytes=1,
+        ttl_sec=60,
+        created_by="rw-client",
+        created_by_role="rw",
+    )
+    assert t.created_by_role == "rw"
 
 
 def test_mint_download_ignores_max_bytes(store):

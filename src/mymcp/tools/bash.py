@@ -85,8 +85,14 @@ async def run_bash_execute(
     command: str,
     timeout: int = 30,
     working_dir: str = "/",
-    max_output_bytes: int = config.BASH_MAX_OUTPUT_BYTES,
+    max_output_bytes: int | None = None,
 ) -> dict:
+    # Resolve defaults at call time, not at module import. Previously the
+    # default expression `config.BASH_MAX_OUTPUT_BYTES` was evaluated once and
+    # captured in __defaults__, so reset_settings_cache + a new env var were
+    # silently ignored by tests calling without an explicit kwarg.
+    if max_output_bytes is None:
+        max_output_bytes = config.BASH_MAX_OUTPUT_BYTES
     timeout = min(max(1, timeout), 600)
     max_output_bytes = min(max(1, max_output_bytes), config.BASH_MAX_OUTPUT_BYTES_HARD)
 
