@@ -11,7 +11,8 @@ around random mint/consume/expiry sequences.
 
 from __future__ import annotations
 
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from mymcp.transfer.tickets import TicketStore
 

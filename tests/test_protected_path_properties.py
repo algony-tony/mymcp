@@ -12,7 +12,8 @@ import sys
 from pathlib import Path
 
 import pytest
-from hypothesis import HealthCheck, assume, given, settings, strategies as st
+from hypothesis import HealthCheck, assume, given, settings
+from hypothesis import strategies as st
 
 # Path segments — strip control chars and chars we know break filesystems.
 _safe_segment = st.text(
