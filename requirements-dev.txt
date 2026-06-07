@@ -79,6 +79,8 @@ httpx==0.28.1
     #   mcp
 httpx-sse==0.4.3
     # via mcp
+hypothesis==6.155.2
+    # via algony-mymcp (pyproject.toml)
 identify==2.6.19
     # via pre-commit
 idna==3.17
@@ -282,6 +284,8 @@ ruff==0.15.15
     # via algony-mymcp (pyproject.toml)
 setproctitle==1.3.7
     # via mutmut
+sortedcontainers==2.4.0
+    # via hypothesis
 sse-starlette==3.4.4
     # via mcp
 starlette==1.2.1
