@@ -42,6 +42,7 @@ dev = [
     "pytest-cov",
     "pytest-timeout",
     "pytest-randomly",
+    "hypothesis>=6.0",
     "ruff>=0.6",
     "mypy>=1.11",
     "pre-commit>=3.7",

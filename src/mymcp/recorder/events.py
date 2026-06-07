@@ -110,6 +110,12 @@ class EventTailer:
                         entry = json.loads(line)
                     except json.JSONDecodeError:
                         continue
+                    # json.loads happily returns ints / lists / strings for
+                    # "42", "[1,2]", '"hello"'. We require a JSON object —
+                    # anything else is corrupt / unrelated content on the
+                    # line and is skipped.
+                    if not isinstance(entry, dict):
+                        continue
                     if entry.get("result") not in _SUCCESS_RESULTS:
                         continue
                     tool = entry.get("tool")
@@ -197,6 +203,12 @@ class EventTailer:
                     try:
                         entry = json.loads(line)
                     except json.JSONDecodeError:
+                        continue
+                    # json.loads happily returns ints / lists / strings for
+                    # "42", "[1,2]", '"hello"'. We require a JSON object —
+                    # anything else is corrupt / unrelated content on the
+                    # line and is skipped.
+                    if not isinstance(entry, dict):
                         continue
                     if entry.get("result") not in _SUCCESS_RESULTS:
                         continue

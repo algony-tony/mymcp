@@ -78,6 +78,12 @@ pipx upgrade algony-mymcp
 sudo systemctl restart mymcp
 ```
 
+### Backup and disaster recovery
+
+See [docs/operations/backup-and-disaster-recovery.md](docs/operations/backup-and-disaster-recovery.md)
+for what to back up (token store, audit log, recorder data, `.env`),
+restore procedures, and a failure-mode → response table.
+
 ### Air-gapped install
 
 Each GitHub Release ships a `mymcp-X.Y.Z-offline-bundle.tar.gz` containing
