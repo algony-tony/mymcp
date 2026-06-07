@@ -15,11 +15,24 @@ multiple e2e tests in the same process would error on the second startup.
 from __future__ import annotations
 
 import asyncio
+import os
 import socket
 
 import httpx
 import pytest
 import uvicorn
+
+# Skip under mutmut: it imports and re-runs the test suite in a single
+# process for every mutation, and the project's session_manager singleton
+# raises on second .run(). The e2e test catches regressions in the wiring
+# itself, which mutation testing of auth.py / config.py doesn't exercise
+# anyway.
+_UNDER_MUTMUT = (
+    "MUTANT_UNDER_TEST" in os.environ or os.path.abspath(__file__).startswith(os.path.abspath("mutants"))
+)
+pytestmark = pytest.mark.skipif(
+    _UNDER_MUTMUT, reason="StreamableHTTPSessionManager singleton clashes under mutmut"
+)
 
 
 @pytest.fixture
