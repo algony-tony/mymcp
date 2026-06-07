@@ -27,8 +27,8 @@ import uvicorn
 # raises on second .run(). The e2e test catches regressions in the wiring
 # itself, which mutation testing of auth.py / config.py doesn't exercise
 # anyway.
-_UNDER_MUTMUT = (
-    "MUTANT_UNDER_TEST" in os.environ or os.path.abspath(__file__).startswith(os.path.abspath("mutants"))
+_UNDER_MUTMUT = "MUTANT_UNDER_TEST" in os.environ or os.path.abspath(__file__).startswith(
+    os.path.abspath("mutants")
 )
 pytestmark = pytest.mark.skipif(
     _UNDER_MUTMUT, reason="StreamableHTTPSessionManager singleton clashes under mutmut"
