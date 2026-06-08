@@ -7,6 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-06-09
+
+### Added
+- (#52) Security & observability hardening:
+  - systemd unit ships with `NoNewPrivileges=true` by default; stronger
+    isolation directives (`ProtectSystem`, `ProtectHome`, `PrivateTmp`,
+    `ReadWritePaths`, `CapabilityBoundingSet`, `RestrictAddressFamilies`)
+    are templated as commented opt-ins for high-security deployments.
+  - Token store writes are atomic (`tokens.json.tmp` + `os.replace`) so a
+    crash mid-write no longer locks out admin; `last_used` is tracked
+    in-memory and flushed on shutdown.
+  - New Grafana **Audit Log Integrity** row backed by
+    `mymcp_audit_write_failures_total`; tool calls return `InternalError`
+    when the audit writer fails (silent audit loss is treated as a SOC red
+    line).
+  - Path label added to file-tool metrics for finer-grained scoping.
+- (#51) Recorder event-driven retry and backlog-based staleness:
+  - `RecorderStatus.last_merge_attempt_ts` decouples "we tried" from "we
+    succeeded".
+  - Idle servers no longer call the LLM — the supervisor reads
+    `pending_count()` each tick and skips when zero.
+  - Circuit-open recovery is event-driven, not restart-only: the breaker
+    retries automatically once `pending_count` grows past the high-water
+    mark recorded at trip time.
+  - Stale-recorder alert recipe revised to combine `pending_events > 0` with
+    `time() - merge_last_attempt_timestamp > 1800` (plus
+    `circuit_open == 1`), eliminating the historical false positive on idle
+    servers.
+- (#50) Quick wins:
+  - `.env.example` now uses the `MYMCP_` prefix (post-2.0.0) and documents
+    `MYMCP_RECORDER_LLM_MAX_TOKENS` /
+    `MYMCP_RECORDER_CIRCUIT_BREAKER_THRESHOLD`.
+  - CI enforces a coverage floor (`--cov-fail-under=85`).
+  - CI runs `pip-audit` against `requirements-dev.txt` as a separate job.
+- (#54) Hypothesis property tests for audit writer↔tailer round-tripping,
+  transfer-ticket single-consume + TTL invariants, plus a real-uvicorn
+  end-to-end suite. New `docs/runbooks/backup-and-dr.md` runbook documents
+  the backup and disaster-recovery procedure.
+- (#49) Project assessment plus five themed implementation plans under
+  `docs/superpowers/plans/2026-06-06-*`.
+
+### Changed
+- (#53) Tool config defaults are now resolved at call time instead of being
+  captured in `__defaults__` at import — `patch("mymcp.config.X")` and env
+  overrides via `get_settings()` now take effect on every call. File I/O in
+  `tools/files.py` was moved off the asyncio event loop (`anyio.to_thread`).
+  `prepare_upload` / `prepare_download` audit entries now reflect the
+  true outcome of the transfer rather than the ticket mint.
+- (#55) Python minor/patch dependency group bumped (7 updates).
+
+### Docs
+- (#56) Archived 2026-06-06 plans whose PRs have shipped.
+
+## [2.3.0] - 2026-06-06
+
 ### Added
 - (#48) Recorder reason labels on merge-cycle metrics
   (`mymcp_recorder_merge_cycles_total{reason}`, duration histogram labelled
@@ -14,7 +69,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `mymcp_recorder_merge_last_success_timestamp`,
   `mymcp_recorder_pending_events`); Recorder Health row in the Grafana
   dashboard; `server_overview` banner surfaces circuit/stale/error state in
-  priority order.
+  priority order. The `recorder.supervisor.cycle` span carries
+  `trace_id`/`span_id` for Loki↔Tempo correlation.
 - (#43) 57 mutation-killer tests covering audit/dispatch/bash/files paths
   alongside a 5-shard `mutation-full` CI matrix that publishes a mutation
   score badge.
@@ -27,6 +83,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - (#45) Tool definitions split out of `mcp_server.py` into
   `mymcp/tool_definitions.py`.
 - (#44) Routine dependency bumps grouped by Dependabot.
+
+## [2.2.0] - 2026-05-31
+
+### Added
+- (#37) Optional `llm-recorder` module: when installed
+  (`pip install algony-mymcp[recorder]`, or `[recorder-anthropic]` /
+  `[recorder-openai]`) and enabled (`MYMCP_RECORDER_ENABLED=true`), a
+  background task consumes successful mutating audit events and folds them
+  into `overview.md` + `changelog.md` via Anthropic or
+  OpenAI-compatible LLMs. Exposed through the new MCP tool
+  `server_overview`; the overview directory is registered as
+  write-protected so external LLMs can read it via `read_file` but not
+  overwrite it. Auto-bootstraps the initial overview via a self-contained
+  agent loop with internal `bash_probe` / `read_file_probe` tools.
+- (#31) Grafana logs/traces dashboard (`mymcp-logs-dashboard.json`) with
+  Loki error rate, recent errors, per-`request_id` stream, and Tempo
+  slow-trace panel; the main dashboard gained header links and metric→logs
+  data links passing the clicked `tool` label. README documents Loki/Tempo
+  setup, Promtail journal scrape, and Loki derived-field hint for
+  `trace_id` → Tempo.
+
+### Changed
+- (#42) Removed the legacy 1.x→2.x upgrade path: bash-based install/upgrade
+  scripts, bats tests, Docker integration scenarios, the
+  `migrate-from-legacy` CLI subcommand, and the CI job that ran them are
+  all gone. README + CLAUDE.md were synced with current behavior (tool
+  count bumped to 9, `server_overview` documented, `MYMCP_RECORDER_*` env
+  vars listed).
+- (#33) OpenTelemetry packages bumped as a group (12 updates) to stay in
+  lockstep across the API/SDK/instrumentation surface.
+- (#40, #32, #36, #41) Routine python-minor-patch and individual dependency
+  bumps grouped by Dependabot.
+- (#39) Dependabot ignores configured for `pydantic-core`, `protobuf`
+  (major), and `importlib-metadata` (major).
+- (#24, #25, #26, #27) GitHub Actions versions bumped (`actions/checkout`,
+  `softprops/action-gh-release`, `actions/upload-artifact`,
+  `actions/download-artifact`).
 
 ## [2.1.1] - 2026-05-15
 
@@ -181,6 +274,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Initial tagged release. See git history for details.
 
-[Unreleased]: https://github.com/algony-tony/mymcp/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/algony-tony/mymcp/compare/v2.4.0...HEAD
+[2.4.0]: https://github.com/algony-tony/mymcp/compare/v2.3.0...v2.4.0
+[2.3.0]: https://github.com/algony-tony/mymcp/compare/v2.2.0...v2.3.0
+[2.2.0]: https://github.com/algony-tony/mymcp/compare/v2.1.1...v2.2.0
+[2.1.1]: https://github.com/algony-tony/mymcp/compare/v2.1.0...v2.1.1
+[2.1.0]: https://github.com/algony-tony/mymcp/compare/v2.0.2...v2.1.0
+[2.0.2]: https://github.com/algony-tony/mymcp/compare/v2.0.1...v2.0.2
+[2.0.1]: https://github.com/algony-tony/mymcp/compare/v2.0.0...v2.0.1
+[2.0.0]: https://github.com/algony-tony/mymcp/compare/v1.1.1...v2.0.0
+[1.1.1]: https://github.com/algony-tony/mymcp/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/algony-tony/mymcp/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/algony-tony/mymcp/releases/tag/v1.0.0
