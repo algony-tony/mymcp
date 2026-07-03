@@ -17,4 +17,4 @@ async def post_json(client: httpx.AsyncClient, url: str, payload: dict) -> dict:
     """POST payload as JSON, raise on non-2xx, return the parsed body."""
     resp = await client.post(url, json=payload)
     resp.raise_for_status()
-    return resp.json()
+    return resp.json()  # type: ignore[no-any-return]

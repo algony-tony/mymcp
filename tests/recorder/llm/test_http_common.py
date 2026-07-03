@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import pytest
 
@@ -26,8 +28,6 @@ async def test_post_json_returns_parsed_body():
 
 @pytest.mark.anyio
 async def test_post_json_sends_payload_as_json():
-    import json
-
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.headers["content-type"] == "application/json"
         assert json.loads(request.content) == {"a": 1}
