@@ -84,14 +84,25 @@ async def test_call_translates_response_and_request():
     assert payload["tools"][0]["type"] == "function"
     assert payload["tools"][0]["function"]["name"] == "bash_probe"
     assert payload["tools"][0]["function"]["parameters"] == {"type": "object"}
+    await c.aclose()
 
 
 @pytest.mark.anyio
 async def test_finish_reason_stop_maps_to_end_turn():
-    c, _ = _client([_chat_response(content="done", finish_reason="stop")])
+    c, captured = _client([_chat_response(content="done", finish_reason="stop")])
     r = await c.call(system="s", messages=[Message(role="user", content="hi")], max_tokens=10)
     assert r.stop_reason == "end_turn"
     assert r.tool_uses == []
+    assert "tools" not in json.loads(captured[0].content)
+    await c.aclose()
+
+
+@pytest.mark.anyio
+async def test_unknown_finish_reason_defaults_to_end_turn():
+    c, _ = _client([_chat_response(finish_reason="content_filter")])
+    r = await c.call(system="s", messages=[Message(role="user", content="hi")], max_tokens=10)
+    assert r.stop_reason == "end_turn"
+    await c.aclose()
 
 
 @pytest.mark.anyio
@@ -107,6 +118,7 @@ async def test_tool_result_message_becomes_tool_role():
     )
     payload = json.loads(captured[0].content)
     assert payload["messages"][-1] == {"role": "tool", "tool_call_id": "t1", "content": "ok"}
+    await c.aclose()
 
 
 @pytest.mark.anyio
@@ -133,6 +145,7 @@ async def test_assistant_tool_uses_round_trip():
     assert assistant["tool_calls"][0]["id"] == "t1"
     assert assistant["tool_calls"][0]["function"]["name"] == "bash_probe"
     assert json.loads(assistant["tool_calls"][0]["function"]["arguments"]) == {"command": "ls"}
+    await c.aclose()
 
 
 @pytest.mark.anyio
@@ -140,6 +153,7 @@ async def test_base_url_override():
     c, captured = _client([_chat_response()], base_url="https://api.deepseek.com")
     await c.call(system="s", messages=[Message(role="user", content="hi")], max_tokens=10)
     assert str(captured[0].url) == "https://api.deepseek.com/chat/completions"
+    await c.aclose()
 
 
 @pytest.mark.anyio
@@ -147,6 +161,7 @@ async def test_default_model_when_none():
     c, captured = _client([_chat_response()], model=None)
     await c.call(system="s", messages=[Message(role="user", content="hi")], max_tokens=10)
     assert json.loads(captured[0].content)["model"] == DEFAULT_MODEL
+    await c.aclose()
 
 
 @pytest.mark.anyio
@@ -164,6 +179,7 @@ async def test_json_schema_sets_strict_response_format():
     assert rf["json_schema"]["schema"] == schema
     assert rf["json_schema"]["strict"] is True
     assert rf["json_schema"]["name"]
+    await c.aclose()
 
 
 @pytest.mark.anyio
@@ -171,6 +187,7 @@ async def test_no_json_schema_omits_response_format():
     c, captured = _client([_chat_response()])
     await c.call(system="s", messages=[Message(role="user", content="hi")], max_tokens=10)
     assert "response_format" not in json.loads(captured[0].content)
+    await c.aclose()
 
 
 @pytest.mark.anyio
@@ -188,6 +205,7 @@ async def test_json_schema_falls_back_to_json_object_on_400():
     assert json.loads(captured[0].content)["response_format"]["type"] == "json_schema"
     assert json.loads(captured[1].content)["response_format"] == {"type": "json_object"}
     assert resp.text == '{"ok": true}'
+    await c.aclose()
 
 
 @pytest.mark.anyio
@@ -202,6 +220,7 @@ async def test_non_400_errors_propagate_without_fallback():
             json_schema={"type": "object"},
         )
     assert len(captured) == 1
+    await c.aclose()
 
 
 @pytest.mark.anyio
@@ -212,6 +231,7 @@ async def test_timeout_propagates():
     c = OpenAICompatClient(api_key="x", model="m", transport=httpx.MockTransport(handler))
     with pytest.raises(httpx.ReadTimeout):
         await c.call(system="s", messages=[Message(role="user", content="hi")], max_tokens=10)
+    await c.aclose()
 
 
 @pytest.mark.anyio
@@ -222,6 +242,7 @@ async def test_malformed_tool_arguments_become_empty_dict():
     c, _ = _client([_chat_response(tool_calls=tool_calls, finish_reason="tool_calls")])
     resp = await c.call(system="s", messages=[Message(role="user", content="hi")], max_tokens=10)
     assert resp.tool_uses[0].input == {}
+    await c.aclose()
 
 
 @pytest.mark.anyio
@@ -229,3 +250,4 @@ async def test_null_content_becomes_empty_text():
     c, _ = _client([_chat_response(content=None)])
     resp = await c.call(system="s", messages=[Message(role="user", content="hi")], max_tokens=10)
     assert resp.text == ""
+    await c.aclose()

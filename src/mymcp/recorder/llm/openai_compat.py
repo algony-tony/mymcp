@@ -142,7 +142,7 @@ class OpenAICompatClient:
         }
 
     @staticmethod
-    def _from_wire(data: dict) -> LLMResponse:
+    def _from_wire(data: dict[str, Any]) -> LLMResponse:
         choice = data["choices"][0]
         msg = choice["message"]
         text = msg.get("content") or ""
