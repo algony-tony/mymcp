@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-07-04
+
+### Changed
+- (#65) Recorder LLM transport rewritten: the openai/anthropic SDK adapters
+  are replaced by direct httpx clients speaking `/chat/completions` and
+  `/v1/messages` (`openai_compat.py`, `anthropic_http.py`). Measured ~13 MB
+  RSS reduction (~30% of the process footprint) on a low-memory VPS.
+- (#65) The `recorder` / `recorder-anthropic` / `recorder-openai` extras are
+  now empty stubs kept only for install-command compatibility — the recorder
+  works with the base install (httpx is a core dependency); enable with
+  `MYMCP_RECORDER_ENABLED=true`.
+- (#65) No client-level HTTP retries anymore (the SDKs retried transient
+  failures twice by default); resilience stays at the merge-cycle level
+  (circuit breaker, event-driven retry).
+
+### Fixed
+- (#65) The recorder supervisor now closes the LLM client's HTTP connection
+  pool on shutdown (`LLMClient.aclose()`), instead of leaking it to GC.
+
 ## [2.4.0] - 2026-06-09
 
 ### Added
