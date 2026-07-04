@@ -30,7 +30,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.24"
-          cache: false  # no go.sum yet; flip to true when the first dependency is added
+          cache-dependency-path: go/go.sum
       - name: gofmt
         run: test -z "$(gofmt -l go/)"
       - name: vet
