@@ -57,9 +57,11 @@ otlp = [
     "opentelemetry-instrumentation-asgi>=0.62b0",
     "opentelemetry-instrumentation-logging>=0.62b0",
 ]
-recorder-anthropic = ["anthropic>=0.40"]
-recorder-openai    = ["openai>=1.40"]
-recorder           = ["algony-mymcp[recorder-anthropic,recorder-openai]"]
+# The recorder speaks HTTP directly via httpx (a core dependency); no SDKs
+# needed. Extras kept (empty) so existing install commands don't break.
+recorder-anthropic = []
+recorder-openai    = []
+recorder           = []
 
 [project.urls]
 Homepage = "https://github.com/algony-tony/mymcp"

@@ -11,7 +11,7 @@ A Python MCP server that exposes full Linux system control to AI clients (Claude
 
 ## Features
 
-- **9 MCP tools**: `bash_execute`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`, `prepare_upload`, `prepare_download`, `server_overview` (optional, requires the recorder module)
+- **9 MCP tools**: `bash_execute`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`, `prepare_upload`, `prepare_download`, `server_overview` (optional, enabled via `MYMCP_RECORDER_ENABLED=true`)
 - **Binary / large file transfer**: bypass HTTP endpoints (`PUT/GET /files/raw/{ticket}`) for streaming uploads and downloads — file bytes never enter the LLM context window
 - **Per-token permissions**: read-only (`ro`) or read-write (`rw`) roles
 - **Audit logging**: JSON Lines audit trail with error details for all tool invocations
@@ -126,11 +126,10 @@ host access matching the product's purpose.
 
 ## Optional: server overview recorder
 
-`pip install algony-mymcp[recorder-anthropic]` (or `recorder-openai`, or
-`recorder` for both) adds an asyncio module that maintains a self-updating
-server overview document via LLM. Disabled by default; enable with
-`MYMCP_RECORDER_ENABLED=true`. See `docs/superpowers/specs/2026-05-29-llm-recorder-design.md`
-for full details.
+An asyncio module that maintains a self-updating server overview document
+via LLM. No extra install needed — LLM calls go through httpx, a core
+dependency. Disabled by default; enable with `MYMCP_RECORDER_ENABLED=true`.
+See `docs/superpowers/specs/2026-05-29-llm-recorder-design.md` for full details.
 
 ## CLI Reference
 
@@ -264,8 +263,8 @@ All limits are configurable via environment variables. Default values work well 
 
 ### Recorder (optional)
 
-These only apply when the `[recorder]` / `[recorder-anthropic]` /
-`[recorder-openai]` extra is installed.
+These only apply when the recorder is enabled. No extra install is needed —
+the recorder uses httpx, which is a core dependency.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -741,7 +740,7 @@ Recommended PromQL recipe for operators:
 rate(mymcp_audit_write_failures_total[5m]) > 0
 ```
 
-### Recorder metrics (`[recorder]` extra)
+### Recorder metrics
 
 When the recorder is enabled, these extra series appear on `/metrics`:
 

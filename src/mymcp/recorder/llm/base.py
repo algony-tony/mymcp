@@ -1,8 +1,8 @@
 """LLM client types and protocol.
 
-The recorder needs to call an LLM without binding to a specific SDK. This
-module defines provider-agnostic message/tool types and an LLMClient Protocol
-that adapters implement.
+The recorder needs to call an LLM without binding to a specific provider's
+wire format. This module defines provider-agnostic message/tool types and an
+LLMClient Protocol that the HTTP clients implement.
 
 The abstraction intentionally covers only what recorder needs: text + tool
 use + token usage. No streaming, vision, prompt caching, or batch.
@@ -39,7 +39,7 @@ class Message:
     Plain text: set content to a string, leave tool_uses/tool_results empty.
     Assistant turn requesting tool use: content + tool_uses.
     User turn returning tool results: tool_results (content typically empty).
-    Adapters translate these to/from SDK-specific block formats.
+    Clients translate these to/from provider-specific wire formats.
     """
 
     role: Literal["user", "assistant"]
@@ -90,3 +90,8 @@ class LLMClient(Protocol):
         max_tokens: int = 4096,
         json_schema: dict | None = None,
     ) -> LLMResponse: ...
+
+    async def aclose(self) -> None:
+        """Release the underlying HTTP resources. Safe to call once at
+        end-of-life; the owner of the client instance calls this."""
+        ...

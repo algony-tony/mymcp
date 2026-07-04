@@ -1,7 +1,6 @@
 """Assemble a configured RecorderSupervisor from settings."""
 
 from pathlib import Path
-from typing import Any
 
 from opentelemetry.metrics import Observation
 
@@ -9,6 +8,7 @@ from mymcp.config import Settings
 from mymcp.observability.instruments import register_callback_gauge
 from mymcp.recorder.bootstrap import Bootstrapper
 from mymcp.recorder.events import EventTailer
+from mymcp.recorder.llm.base import LLMClient
 from mymcp.recorder.llm.factory import build_llm_client
 from mymcp.recorder.merge_cycle import MergeCycle
 from mymcp.recorder.overview import OverviewStore
@@ -25,7 +25,7 @@ def build_supervisor(settings: Settings) -> RecorderSupervisor:
     # (so external LLMs can fetch changelog.md) but not WRITE to it.
     register_protected_path(str(overview_dir), modes={"write"})
 
-    client: Any = build_llm_client(
+    client: LLMClient = build_llm_client(
         provider=settings.recorder_llm_provider,
         api_key=settings.recorder_llm_api_key,
         model=settings.recorder_llm_model,
@@ -56,6 +56,7 @@ def build_supervisor(settings: Settings) -> RecorderSupervisor:
         provider=settings.recorder_llm_provider,
         model=settings.recorder_llm_model,
         circuit_breaker_threshold=settings.recorder_circuit_breaker_threshold,
+        llm_client=client,
     )
 
 

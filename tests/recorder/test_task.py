@@ -49,6 +49,7 @@ def _build_sup(tmp_path, *, llm_responses: list[LLMResponse], merge_interval=0.0
         merge_interval_sec=merge_interval,
         provider="anthropic",
         model="m",
+        llm_client=fake,
     )
     return sup, store, fake
 
@@ -97,6 +98,38 @@ async def test_supervisor_shutdown_is_graceful(tmp_path):
     sup.shutdown()
     await asyncio.wait_for(task, timeout=2)
     # task should have completed cleanly without raising
+
+
+@pytest.mark.anyio
+async def test_supervisor_closes_llm_client_on_exit(tmp_path):
+    """The supervisor owns the LLM client's HTTP resources: run() must
+    close the client exactly once when the loop exits."""
+    sup, _, fake = _build_sup(
+        tmp_path,
+        llm_responses=[_end("# Overview\n")] * 5,
+        merge_interval=0.05,
+    )
+    task = asyncio.create_task(sup.run())
+    await asyncio.sleep(0.2)
+    sup.shutdown()
+    await asyncio.wait_for(task, timeout=2)
+    fake.aclose.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_supervisor_close_failure_does_not_raise(tmp_path):
+    """A failing aclose() must not turn a clean shutdown into an error."""
+    sup, _, fake = _build_sup(
+        tmp_path,
+        llm_responses=[_end("# Overview\n")] * 5,
+        merge_interval=0.05,
+    )
+    fake.aclose = AsyncMock(side_effect=RuntimeError("already closed"))
+    task = asyncio.create_task(sup.run())
+    await asyncio.sleep(0.2)
+    sup.shutdown()
+    await asyncio.wait_for(task, timeout=2)
+    fake.aclose.assert_awaited_once()
 
 
 @pytest.mark.anyio

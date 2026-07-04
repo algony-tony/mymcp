@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 
 from mymcp.observability.tracing import get_tracer
 from mymcp.recorder.bootstrap import Bootstrapper, BootstrapState
+from mymcp.recorder.llm.base import LLMClient
 from mymcp.recorder.merge_cycle import MergeCycle
 from mymcp.recorder.overview import OverviewStore
 
@@ -50,9 +51,13 @@ class RecorderSupervisor:
         provider: str = "anthropic",
         model: str | None = None,
         circuit_breaker_threshold: int = 5,
+        llm_client: LLMClient | None = None,
     ):
         self._merge_cycle = merge_cycle
         self._bootstrap = bootstrapper
+        # Owned for lifecycle only: run() closes it on exit. merge_cycle and
+        # bootstrapper hold the same instance for actual calls.
+        self._llm_client = llm_client
         self._interval = merge_interval_sec
         self._provider = provider
         self._model = model
@@ -207,6 +212,11 @@ class RecorderSupervisor:
                 with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(self._stop.wait(), timeout=self._interval)
         finally:
+            if self._llm_client is not None:
+                try:
+                    await self._llm_client.aclose()
+                except Exception:  # noqa: BLE001
+                    log.warning("recorder.supervisor.llm_client_close_failed", exc_info=True)
             log.info("recorder.supervisor.stop")
 
     async def _do_bootstrap(self) -> None:
