@@ -62,6 +62,7 @@ func NewTokenStore(path, adminToken string) (*TokenStore, error) {
 	return st, nil
 }
 
+// set once at construction, never mutated — safe without the lock
 func (s *TokenStore) AdminToken() string { return s.data.AdminToken }
 
 // Validate returns a copy of the token info if the token exists and is
@@ -107,6 +108,7 @@ func (s *TokenStore) saveLocked() error {
 	}
 	tmp := s.path + ".tmp"
 	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
+		_ = os.Remove(tmp) // best-effort cleanup, as in Python
 		return err
 	}
 	_ = os.Chmod(tmp, 0o600) // best-effort, as in Python

@@ -73,14 +73,26 @@ func TestValidateUpdatesLastUsedInMemoryFlushPersists(t *testing.T) {
 		t.Fatal("last_used must be set after Validate")
 	}
 	// Disk copy untouched until Flush.
-	raw, _ := os.ReadFile(path)
-	if strings.Contains(string(raw), "T") && !strings.Contains(string(raw), "null") {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var preDisk struct {
+		Tokens map[string]TokenInfo `json:"tokens"`
+	}
+	if err := json.Unmarshal(raw, &preDisk); err != nil {
+		t.Fatal(err)
+	}
+	if preDisk.Tokens["tok_a"].LastUsed != nil {
 		t.Fatal("disk must still have last_used null before Flush")
 	}
 	if err := st.Flush(); err != nil {
 		t.Fatal(err)
 	}
-	raw, _ = os.ReadFile(path)
+	raw, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var disk struct {
 		Tokens map[string]TokenInfo `json:"tokens"`
 	}
