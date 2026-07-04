@@ -118,3 +118,40 @@ func TestReadFileProtected(t *testing.T) {
 		t.Fatalf("protected: %+v", res)
 	}
 }
+
+func TestReadFilePermissionDenied(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root; chmod 0000 is not enforced")
+	}
+	d := testDeps(t)
+	p := writeTemp(t, "secret")
+	if err := os.Chmod(p, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(p, 0o644) // restore so TempDir cleanup can unlink
+	res := ReadFile(d, p, 1, nil)
+	if res["success"] != false || res["error"] != "PermissionError" {
+		t.Fatalf("permission-denied: %+v", res)
+	}
+	if res["suggestion"] != "Check file read permissions" {
+		t.Fatalf("suggestion missing: %+v", res)
+	}
+}
+
+func TestReadFileEmpty(t *testing.T) {
+	d := testDeps(t)
+	p := writeTemp(t, "")
+	res := ReadFile(d, p, 1, nil)
+	if res["total_lines"] != 0 || res["content"] != "" || res["truncated"] != false {
+		t.Fatalf("empty file: %+v", res)
+	}
+}
+
+func TestReadFileOffsetBeyondEnd(t *testing.T) {
+	d := testDeps(t)
+	p := writeTemp(t, "a\nb\nc\n")
+	res := ReadFile(d, p, 100, nil)
+	if res["content"] != "" || res["total_lines"] != 3 || res["truncated"] != false {
+		t.Fatalf("offset beyond end: %+v", res)
+	}
+}

@@ -61,6 +61,7 @@ func ReadFile(d Deps, filePath string, offset int, limit *int) map[string]any {
 			}
 		default:
 			// Reading a directory errors with EISDIR on Linux and lands here.
+			// TOCTOU: acceptable — error path only, mirrors Python's raise order.
 			if st, serr := os.Stat(filePath); serr == nil && st.IsDir() {
 				return map[string]any{
 					"success": false, "error": "IsADirectoryError",
