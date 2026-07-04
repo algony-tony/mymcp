@@ -155,3 +155,12 @@ func TestReadFileOffsetBeyondEnd(t *testing.T) {
 		t.Fatalf("offset beyond end: %+v", res)
 	}
 }
+
+func loadCfg(t *testing.T) (*config.Config, error) {
+	t.Helper()
+	return config.Load()
+}
+
+func protectedAll(dir string) fsutil.ProtectedEntry {
+	return fsutil.ProtectedEntry{Pattern: dir, Modes: fsutil.ModeRead | fsutil.ModeWrite}
+}
