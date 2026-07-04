@@ -24,6 +24,9 @@ type ProtectedEntry struct {
 
 // CheckProtectedPath returns the denial message if path is protected against
 // mode, or "" if allowed. Message text matches the Python core.
+// Note: a symlink inside a protected dir that resolves outside is intentionally
+// allowed — protection is based on the real (resolved) location, not the
+// logical path traversed.
 func CheckProtectedPath(path string, mode Mode, protected []ProtectedEntry) string {
 	real := realPath(path)
 	for _, entry := range protected {
@@ -44,6 +47,8 @@ func CheckProtectedPath(path string, mode Mode, protected []ProtectedEntry) stri
 func realPath(p string) string {
 	abs, err := filepath.Abs(p)
 	if err != nil {
+		// Abs fails only if Getwd fails (deleted cwd); Python's realpath has
+		// the same exposure.
 		return p
 	}
 	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
@@ -70,7 +75,8 @@ func DecodeReplace(b []byte) string {
 		return string(b)
 	}
 	var sb strings.Builder
-	sb.Grow(len(b))
+	// replacement chars are 3 bytes each; overshoot a little for mixed content
+	sb.Grow(len(b) + len(b)/4)
 	for len(b) > 0 {
 		r, size := utf8.DecodeRune(b)
 		if r == utf8.RuneError && size == 1 {

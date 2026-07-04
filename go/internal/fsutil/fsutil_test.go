@@ -3,6 +3,7 @@ package fsutil
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -56,6 +57,29 @@ func TestCheckProtectedPathNonexistentCandidate(t *testing.T) {
 	}
 }
 
+func TestCheckProtectedPathTrailingSlash(t *testing.T) {
+	dir := t.TempDir()
+	slashPattern := dir + string(os.PathSeparator)
+	pp := []ProtectedEntry{{Pattern: slashPattern, Modes: ModeRead | ModeWrite}}
+	if CheckProtectedPath(filepath.Join(dir, "audit.log"), ModeWrite, pp) == "" {
+		t.Fatal("trailing-slash pattern must still block children")
+	}
+}
+
+func TestCheckProtectedPathDotDotCandidate(t *testing.T) {
+	dir := t.TempDir()
+	pp := []ProtectedEntry{{Pattern: dir, Modes: ModeRead | ModeWrite}}
+	// /protected/../protected/audit.log resolves to /protected/audit.log — still inside.
+	// Built with string concatenation: filepath.Join would pre-clean the "..".
+	candidate := dir + "/../" + filepath.Base(dir) + "/audit.log"
+	if !strings.Contains(candidate, "..") {
+		t.Fatalf("test candidate must contain '..', got %q", candidate)
+	}
+	if CheckProtectedPath(candidate, ModeWrite, pp) == "" {
+		t.Fatal(".. in candidate must not bypass protection")
+	}
+}
+
 func TestDecodeReplacePerByte(t *testing.T) {
 	// Two invalid bytes → two replacement chars (Python errors="replace").
 	in := []byte{'a', 0xff, 0xfe, 'b'}
@@ -66,5 +90,8 @@ func TestDecodeReplacePerByte(t *testing.T) {
 	}
 	if DecodeReplace([]byte("héllo")) != "héllo" {
 		t.Fatal("valid UTF-8 must pass through")
+	}
+	if DecodeReplace(nil) != "" {
+		t.Fatal("empty input must yield empty string")
 	}
 }
