@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/algony-tony/mymcp/go/internal/config"
@@ -20,6 +21,9 @@ import (
 type Deps struct {
 	Cfg       *config.Config
 	Protected []fsutil.ProtectedEntry
+	// RgOverride: "" = auto-detect rg on PATH; "disabled" = force fallback;
+	// any other value = explicit rg binary path. Tests use "disabled".
+	RgOverride string
 }
 
 // ProtectedFromConfig builds the legacy protected table (audit dir + extras),
@@ -30,6 +34,22 @@ func ProtectedFromConfig(cfg *config.Config) []fsutil.ProtectedEntry {
 		out = append(out, fsutil.ProtectedEntry{Pattern: p, Modes: fsutil.ModeRead | fsutil.ModeWrite})
 	}
 	return out
+}
+
+// RgPath returns the ripgrep binary to use, or "" for the native fallback.
+func (d Deps) RgPath() string {
+	switch d.RgOverride {
+	case "":
+		p, err := exec.LookPath("rg")
+		if err != nil {
+			return ""
+		}
+		return p
+	case "disabled":
+		return ""
+	default:
+		return d.RgOverride
+	}
 }
 
 // ReadFile ports read_file. limit == nil → config default. Returned map keys
