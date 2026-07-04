@@ -67,11 +67,22 @@ func TestCheckProtectedPathTrailingSlash(t *testing.T) {
 }
 
 func TestCheckProtectedPathDotDotCandidate(t *testing.T) {
-	dir := t.TempDir()
-	pp := []ProtectedEntry{{Pattern: dir, Modes: ModeRead | ModeWrite}}
-	// /protected/../protected/audit.log resolves to /protected/audit.log — still inside.
-	// Built with string concatenation: filepath.Join would pre-clean the "..".
-	candidate := dir + "/../" + filepath.Base(dir) + "/audit.log"
+	parent := t.TempDir()
+	prot := filepath.Join(parent, "protected")
+	if err := os.Mkdir(prot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	decoy := filepath.Join(parent, "decoy")
+	if err := os.Mkdir(decoy, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pp := []ProtectedEntry{{Pattern: prot, Modes: ModeRead | ModeWrite}}
+	// Enters via a sibling dir and resolves INSIDE the protected dir. The raw
+	// string does NOT start with the protected prefix, so this fails against
+	// any implementation that skips path cleaning. (A candidate built as
+	// prot+"/../"+base would match on raw prefix alone and prove nothing.)
+	// String concatenation on purpose: filepath.Join would pre-clean the "..".
+	candidate := decoy + "/../protected/audit.log"
 	if !strings.Contains(candidate, "..") {
 		t.Fatalf("test candidate must contain '..', got %q", candidate)
 	}
