@@ -3,14 +3,9 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
-
-// setEnv sets an env var for the test duration.
-func setEnv(t *testing.T, k, v string) {
-	t.Helper()
-	t.Setenv(k, v)
-}
 
 func TestDefaults(t *testing.T) {
 	cfg, err := Load()
@@ -36,7 +31,7 @@ func TestDefaults(t *testing.T) {
 }
 
 func TestEnvOverridesDefault(t *testing.T) {
-	setEnv(t, "MYMCP_PORT", "9999")
+	t.Setenv("MYMCP_PORT", "9999")
 	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)
@@ -53,9 +48,9 @@ func TestEnvFileDiscoveryAndPrecedence(t *testing.T) {
 	if err := os.WriteFile(envPath, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	setEnv(t, "MYMCP_ENV_FILE", envPath)
+	t.Setenv("MYMCP_ENV_FILE", envPath)
 	// Process env must beat the file.
-	setEnv(t, "MYMCP_PORT", "7001")
+	t.Setenv("MYMCP_PORT", "7001")
 	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)
@@ -75,7 +70,7 @@ func TestEnvFileQuotedValues(t *testing.T) {
 	if err := os.WriteFile(envPath, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	setEnv(t, "MYMCP_ENV_FILE", envPath)
+	t.Setenv("MYMCP_ENV_FILE", envPath)
 	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)
@@ -86,19 +81,19 @@ func TestEnvFileQuotedValues(t *testing.T) {
 }
 
 func TestBadIntNamesVariable(t *testing.T) {
-	setEnv(t, "MYMCP_PORT", "not-a-number")
+	t.Setenv("MYMCP_PORT", "not-a-number")
 	_, err := Load()
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if got := err.Error(); !contains(got, "MYMCP_PORT") {
+	if got := err.Error(); !strings.Contains(got, "MYMCP_PORT") {
 		t.Fatalf("error should name the variable, got %q", got)
 	}
 }
 
 func TestProtectedPathsComposition(t *testing.T) {
-	setEnv(t, "MYMCP_AUDIT_LOG_DIR", "/var/log/x")
-	setEnv(t, "MYMCP_PROTECTED_PATHS", " /etc/secret , ,/opt/keys ")
+	t.Setenv("MYMCP_AUDIT_LOG_DIR", "/var/log/x")
+	t.Setenv("MYMCP_PROTECTED_PATHS", " /etc/secret , ,/opt/keys ")
 	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)
@@ -113,18 +108,6 @@ func TestProtectedPathsComposition(t *testing.T) {
 			t.Fatalf("got %v, want %v", got, want)
 		}
 	}
-}
-
-func contains(s, sub string) bool {
-	return len(s) >= len(sub) && (s == sub || len(sub) == 0 ||
-		func() bool {
-			for i := 0; i+len(sub) <= len(s); i++ {
-				if s[i:i+len(sub)] == sub {
-					return true
-				}
-			}
-			return false
-		}())
 }
 
 func TestParseBoolSpellings(t *testing.T) {

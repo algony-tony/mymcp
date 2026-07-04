@@ -33,6 +33,8 @@ type Config struct {
 }
 
 // Load reads configuration. Values resolve as: process env > .env file > default.
+// Load re-reads the environment and .env file on every call (no caching, unlike
+// Python's get_settings) — call it once at startup and pass *Config down.
 func Load() (*Config, error) {
 	fileVals := map[string]string{}
 	if envFile := discoverEnvFile(); envFile != "" {
@@ -115,6 +117,8 @@ func discoverEnvFile() string {
 
 // parseEnvFile reads KEY=VALUE lines; ignores blanks and # comments; strips
 // one level of matching single or double quotes around the value.
+// Inline comments (KEY=VALUE # remark) are NOT stripped; production files
+// must use plain KEY=VALUE lines.
 func parseEnvFile(path string) (map[string]string, error) {
 	f, err := os.Open(path)
 	if err != nil {
