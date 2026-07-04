@@ -63,8 +63,8 @@ Python MCP server exposing Linux system tools over Streamable HTTP (stateless mo
 ### Optional: llm-recorder
 
 When enabled (`MYMCP_RECORDER_ENABLED=true`), `mymcp.recorder` runs an
-asyncio background task that (no extra install needed — LLM calls go
-through httpx, a core dependency):
+asyncio background task (no extra install needed — LLM calls go through
+httpx, a core dependency) that:
 
 - Consumes successful mutating events from `audit.log` via a persistent cursor.
 - Periodically (every `MYMCP_RECORDER_MERGE_INTERVAL_SEC`, default 300s) calls
