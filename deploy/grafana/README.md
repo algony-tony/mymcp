@@ -22,7 +22,7 @@ Five sections:
 - **Latency Percentiles** — p50/p95/p99 of `mymcp_tool_duration_seconds` per tool
 - **HTTP Requests** — request rate by method, path, and status
 - **Process Health** — RSS, CPU, open file descriptors
-- **Recorder Health** *(populated only when the `[recorder]` extra is installed)* —
+- **Recorder Health** *(populated only when the recorder is enabled via `MYMCP_RECORDER_ENABLED=true`)* —
   merge success ratio, circuit-breaker state, age since last successful
   merge, pending-events backlog, cycles split by `reason`, merge-duration
   percentiles, and merge-phase token throughput.
