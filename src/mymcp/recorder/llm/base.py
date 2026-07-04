@@ -90,3 +90,8 @@ class LLMClient(Protocol):
         max_tokens: int = 4096,
         json_schema: dict | None = None,
     ) -> LLMResponse: ...
+
+    async def aclose(self) -> None:
+        """Release the underlying HTTP resources. Safe to call once at
+        end-of-life; the owner of the client instance calls this."""
+        ...
