@@ -67,6 +67,18 @@ func TestGlobFiltersProtected(t *testing.T) {
 	}
 }
 
+func TestGlobExcludesDotfilesByDefault(t *testing.T) {
+	d := testDeps(t)
+	root := t.TempDir()
+	os.WriteFile(filepath.Join(root, ".hidden.txt"), []byte("x"), 0o644)
+	os.WriteFile(filepath.Join(root, "visible.txt"), []byte("x"), 0o644)
+	res := Glob(d, "*.txt", root)
+	files := res["files"].([]string)
+	if len(files) != 1 || files[0] != filepath.Join(root, "visible.txt") {
+		t.Fatalf("dotfiles must not match wildcards: %v", files)
+	}
+}
+
 func TestGlobNoMatches(t *testing.T) {
 	d := testDeps(t)
 	res := Glob(d, "*.nope", t.TempDir())

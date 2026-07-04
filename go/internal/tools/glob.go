@@ -20,13 +20,24 @@ func Glob(d Deps, pattern, path string) map[string]any {
 		return map[string]any{"success": false, "error": fmt.Sprintf("%T", err), "message": err.Error()}
 	}
 	fullPattern := filepath.Join(base, pattern)
-	matches, err := doublestar.FilepathGlob(fullPattern)
+	matches, err := doublestar.FilepathGlob(fullPattern, doublestar.WithNoHidden())
 	if err != nil {
 		return map[string]any{"success": false, "error": fmt.Sprintf("%T", err), "message": err.Error()}
 	}
-	sort.SliceStable(matches, func(i, j int) bool {
-		return mtimeOrZero(matches[i]) > mtimeOrZero(matches[j])
+	type fileWithMtime struct {
+		path  string
+		mtime int64
+	}
+	items := make([]fileWithMtime, len(matches))
+	for i, m := range matches {
+		items[i] = fileWithMtime{m, mtimeOrZero(m)}
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		return items[i].mtime > items[j].mtime
 	})
+	for i, item := range items {
+		matches[i] = item.path
+	}
 	filtered := matches[:0]
 	for _, m := range matches {
 		if fsutil.CheckProtectedPath(m, fsutil.ModeRead, d.Protected) == "" {
@@ -38,10 +49,11 @@ func Glob(d Deps, pattern, path string) map[string]any {
 	if truncated {
 		filtered = filtered[:d.Cfg.GlobMaxResults]
 	}
+	// FilepathGlob returns nil for no matches; guard ensures JSON [] not null.
 	if filtered == nil {
 		filtered = []string{}
 	}
-	return map[string]any{"files": []string(filtered), "count": count, "truncated": truncated}
+	return map[string]any{"files": filtered, "count": count, "truncated": truncated}
 }
 
 func mtimeOrZero(p string) int64 {
