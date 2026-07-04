@@ -85,19 +85,24 @@ async def test_tool_result_blocks():
             Message(role="user", content="hi"),
             Message(
                 role="user",
-                tool_results=[ToolResult(tool_use_id="t1", content="oops", is_error=True)],
+                tool_results=[
+                    ToolResult(tool_use_id="t1", content="oops", is_error=True),
+                    ToolResult(tool_use_id="t2", content="ok"),
+                ],
             ),
         ],
         max_tokens=10,
     )
     payload = json.loads(captured[0].content)
-    block = payload["messages"][-1]["content"][0]
-    assert block == {
+    blocks = payload["messages"][-1]["content"]
+    assert blocks[0] == {
         "type": "tool_result",
         "tool_use_id": "t1",
         "content": "oops",
         "is_error": True,
     }
+    assert blocks[1] == {"type": "tool_result", "tool_use_id": "t2", "content": "ok"}
+    assert "is_error" not in blocks[1]
     await c.aclose()
 
 
@@ -133,8 +138,11 @@ async def test_assistant_tool_use_blocks():
 @pytest.mark.anyio
 async def test_json_schema_forces_emit_tool():
     schema = {"type": "object", "properties": {"x": {"type": "string"}}}
-    c, captured = _client([_messages_response()])
-    await c.call(
+    resp_blocks = [
+        {"type": "tool_use", "id": "x", "name": "emit_merge_output", "input": {"key": "val"}}
+    ]
+    c, captured = _client([_messages_response(blocks=resp_blocks, stop_reason="tool_use")])
+    resp = await c.call(
         system="s",
         messages=[Message(role="user", content="hi")],
         max_tokens=10,
@@ -144,6 +152,9 @@ async def test_json_schema_forces_emit_tool():
     assert payload["tool_choice"] == {"type": "tool", "name": "emit_merge_output"}
     assert payload["tools"][-1]["name"] == "emit_merge_output"
     assert payload["tools"][-1]["input_schema"] == schema
+    assert resp.tool_uses[0].name == "emit_merge_output"
+    assert resp.tool_uses[0].input == {"key": "val"}
+    assert resp.stop_reason == "tool_use"
     await c.aclose()
 
 
@@ -179,4 +190,15 @@ async def test_non_2xx_propagates():
     with pytest.raises(httpx.HTTPStatusError):
         await c.call(system="s", messages=[Message(role="user", content="hi")], max_tokens=10)
     assert len(captured) == 1
+    await c.aclose()
+
+
+@pytest.mark.anyio
+async def test_timeout_propagates():
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("boom")
+
+    c = AnthropicHTTPClient(api_key="x", model="m", transport=httpx.MockTransport(handler))
+    with pytest.raises(httpx.ReadTimeout):
+        await c.call(system="s", messages=[Message(role="user", content="hi")], max_tokens=10)
     await c.aclose()
