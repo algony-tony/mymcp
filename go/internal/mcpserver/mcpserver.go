@@ -39,6 +39,7 @@ func authInfoFrom(ctx context.Context) AuthInfo {
 	if v, ok := ctx.Value(authInfoKey).(AuthInfo); ok {
 		return v
 	}
+	// Role defaults to rw; the HTTP auth middleware (Task 9) is the enforcement boundary.
 	return AuthInfo{TokenName: "unknown", Role: "rw", IP: "unknown"}
 }
 
@@ -130,6 +131,7 @@ func BuildServer(d tools.Deps) *mcp.Server {
 							td.Name))
 					}
 				}()
+				// second-line backstop if the receiving middleware is ever bypassed
 				if msg := CheckToolPermission(td.Name, info.Role); msg != "" {
 					return textResult(permDeniedJSON(msg)), nil
 				}

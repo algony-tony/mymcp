@@ -60,12 +60,16 @@ var toolDefs = []toolDef{
 }
 
 // mustSchema validates the raw JSON and returns it as json.RawMessage suitable
-// for Tool.InputSchema (which is typed as any). Panics on bad JSON so startup
-// catches embedded typos immediately.
+// for Tool.InputSchema (which is typed as any). Panics on bad JSON or a schema
+// that is not a JSON object with type "object", so startup catches embedded
+// typos immediately.
 func mustSchema(raw string) json.RawMessage {
-	var v any
-	if err := json.Unmarshal([]byte(raw), &v); err != nil {
+	var m map[string]any
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
 		panic(fmt.Sprintf("bad embedded schema: %v", err))
+	}
+	if m["type"] != "object" {
+		panic(fmt.Sprintf("embedded schema must be a JSON object with type=object: %s", raw))
 	}
 	return json.RawMessage(raw)
 }
