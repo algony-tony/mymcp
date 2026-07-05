@@ -39,8 +39,9 @@ func authInfoFrom(ctx context.Context) AuthInfo {
 	if v, ok := ctx.Value(authInfoKey).(AuthInfo); ok {
 		return v
 	}
-	// Role defaults to rw; the HTTP auth middleware (Task 9) is the enforcement boundary.
-	return AuthInfo{TokenName: "unknown", Role: "rw", IP: "unknown"}
+	// Role defaults to least-privilege ro so a propagation bug degrades to
+	// read-only, never write; the HTTP auth middleware always sets the real role.
+	return AuthInfo{TokenName: "unknown", Role: "ro", IP: "unknown"}
 }
 
 // ToolNames returns the registered tool names (M1: the three read tools).

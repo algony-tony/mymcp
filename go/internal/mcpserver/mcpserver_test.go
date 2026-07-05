@@ -43,6 +43,13 @@ func TestCheckToolPermission(t *testing.T) {
 	}
 }
 
+func TestAuthInfoFromDefaultsToLeastPrivilege(t *testing.T) {
+	info := authInfoFrom(context.Background())
+	if info.Role != "ro" {
+		t.Fatalf("missing auth info must default to ro (least privilege), got %q", info.Role)
+	}
+}
+
 func TestDispatchReadFile(t *testing.T) {
 	d := deps(t)
 	p := filepath.Join(t.TempDir(), "x.txt")

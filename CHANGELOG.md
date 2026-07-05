@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- (Go core M1) Go core M1 (read-only): `go/` module serving MCP over Streamable
+- Go core M1 (read-only): `go/` module serving MCP over Streamable
   HTTP with token auth and `read_file` / `glob` / `grep`, behavior-compatible
   with the Python core; black-box compat suite (`tests/compat/`) runs against
   both implementations in CI. Part of the v3 Go rewrite
