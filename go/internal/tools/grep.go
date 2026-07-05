@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -60,7 +59,11 @@ func grepRg(d Deps, rg, pattern, searchPath, globPat, outputMode string,
 			"message": "grep timed out after 60s",
 		}
 	}
-	// rg exits 1 on "no matches" with empty output — not an error for us.
+	// rg exits 1 on "no matches" and 2 on real errors (bad regex, bad path, etc.).
+	// We treat both like Python's _grep_rg, which never inspects the exit code —
+	// any non-zero exit with empty stdout yields {"results": "", "match_count": 0}.
+	// NOTE: this differs from the native fallback, which returns InvalidRegex for
+	// bad patterns. That inconsistency is pre-existing in the Python core.
 	var exitErr *exec.ExitError
 	if err != nil && !errors.As(err, &exitErr) {
 		return map[string]any{"success": false, "error": fmt.Sprintf("%T", err), "message": err.Error()}
@@ -82,6 +85,7 @@ func grepRg(d Deps, rg, pattern, searchPath, globPat, outputMode string,
 func grepNative(d Deps, pattern, searchPath, globPat, outputMode string,
 	maxResults int, caseInsensitive bool,
 ) map[string]any {
+	// contextLines is not supported by the native fallback (same as Python's _grep_python).
 	if caseInsensitive {
 		pattern = "(?i)" + pattern
 	}
@@ -99,7 +103,7 @@ func grepNative(d Deps, pattern, searchPath, globPat, outputMode string,
 				return nil
 			}
 			if globPat != "" {
-				if ok, _ := path.Match(globPat, entry.Name()); !ok {
+				if ok, _ := filepath.Match(globPat, entry.Name()); !ok {
 					return nil
 				}
 			}
@@ -113,6 +117,7 @@ func grepNative(d Deps, pattern, searchPath, globPat, outputMode string,
 		if fsutil.CheckProtectedPath(fpath, fsutil.ModeRead, d.Protected) != "" {
 			continue
 		}
+		// same break placement as Python — within-file over-accumulation is expected; grepResult truncates.
 		if len(matches) >= maxResults && outputMode == "content" {
 			break
 		}
