@@ -89,6 +89,55 @@ jobs:
             -d "{\"files\":{\"mymcp-coverage.json\":{\"content\":$(echo "$LINE_JSON" | python -c 'import sys,json; print(json.dumps(sys.stdin.read()))')},\"mymcp-branch-coverage.json\":{\"content\":$(echo "$BRANCH_JSON" | python -c 'import sys,json; print(json.dumps(sys.stdin.read()))')}}}" \
             "https://api.github.com/gists/${{ secrets.GIST_ID }}"
 
+  compat-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]" -c requirements-dev.txt
+      - name: seed tokens and boot server
+        run: |
+          mkdir -p /tmp/mymcp-compat /tmp/mymcp-compat-protected
+          cp tests/compat/ci-tokens.json /tmp/compat-tokens.json
+          MYMCP_ADMIN_TOKEN=compat-admin MYMCP_TOKEN_FILE=/tmp/compat-tokens.json \
+          MYMCP_PROTECTED_PATHS=/tmp/mymcp-compat-protected MYMCP_PORT=18770 \
+            mymcp serve & sleep 2
+      - name: run compat suite
+        run: |
+          MYMCP_COMPAT_URL=http://127.0.0.1:18770 \
+          MYMCP_COMPAT_RW_TOKEN=tok_compat_rw_0000000000000000 \
+          MYMCP_COMPAT_RO_TOKEN=tok_compat_ro_0000000000000000 \
+            pytest tests/compat/ -v --benchmark-disable
+
+  compat-go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache-dependency-path: go/go.sum
+      - run: pip install -e ".[dev]" -c requirements-dev.txt
+      - name: build and boot go server
+        run: |
+          cd go && go build -o /tmp/mymcp-go ./cmd/mymcp && cd ..
+          mkdir -p /tmp/mymcp-compat /tmp/mymcp-compat-protected
+          cp tests/compat/ci-tokens.json /tmp/compat-tokens.json
+          MYMCP_ADMIN_TOKEN=compat-admin MYMCP_TOKEN_FILE=/tmp/compat-tokens.json \
+          MYMCP_PROTECTED_PATHS=/tmp/mymcp-compat-protected MYMCP_PORT=18770 \
+            /tmp/mymcp-go serve & sleep 2
+      - name: run compat suite
+        run: |
+          MYMCP_COMPAT_URL=http://127.0.0.1:18770 \
+          MYMCP_COMPAT_RW_TOKEN=tok_compat_rw_0000000000000000 \
+          MYMCP_COMPAT_RO_TOKEN=tok_compat_ro_0000000000000000 \
+            pytest tests/compat/ -v --benchmark-disable
+
   security-audit:
     runs-on: ubuntu-latest
     steps:
