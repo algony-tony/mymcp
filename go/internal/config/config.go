@@ -101,6 +101,9 @@ func (c *Config) ProtectedPaths() []string {
 	return paths
 }
 
+// DiscoveredEnvFile exposes env-file discovery for the temp-token decision.
+func DiscoveredEnvFile() string { return discoverEnvFile() }
+
 func discoverEnvFile() string {
 	if explicit := os.Getenv("MYMCP_ENV_FILE"); explicit != "" {
 		if st, err := os.Stat(explicit); err == nil && !st.IsDir() {

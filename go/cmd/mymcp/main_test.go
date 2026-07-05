@@ -29,11 +29,9 @@ func TestRunNoArgs(t *testing.T) {
 	}
 }
 
-func TestRunServeStub(t *testing.T) {
-	if code := run([]string{"serve"}); code != 1 {
-		t.Fatalf("exit %d, want 1", code)
-	}
-}
+// TestRunServeStub removed: serve now actually starts the server (Task 9);
+// the stub test would block. End-to-end serve behaviour is tested via smoke
+// test and httpserver package tests.
 
 func TestRunUnknown(t *testing.T) {
 	if code := run([]string{"bogus"}); code != 2 {
