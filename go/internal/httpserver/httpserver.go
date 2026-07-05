@@ -6,6 +6,7 @@ package httpserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -69,9 +70,10 @@ func authMiddleware(store *auth.TokenStore, next http.Handler) http.Handler {
 }
 
 func writeJSON(w http.ResponseWriter, code int, body any) {
+	raw, _ := json.Marshal(body) // static maps here never fail to marshal
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(body)
+	w.Write(raw)
 }
 
 // NeedTempTokens ports the _maybe_set_temp_tokens decision: no discovered
@@ -131,8 +133,10 @@ func Serve(hostFlag string, portFlag int, version string) error {
 		port = portFlag
 	}
 	server := &http.Server{
-		Addr:    fmt.Sprintf("%s:%d", host, port),
-		Handler: BuildMux(d, store, version),
+		Addr:              fmt.Sprintf("%s:%d", host, port),
+		Handler:           BuildMux(d, store, version),
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	errCh := make(chan error, 1)
@@ -141,6 +145,7 @@ func Serve(hostFlag string, portFlag int, version string) error {
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+	defer signal.Stop(sigCh)
 	select {
 	case err := <-errCh:
 		return err
@@ -151,6 +156,10 @@ func Serve(hostFlag string, portFlag int, version string) error {
 		time.Duration(cfg.ShutdownGraceSec)*time.Second)
 	defer cancel()
 	shutdownErr := server.Shutdown(ctx)
+	if errors.Is(shutdownErr, context.DeadlineExceeded) {
+		fmt.Fprintln(os.Stderr, "[mymcp] shutdown grace period exceeded; forcing exit")
+		shutdownErr = nil
+	}
 	if err := store.Flush(); err != nil {
 		fmt.Fprintf(os.Stderr, "[mymcp] token store flush failed: %v\n", err)
 	}
