@@ -1,0 +1,3 @@
+{"tokens": {"tok_compat_rw_0000000000000000": {"name": "compat-rw", "created_at": "x", "last_used": null, "enabled": true, "role": "rw"},
+            "tok_compat_ro_0000000000000000": {"name": "compat-ro", "created_at": "x", "last_used": null, "enabled": true, "role": "ro"}},
+ "admin_token": "compat-admin"}
