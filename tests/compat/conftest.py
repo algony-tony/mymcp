@@ -29,9 +29,14 @@ def anyio_backend():
 
 
 @pytest.fixture
-def scratch():
-    os.makedirs(TMP, exist_ok=True)
-    return TMP
+def scratch(request):
+    import shutil
+
+    base = os.path.join(TMP, request.node.name)
+    shutil.rmtree(base, ignore_errors=True)
+    os.makedirs(base, exist_ok=True)
+    yield base
+    shutil.rmtree(base, ignore_errors=True)
 
 
 class Client:
@@ -61,7 +66,8 @@ class Client:
 
 @pytest.fixture
 def rw() -> Client:
-    assert RW_TOKEN, "MYMCP_COMPAT_RW_TOKEN not set"
+    if not RW_TOKEN:
+        pytest.skip("MYMCP_COMPAT_RW_TOKEN not set")
     return Client(RW_TOKEN)
 
 

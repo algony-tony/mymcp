@@ -103,7 +103,8 @@ jobs:
           cp tests/compat/ci-tokens.json /tmp/compat-tokens.json
           MYMCP_ADMIN_TOKEN=compat-admin MYMCP_TOKEN_FILE=/tmp/compat-tokens.json \
           MYMCP_PROTECTED_PATHS=/tmp/mymcp-compat-protected MYMCP_PORT=18770 \
-            mymcp serve & sleep 2
+            mymcp serve &
+          for i in $(seq 20); do curl -sf http://127.0.0.1:18770/health && break; sleep 0.5; done
       - name: run compat suite
         run: |
           MYMCP_COMPAT_URL=http://127.0.0.1:18770 \
@@ -130,7 +131,8 @@ jobs:
           cp tests/compat/ci-tokens.json /tmp/compat-tokens.json
           MYMCP_ADMIN_TOKEN=compat-admin MYMCP_TOKEN_FILE=/tmp/compat-tokens.json \
           MYMCP_PROTECTED_PATHS=/tmp/mymcp-compat-protected MYMCP_PORT=18770 \
-            /tmp/mymcp-go serve & sleep 2
+            /tmp/mymcp-go serve &
+          for i in $(seq 20); do curl -sf http://127.0.0.1:18770/health && break; sleep 0.5; done
       - name: run compat suite
         run: |
           MYMCP_COMPAT_URL=http://127.0.0.1:18770 \
