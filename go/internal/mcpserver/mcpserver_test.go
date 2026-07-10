@@ -148,6 +148,27 @@ func TestBuildInProcessDeniedAndUnknown(t *testing.T) {
 	}
 	defer cs.Close()
 
+	// tools/list as default-ro must expose only the read tools (parity with
+	// filter_tools_by_role in src/mymcp/mcp_server.py).
+	listed, err := cs.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	seen := map[string]bool{}
+	for _, tl := range listed.Tools {
+		seen[tl.Name] = true
+	}
+	for _, n := range []string{"read_file", "glob", "grep"} {
+		if !seen[n] {
+			t.Fatalf("ro must see read tool %q; got %v", n, seen)
+		}
+	}
+	for _, n := range []string{"bash_execute", "write_file", "edit_file"} {
+		if seen[n] {
+			t.Fatalf("ro must NOT see write tool %q", n)
+		}
+	}
+
 	// Default (no auth info in context) is ro → write tool must be denied.
 	res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "write_file",
 		Arguments: map[string]any{"file_path": "/tmp/x", "content": "y"}})

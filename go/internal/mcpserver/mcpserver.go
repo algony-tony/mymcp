@@ -103,7 +103,22 @@ func (s *Server) Build() *mcp.Server {
 					}
 				}
 			}
-			return next(ctx, method, req)
+			result, err := next(ctx, method, req)
+			// tools/list is filtered by role (parity with filter_tools_by_role in
+			// src/mymcp/mcp_server.py): rw sees all tools, ro sees only read tools.
+			if method == "tools/list" && err == nil {
+				if lt, ok := result.(*mcp.ListToolsResult); ok && authInfoFrom(ctx).Role != "rw" {
+					out := *lt
+					out.Tools = nil
+					for _, t := range lt.Tools {
+						if readTools[t.Name] {
+							out.Tools = append(out.Tools, t)
+						}
+					}
+					return &out, nil
+				}
+			}
+			return result, err
 		}
 	})
 	return srv
