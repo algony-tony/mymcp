@@ -127,3 +127,63 @@ func TestParseBoolSpellings(t *testing.T) {
 		t.Fatal("expected error for 'maybe'")
 	}
 }
+
+func TestLoadM2Defaults(t *testing.T) {
+	// Ensure a clean env: none of the M2 vars set.
+	for _, k := range []string{
+		"MYMCP_METRICS_TOKEN", "MYMCP_AUDIT_ENABLED", "MYMCP_AUDIT_MAX_BYTES",
+		"MYMCP_AUDIT_BACKUP_COUNT", "MYMCP_BASH_MAX_OUTPUT_BYTES",
+		"MYMCP_BASH_MAX_OUTPUT_BYTES_HARD", "MYMCP_WRITE_FILE_MAX_BYTES",
+		"MYMCP_EDIT_STRING_MAX_BYTES", "MYMCP_AUDIT_OUTPUT_BASH_HEAD_BYTES",
+		"MYMCP_AUDIT_OUTPUT_BASH_TAIL_BYTES",
+	} {
+		t.Setenv(k, "") // t.Setenv restores afterwards; set-then-unset below
+		os.Unsetenv(k)
+	}
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MetricsToken != "" {
+		t.Fatalf("MetricsToken default = %q", cfg.MetricsToken)
+	}
+	if cfg.AuditEnabled {
+		t.Fatal("AuditEnabled default must be false")
+	}
+	if cfg.AuditMaxBytes != 10*1024*1024 {
+		t.Fatalf("AuditMaxBytes = %d", cfg.AuditMaxBytes)
+	}
+	if cfg.AuditBackupCount != 5 {
+		t.Fatalf("AuditBackupCount = %d", cfg.AuditBackupCount)
+	}
+	if cfg.BashMaxOutputBytes != 102400 || cfg.BashMaxOutputBytesHard != 1048576 {
+		t.Fatalf("bash byte defaults wrong: %d %d", cfg.BashMaxOutputBytes, cfg.BashMaxOutputBytesHard)
+	}
+	if cfg.WriteFileMaxBytes != 10*1024*1024 || cfg.EditStringMaxBytes != 1024*1024 {
+		t.Fatalf("write/edit defaults wrong: %d %d", cfg.WriteFileMaxBytes, cfg.EditStringMaxBytes)
+	}
+	if cfg.AuditOutputBashHeadBytes != 4096 || cfg.AuditOutputBashTailBytes != 4096 {
+		t.Fatalf("audit output defaults wrong: %d %d", cfg.AuditOutputBashHeadBytes, cfg.AuditOutputBashTailBytes)
+	}
+}
+
+func TestLoadAuditEnabledBoolSpellings(t *testing.T) {
+	for _, v := range []string{"true", "1", "yes", "on", "TRUE", "On"} {
+		t.Setenv("MYMCP_AUDIT_ENABLED", v)
+		cfg, err := Load()
+		if err != nil || !cfg.AuditEnabled {
+			t.Fatalf("%q should parse true (err=%v)", v, err)
+		}
+	}
+	for _, v := range []string{"false", "0", "no", "off"} {
+		t.Setenv("MYMCP_AUDIT_ENABLED", v)
+		cfg, err := Load()
+		if err != nil || cfg.AuditEnabled {
+			t.Fatalf("%q should parse false (err=%v)", v, err)
+		}
+	}
+	t.Setenv("MYMCP_AUDIT_ENABLED", "maybe")
+	if _, err := Load(); err == nil {
+		t.Fatal("invalid bool must error naming the variable")
+	}
+}
