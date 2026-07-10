@@ -13,6 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with the Python core; black-box compat suite (`tests/compat/`) runs against
   both implementations in CI. Part of the v3 Go rewrite
   (`docs/superpowers/specs/2026-07-04-go-core-rewrite-design.md`).
+- Go core M2: `bash_execute` (process-group cleanup, timeout, output truncation),
+  `write_file`, and `edit_file` with protected-path enforcement.
+- Go core audit writer: JSON-lines with `RotatingFileHandler`-compatible size
+  rotation (`audit.log.N`), consumed unchanged by the Python recorder
+  `EventTailer` (verified in CI).
+- Go core native Prometheus `/metrics` (`mymcp_*` names identical to the Python
+  core) behind `MYMCP_METRICS_TOKEN`.
+- Compat suite: write/edit/bash/metrics coverage plus an EventTailer audit
+  acceptance test, run against both the Python and Go servers in CI.
 
 ## [2.5.0] - 2026-07-04
 
