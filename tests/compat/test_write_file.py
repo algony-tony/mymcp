@@ -2,6 +2,8 @@ import os
 
 import pytest
 
+PROTECTED_FILE = "/tmp/mymcp-compat-protected/x"
+
 
 @pytest.mark.anyio
 async def test_write_creates_and_reports(rw, scratch):
@@ -15,7 +17,7 @@ async def test_write_creates_and_reports(rw, scratch):
 
 @pytest.mark.anyio
 async def test_write_protected_denied(rw):
-    res = await rw.call("write_file", {"file_path": "/tmp/mymcp-compat-protected/x", "content": "no"})
+    res = await rw.call("write_file", {"file_path": PROTECTED_FILE, "content": "no"})
     assert res["success"] is False
     assert res["error"] == "ProtectedPath"
 
