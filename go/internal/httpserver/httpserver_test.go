@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/algony-tony/mymcp/go/internal/audit"
@@ -120,6 +121,26 @@ func TestTempTokenDecision(t *testing.T) {
 	t.Setenv("MYMCP_ADMIN_TOKEN", "x")
 	if NeedTempTokens() {
 		t.Fatal("no temp tokens when admin token set")
+	}
+}
+
+func TestHTTPMetricsPathLabelStripsMethod(t *testing.T) {
+	mux := testMux(t, "sekret")
+	// Hit a method-prefixed route so the counter records its path label.
+	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/health", nil))
+	// Scrape metrics and inspect the emitted path label.
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	req.Header.Set("Authorization", "Bearer sekret")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	body, _ := io.ReadAll(rec.Result().Body)
+	s := string(body)
+	// Parity with src/mymcp/server.py:_path_label: bare "/health", not "GET /health".
+	if !strings.Contains(s, `path="/health"`) {
+		t.Fatalf(`want path="/health" in metrics, got:\n%s`, s)
+	}
+	if strings.Contains(s, `path="GET /health"`) {
+		t.Fatalf("path label must not include the method prefix:\n%s", s)
 	}
 }
 

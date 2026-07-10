@@ -74,15 +74,20 @@ func (s *statusRecorder) WriteHeader(code int) {
 	s.ResponseWriter.WriteHeader(code)
 }
 
-// httpMetrics records mymcp_http_requests_total{path,method,status}. The path
-// label uses the matched route pattern (populated by ServeMux during
-// next.ServeHTTP), or "<unmatched>" — bounded cardinality, matching
-// src/mymcp/server.py:_path_label.
+// httpMetrics records mymcp_http_requests_total{path,method,status}. ServeMux
+// stores the matched route in r.Pattern, but for method-prefixed patterns
+// ("GET /health") it includes the method; src/mymcp/server.py:_path_label emits
+// the bare route path ("/health"), so we strip the leading "METHOD " to keep the
+// label value identical to the Python core. Unmatched requests → "<unmatched>",
+// keeping cardinality bounded against scanners.
 func httpMetrics(m *metrics.Metrics, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rec := &statusRecorder{ResponseWriter: w, status: 200}
 		next.ServeHTTP(rec, r)
 		path := r.Pattern
+		if i := strings.IndexByte(path, ' '); i >= 0 {
+			path = path[i+1:] // drop the "METHOD " prefix ServeMux records
+		}
 		if path == "" {
 			path = "<unmatched>"
 		}
