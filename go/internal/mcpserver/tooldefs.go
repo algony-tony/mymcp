@@ -57,6 +57,56 @@ var toolDefs = []toolDef{
   "additionalProperties": false
 }`,
 	},
+	{
+		Name: "bash_execute",
+		Description: "Execute any shell command on the Linux server. " +
+			"Stateless: each call is a fresh subprocess, no persistent shell state.\n\n" +
+			"WARNING: bash_execute is NOT subject to MYMCP_PROTECTED_PATHS. It can read " +
+			"or modify any path the service user can access (including audit logs and " +
+			"tokens.json). Untrusted clients should be issued ro tokens, which cannot " +
+			"call this tool.\n\n" +
+			"Defaults: working_dir='/' if omitted; timeout 30s (max 600s, clamped). " +
+			"On timeout, exit_code is -1 and timed_out is true.",
+		SchemaJSON: `{
+  "type": "object",
+  "properties": {
+    "command": {"type": "string", "description": "Shell command to run"},
+    "timeout": {"type": "integer", "description": "Timeout seconds (default 30, max 600)"},
+    "working_dir": {"type": "string", "description": "Working directory (default /)"},
+    "max_output_bytes": {"type": "integer", "description": "Max stdout/stderr bytes each (default 102400)"}
+  },
+  "required": ["command"],
+  "additionalProperties": false
+}`,
+	},
+	{
+		Name:        "write_file",
+		Description: "Create or overwrite a file. Max 10MB.",
+		SchemaJSON: `{
+  "type": "object",
+  "properties": {
+    "file_path": {"type": "string", "description": "Absolute path"},
+    "content": {"type": "string", "description": "File content (max 10MB)"}
+  },
+  "required": ["file_path", "content"],
+  "additionalProperties": false
+}`,
+	},
+	{
+		Name:        "edit_file",
+		Description: "Replace a string in a file. old_string must be unique unless replace_all=true.",
+		SchemaJSON: `{
+  "type": "object",
+  "properties": {
+    "file_path": {"type": "string"},
+    "old_string": {"type": "string", "description": "String to find (max 1MB)"},
+    "new_string": {"type": "string", "description": "Replacement string (max 1MB)"},
+    "replace_all": {"type": "boolean", "description": "Replace every occurrence (default false)"}
+  },
+  "required": ["file_path", "old_string", "new_string"],
+  "additionalProperties": false
+}`,
+	},
 }
 
 // mustSchema validates the raw JSON and returns it as json.RawMessage suitable
