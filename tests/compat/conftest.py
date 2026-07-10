@@ -21,6 +21,8 @@ RW_TOKEN = os.environ.get("MYMCP_COMPAT_RW_TOKEN", "")
 RO_TOKEN = os.environ.get("MYMCP_COMPAT_RO_TOKEN", "")
 # Scratch dir that BOTH the test process and the server can read/write.
 TMP = os.environ.get("MYMCP_COMPAT_TMP", "/tmp/mymcp-compat")
+METRICS_TOKEN = os.environ.get("MYMCP_COMPAT_METRICS_TOKEN", "")
+AUDIT_DIR = os.environ.get("MYMCP_COMPAT_AUDIT_DIR", "")
 
 
 @pytest.fixture
@@ -76,6 +78,20 @@ def ro() -> Client:
     if not RO_TOKEN:
         pytest.skip("MYMCP_COMPAT_RO_TOKEN not set")
     return Client(RO_TOKEN)
+
+
+@pytest.fixture
+def metrics_token() -> str:
+    if not METRICS_TOKEN:
+        pytest.skip("MYMCP_COMPAT_METRICS_TOKEN not set")
+    return METRICS_TOKEN
+
+
+@pytest.fixture
+def audit_dir() -> str:
+    if not AUDIT_DIR:
+        pytest.skip("MYMCP_COMPAT_AUDIT_DIR not set")
+    return AUDIT_DIR
 
 
 def pytest_collection_modifyitems(config, items):
