@@ -58,13 +58,14 @@ func TestAuthInfoFromDefaultsToLeastPrivilege(t *testing.T) {
 	}
 }
 
-func TestToolNamesAreSix(t *testing.T) {
+func TestToolNamesAreNine(t *testing.T) {
 	names := ToolNames()
-	if len(names) != 6 {
-		t.Fatalf("expected 6 tools, got %d: %v", len(names), names)
+	if len(names) != 9 {
+		t.Fatalf("expected 9 tools, got %d: %v", len(names), names)
 	}
 	want := map[string]bool{"read_file": true, "glob": true, "grep": true,
-		"bash_execute": true, "write_file": true, "edit_file": true}
+		"bash_execute": true, "write_file": true, "edit_file": true,
+		"prepare_upload": true, "prepare_download": true, "server_overview": true}
 	for _, n := range names {
 		delete(want, n)
 	}
@@ -79,11 +80,11 @@ func TestToolNamesAreSix(t *testing.T) {
 func TestDispatchWriteThenEdit(t *testing.T) {
 	d := deps(t)
 	p := filepath.Join(t.TempDir(), "f.txt")
-	out := Dispatch(d, "write_file", map[string]any{"file_path": p, "content": "a b a"})
+	out := Dispatch(d, "write_file", map[string]any{"file_path": p, "content": "a b a"}, AuthInfo{})
 	if !strings.Contains(out, `"success":true`) {
 		t.Fatalf("write: %s", out)
 	}
-	out = Dispatch(d, "edit_file", map[string]any{"file_path": p, "old_string": "b", "new_string": "B"})
+	out = Dispatch(d, "edit_file", map[string]any{"file_path": p, "old_string": "b", "new_string": "B"}, AuthInfo{})
 	if !strings.Contains(out, `"replacements":1`) {
 		t.Fatalf("edit: %s", out)
 	}
@@ -158,12 +159,12 @@ func TestBuildInProcessDeniedAndUnknown(t *testing.T) {
 	for _, tl := range listed.Tools {
 		seen[tl.Name] = true
 	}
-	for _, n := range []string{"read_file", "glob", "grep"} {
+	for _, n := range []string{"read_file", "glob", "grep", "prepare_download", "server_overview"} {
 		if !seen[n] {
 			t.Fatalf("ro must see read tool %q; got %v", n, seen)
 		}
 	}
-	for _, n := range []string{"bash_execute", "write_file", "edit_file"} {
+	for _, n := range []string{"bash_execute", "write_file", "edit_file", "prepare_upload"} {
 		if seen[n] {
 			t.Fatalf("ro must NOT see write tool %q", n)
 		}

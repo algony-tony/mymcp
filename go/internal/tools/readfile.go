@@ -15,6 +15,7 @@ import (
 
 	"github.com/algony-tony/mymcp/go/internal/config"
 	"github.com/algony-tony/mymcp/go/internal/fsutil"
+	"github.com/algony-tony/mymcp/go/internal/transfer"
 )
 
 // Deps carries config and the protected-path table into the tools.
@@ -24,6 +25,9 @@ type Deps struct {
 	// RgOverride: "" = auto-detect rg on PATH; "disabled" = force fallback;
 	// any other value = explicit rg binary path. Tests use "disabled".
 	RgOverride string
+	// Tickets is the shared transfer ticket store (minted by prepare_* tools,
+	// redeemed by the /files/raw endpoints). Nil when transfer is unused.
+	Tickets *transfer.TicketStore
 }
 
 // ProtectedFromConfig builds the legacy protected table (audit dir + extras),

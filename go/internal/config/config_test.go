@@ -187,3 +187,32 @@ func TestLoadAuditEnabledBoolSpellings(t *testing.T) {
 		t.Fatal("invalid bool must error naming the variable")
 	}
 }
+
+func TestLoadM3aDefaults(t *testing.T) {
+	for _, k := range []string{
+		"MYMCP_TRANSFER_ENABLED", "MYMCP_TRANSFER_MAX_BYTES", "MYMCP_TRANSFER_DEFAULT_TTL_SEC",
+		"MYMCP_TRANSFER_MAX_TTL_SEC", "MYMCP_PUBLIC_BASE_URL", "MYMCP_RECORDER_DATA_DIR",
+	} {
+		t.Setenv(k, "")
+		os.Unsetenv(k)
+	}
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.TransferEnabled {
+		t.Fatal("TransferEnabled default must be true")
+	}
+	if cfg.TransferMaxBytes != 2*1024*1024*1024 {
+		t.Fatalf("TransferMaxBytes = %d", cfg.TransferMaxBytes)
+	}
+	if cfg.TransferDefaultTTLSec != 300 || cfg.TransferMaxTTLSec != 900 {
+		t.Fatalf("ttl defaults wrong: %d %d", cfg.TransferDefaultTTLSec, cfg.TransferMaxTTLSec)
+	}
+	if cfg.PublicBaseURL != "" {
+		t.Fatalf("PublicBaseURL default = %q", cfg.PublicBaseURL)
+	}
+	if cfg.RecorderDataDir != "/var/lib/mymcp/recorder" {
+		t.Fatalf("RecorderDataDir = %q", cfg.RecorderDataDir)
+	}
+}

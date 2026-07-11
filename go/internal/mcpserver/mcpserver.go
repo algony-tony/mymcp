@@ -20,8 +20,10 @@ import (
 	"github.com/algony-tony/mymcp/go/internal/version"
 )
 
-var readTools = map[string]bool{"read_file": true, "glob": true, "grep": true}
-var writeTools = map[string]bool{"bash_execute": true, "write_file": true, "edit_file": true}
+var readTools = map[string]bool{"read_file": true, "glob": true, "grep": true,
+	"prepare_download": true, "server_overview": true}
+var writeTools = map[string]bool{"bash_execute": true, "write_file": true, "edit_file": true,
+	"prepare_upload": true}
 
 type ctxKey int
 
@@ -139,7 +141,7 @@ func (s *Server) callTool(ctx context.Context, name string, rawArgs json.RawMess
 	}
 
 	start := time.Now()
-	resultJSON, panicked := s.dispatchRecover(name, args)
+	resultJSON, panicked := s.dispatchRecover(name, args, info)
 	durationMs := int(time.Since(start).Milliseconds())
 
 	if panicked {
@@ -167,14 +169,14 @@ func (s *Server) callTool(ctx context.Context, name string, rawArgs json.RawMess
 	return resultJSON
 }
 
-func (s *Server) dispatchRecover(name string, args map[string]any) (result string, panicked bool) {
+func (s *Server) dispatchRecover(name string, args map[string]any, info AuthInfo) (result string, panicked bool) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("panic in tool %s: %v", name, r)
 			panicked = true
 		}
 	}()
-	return Dispatch(s.deps, name, args), false
+	return Dispatch(s.deps, name, args, info), false
 }
 
 type auditExtra struct {
@@ -272,7 +274,7 @@ func extractParams(args map[string]any) map[string]any {
 
 // Dispatch runs the tool and returns its JSON string. Argument defaulting
 // mirrors the Python dispatch layer.
-func Dispatch(d tools.Deps, name string, args map[string]any) string {
+func Dispatch(d tools.Deps, name string, args map[string]any, info AuthInfo) string {
 	var result map[string]any
 	switch name {
 	case "read_file":
@@ -316,6 +318,15 @@ func Dispatch(d tools.Deps, name string, args map[string]any) string {
 	case "edit_file":
 		result = tools.EditFile(d, argStr(args, "file_path", ""),
 			argStr(args, "old_string", ""), argStr(args, "new_string", ""), argBool(args, "replace_all"))
+	case "prepare_upload":
+		result = tools.PrepareUpload(d, argStr(args, "dest_path", ""),
+			argInt64Ptr(args, "max_bytes"), argIntPtr(args, "expires_in"),
+			argBoolDefault(args, "overwrite", true), info.TokenName, info.Role)
+	case "prepare_download":
+		result = tools.PrepareDownload(d, argStr(args, "src_path", ""),
+			argIntPtr(args, "expires_in"), info.TokenName, info.Role)
+	case "server_overview":
+		result = tools.ServerOverview(d)
 	default:
 		result = map[string]any{
 			"success": false, "error": "UnknownTool",
@@ -374,6 +385,28 @@ func argInt(args map[string]any, key string) (int, bool) {
 func argBool(args map[string]any, key string) bool {
 	v, _ := args[key].(bool)
 	return v
+}
+
+func argBoolDefault(args map[string]any, key string, def bool) bool {
+	if v, ok := args[key].(bool); ok {
+		return v
+	}
+	return def
+}
+
+func argIntPtr(args map[string]any, key string) *int {
+	if v, ok := argInt(args, key); ok {
+		return &v
+	}
+	return nil
+}
+
+func argInt64Ptr(args map[string]any, key string) *int64 {
+	if v, ok := argInt(args, key); ok {
+		n := int64(v)
+		return &n
+	}
+	return nil
 }
 
 func asString(v any) string {

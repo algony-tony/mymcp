@@ -119,6 +119,56 @@ func (s *TokenStore) saveLocked() error {
 	return nil
 }
 
+// CreateToken mints a persisted ro/rw token: "tok_" + 32 hex chars.
+func (s *TokenStore) CreateToken(name, role string) (string, error) {
+	if role != "ro" && role != "rw" {
+		return "", fmt.Errorf("Invalid role: %q. Must be 'ro' or 'rw'.", role)
+	}
+	token, err := GenerateToken()
+	if err != nil {
+		return "", err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data.Tokens[token] = &TokenInfo{
+		Name: name, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		LastUsed: nil, Enabled: true, Role: role,
+	}
+	if err := s.saveLocked(); err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
+// RevokeToken removes a token and persists the change. Returns (found, err):
+// found=false when the token did not exist; err set when the delete could not
+// be persisted. Matching the Python reference, a save failure must propagate
+// (→ 500) rather than confirm an unpersisted revocation that would resurrect the
+// credential on the next restart.
+func (s *TokenStore) RevokeToken(token string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.data.Tokens[token]; !ok {
+		return false, nil
+	}
+	delete(s.data.Tokens, token)
+	if err := s.saveLocked(); err != nil {
+		return true, err
+	}
+	return true, nil
+}
+
+// ListTokens returns a copy of the token map (values copied, not shared).
+func (s *TokenStore) ListTokens() map[string]TokenInfo {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make(map[string]TokenInfo, len(s.data.Tokens))
+	for tok, info := range s.data.Tokens {
+		out[tok] = *info
+	}
+	return out
+}
+
 // GenerateToken returns "tok_" + 32 hex chars (16 random bytes), the same
 // shape the Python core mints.
 func GenerateToken() (string, error) {

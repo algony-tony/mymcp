@@ -29,6 +29,7 @@ import (
 	"github.com/algony-tony/mymcp/go/internal/mcpserver"
 	"github.com/algony-tony/mymcp/go/internal/metrics"
 	"github.com/algony-tony/mymcp/go/internal/tools"
+	"github.com/algony-tony/mymcp/go/internal/transfer"
 )
 
 // BuildMux wires all routes and returns a handler wrapped with the HTTP request
@@ -61,7 +62,87 @@ func BuildMux(d tools.Deps, store *auth.TokenStore, auditW *audit.Writer, m *met
 		m.Handler().ServeHTTP(w, r)
 	})
 
+	// Transfer endpoints (ticket-only auth; share d.Tickets with the tools).
+	(&transfer.Endpoints{
+		Tickets: d.Tickets, Audit: auditW, Protected: d.Protected,
+		Enabled: d.Cfg.TransferEnabled, OnAuditFail: m.IncAuditFailure,
+	}).Register(mux)
+
+	// Admin token CRUD behind the admin token.
+	mux.HandleFunc("POST /admin/tokens", adminCreate(store))
+	mux.HandleFunc("DELETE /admin/tokens/{token}", adminRevoke(store))
+	mux.HandleFunc("GET /admin/tokens", adminList(store))
+
 	return httpMetrics(m, mux)
+}
+
+// requireAdmin returns true iff the Bearer token equals the admin token,
+// writing the Python-parity 401/403 response otherwise.
+func requireAdmin(store *auth.TokenStore, w http.ResponseWriter, r *http.Request) bool {
+	const prefix = "Bearer "
+	authz := r.Header.Get("Authorization")
+	if len(authz) < len(prefix) || authz[:len(prefix)] != prefix {
+		writeJSON(w, 401, map[string]string{"detail": "Missing Bearer token"})
+		return false
+	}
+	if authz[len(prefix):] != store.AdminToken() {
+		writeJSON(w, 403, map[string]string{"detail": "Admin token required"})
+		return false
+	}
+	return true
+}
+
+func adminCreate(store *auth.TokenStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireAdmin(store, w, r) {
+			return
+		}
+		var body struct {
+			Name string `json:"name"`
+			Role string `json:"role"`
+		}
+		body.Role = "ro"
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, 400, map[string]string{"detail": "invalid JSON body"})
+			return
+		}
+		tok, err := store.CreateToken(body.Name, body.Role)
+		if err != nil {
+			writeJSON(w, 400, map[string]string{"detail": err.Error()})
+			return
+		}
+		writeJSON(w, 200, map[string]string{"token": tok, "name": body.Name, "role": body.Role})
+	}
+}
+
+func adminRevoke(store *auth.TokenStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireAdmin(store, w, r) {
+			return
+		}
+		token := r.PathValue("token")
+		found, err := store.RevokeToken(token)
+		if err != nil {
+			// Never confirm a revocation that was not persisted (SOC): a lost
+			// write would resurrect the credential on restart.
+			writeJSON(w, 500, map[string]string{"detail": err.Error()})
+			return
+		}
+		if !found {
+			writeJSON(w, 404, map[string]string{"detail": "Token not found"})
+			return
+		}
+		writeJSON(w, 200, map[string]string{"revoked": token})
+	}
+}
+
+func adminList(store *auth.TokenStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireAdmin(store, w, r) {
+			return
+		}
+		writeJSON(w, 200, store.ListTokens())
+	}
 }
 
 type statusRecorder struct {
@@ -194,7 +275,7 @@ func Serve(hostFlag string, portFlag int, version string) error {
 	}
 	m := metrics.New(func() float64 { return float64(tools.InflightCount()) })
 
-	d := tools.Deps{Cfg: cfg, Protected: tools.ProtectedFromConfig(cfg)}
+	d := tools.Deps{Cfg: cfg, Protected: tools.ProtectedFromConfig(cfg), Tickets: transfer.NewTicketStore()}
 	host, port := cfg.Host, cfg.Port
 	if hostFlag != "" {
 		host = hostFlag

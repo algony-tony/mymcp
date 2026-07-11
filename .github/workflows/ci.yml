@@ -114,6 +114,7 @@ jobs:
           MYMCP_COMPAT_RO_TOKEN=tok_compat_ro_0000000000000000 \
           MYMCP_COMPAT_METRICS_TOKEN=compat-metrics \
           MYMCP_COMPAT_AUDIT_DIR=/tmp/mymcp-compat-audit \
+          MYMCP_COMPAT_ADMIN_TOKEN=compat-admin \
             pytest tests/compat/ -v --benchmark-disable
 
   compat-go:
@@ -146,6 +147,7 @@ jobs:
           MYMCP_COMPAT_RO_TOKEN=tok_compat_ro_0000000000000000 \
           MYMCP_COMPAT_METRICS_TOKEN=compat-metrics \
           MYMCP_COMPAT_AUDIT_DIR=/tmp/mymcp-compat-audit \
+          MYMCP_COMPAT_ADMIN_TOKEN=compat-admin \
             pytest tests/compat/ -v --benchmark-disable
 
   security-audit:

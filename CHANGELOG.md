@@ -22,6 +22,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   core) behind `MYMCP_METRICS_TOKEN`.
 - Compat suite: write/edit/bash/metrics coverage plus an EventTailer audit
   acceptance test, run against both the Python and Go servers in CI.
+- Go core M3a: file `transfer` (`prepare_upload`/`prepare_download` tools +
+  ticket-only `/files/raw` streaming endpoints), the `/admin/tokens` CRUD API,
+  the `server_overview` tool (reads the recorder sidecar's `overview.md`), and
+  offline `mymcp token list/add/revoke` — completing the 9-tool surface. The
+  full compat suite now runs green against both the Python and Go servers.
 
 ## [2.5.0] - 2026-07-04
 

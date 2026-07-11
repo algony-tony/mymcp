@@ -154,3 +154,38 @@ func TestGenerateTokenShape(t *testing.T) {
 		t.Fatalf("token shape wrong: %q", tok)
 	}
 }
+
+func TestCreateRevokeList(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tokens.json")
+	s, err := NewTokenStore(path, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok, err := s.CreateToken("ci", "rw")
+	if err != nil || !strings.HasPrefix(tok, "tok_") {
+		t.Fatalf("create: %q %v", tok, err)
+	}
+	if s.Validate(tok) == nil {
+		t.Fatal("created token must validate")
+	}
+	list := s.ListTokens()
+	if info, ok := list[tok]; !ok || info.Role != "rw" || info.Name != "ci" {
+		t.Fatalf("list wrong: %+v", list)
+	}
+	if found, err := s.RevokeToken(tok); !found || err != nil {
+		t.Fatalf("revoke must succeed: found=%v err=%v", found, err)
+	}
+	if found, _ := s.RevokeToken(tok); found {
+		t.Fatal("second revoke must report not-found")
+	}
+	if s.Validate(tok) != nil {
+		t.Fatal("revoked token must not validate")
+	}
+}
+
+func TestCreateTokenBadRole(t *testing.T) {
+	s, _ := NewTokenStore(filepath.Join(t.TempDir(), "t.json"), "admin")
+	if _, err := s.CreateToken("x", "superuser"); err == nil {
+		t.Fatal("bad role must error")
+	}
+}
