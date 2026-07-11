@@ -31,34 +31,31 @@ def _make_supervisor():
 
 
 def test_observe_callback_returns_zero_when_no_supervisor():
-    from mymcp.mcp_server import set_recorder_supervisor
-    from mymcp.recorder.wiring import _observe_last_success_ts
+    from mymcp.recorder.wiring import _observe_last_success_ts, set_active_supervisor
 
-    set_recorder_supervisor(None)
+    set_active_supervisor(None)
     obs = list(_observe_last_success_ts())
     assert len(obs) == 1
     assert obs[0].value == 0
 
 
 def test_observe_callback_returns_zero_before_first_success():
-    from mymcp.mcp_server import set_recorder_supervisor
-    from mymcp.recorder.wiring import _observe_last_success_ts
+    from mymcp.recorder.wiring import _observe_last_success_ts, set_active_supervisor
 
     sup = _make_supervisor()
-    set_recorder_supervisor(sup)
+    set_active_supervisor(sup)
     try:
         obs = list(_observe_last_success_ts())
         assert obs[0].value == 0
     finally:
-        set_recorder_supervisor(None)
+        set_active_supervisor(None)
 
 
 def test_observe_callback_returns_unix_timestamp_after_success():
-    from mymcp.mcp_server import set_recorder_supervisor
-    from mymcp.recorder.wiring import _observe_last_success_ts
+    from mymcp.recorder.wiring import _observe_last_success_ts, set_active_supervisor
 
     sup = _make_supervisor()
-    set_recorder_supervisor(sup)
+    set_active_supervisor(sup)
     try:
         before = time.time()
         sup._last_merge_ts = before
@@ -66,7 +63,7 @@ def test_observe_callback_returns_unix_timestamp_after_success():
         after = time.time()
         assert before <= obs[0].value <= after
     finally:
-        set_recorder_supervisor(None)
+        set_active_supervisor(None)
 
 
 @pytest.fixture
@@ -99,34 +96,31 @@ def test_gauge_appears_in_prometheus_scrape(client):
 
 
 def test_last_attempt_callback_returns_zero_when_no_supervisor():
-    from mymcp.mcp_server import set_recorder_supervisor
-    from mymcp.recorder.wiring import _observe_last_attempt_ts
+    from mymcp.recorder.wiring import _observe_last_attempt_ts, set_active_supervisor
 
-    set_recorder_supervisor(None)
+    set_active_supervisor(None)
     obs = list(_observe_last_attempt_ts())
     assert len(obs) == 1
     assert obs[0].value == 0
 
 
 def test_last_attempt_callback_returns_zero_before_first_attempt():
-    from mymcp.mcp_server import set_recorder_supervisor
-    from mymcp.recorder.wiring import _observe_last_attempt_ts
+    from mymcp.recorder.wiring import _observe_last_attempt_ts, set_active_supervisor
 
     sup = _make_supervisor()
-    set_recorder_supervisor(sup)
+    set_active_supervisor(sup)
     try:
         obs = list(_observe_last_attempt_ts())
         assert obs[0].value == 0
     finally:
-        set_recorder_supervisor(None)
+        set_active_supervisor(None)
 
 
 def test_last_attempt_callback_returns_unix_timestamp():
-    from mymcp.mcp_server import set_recorder_supervisor
-    from mymcp.recorder.wiring import _observe_last_attempt_ts
+    from mymcp.recorder.wiring import _observe_last_attempt_ts, set_active_supervisor
 
     sup = _make_supervisor()
-    set_recorder_supervisor(sup)
+    set_active_supervisor(sup)
     try:
         before = time.time()
         sup._last_merge_attempt_ts = before
@@ -134,7 +128,7 @@ def test_last_attempt_callback_returns_unix_timestamp():
         after = time.time()
         assert before <= obs[0].value <= after
     finally:
-        set_recorder_supervisor(None)
+        set_active_supervisor(None)
 
 
 def test_last_attempt_gauge_appears_in_prometheus_scrape(client):

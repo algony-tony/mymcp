@@ -71,6 +71,7 @@ Changelog = "https://github.com/algony-tony/mymcp/blob/master/CHANGELOG.md"
 
 [project.scripts]
 mymcp = "mymcp.cli:main"
+mymcp-recorder = "mymcp.recorder.__main__:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
