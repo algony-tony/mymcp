@@ -63,8 +63,7 @@ def test_pending_count_after_partial_commit(tmp_path):
 
 
 def test_observe_pending_events_returns_zero_when_no_supervisor():
-    from mymcp.recorder.wiring import set_active_supervisor
-    from mymcp.recorder.wiring import _observe_pending_events
+    from mymcp.recorder.wiring import _observe_pending_events, set_active_supervisor
 
     set_active_supervisor(None)
     obs = list(_observe_pending_events())
@@ -75,9 +74,8 @@ def test_observe_pending_events_reads_tailer(tmp_path):
     """Callback queries the supervisor's tailer; arbitrary integer expected."""
     from unittest.mock import MagicMock
 
-    from mymcp.recorder.wiring import set_active_supervisor
     from mymcp.recorder.task import RecorderSupervisor
-    from mymcp.recorder.wiring import _observe_pending_events
+    from mymcp.recorder.wiring import _observe_pending_events, set_active_supervisor
 
     tailer = MagicMock()
     tailer.pending_count = MagicMock(return_value=42)

@@ -31,8 +31,7 @@ def _make_supervisor():
 
 
 def test_observe_callback_returns_zero_when_no_supervisor():
-    from mymcp.recorder.wiring import set_active_supervisor
-    from mymcp.recorder.wiring import _observe_last_success_ts
+    from mymcp.recorder.wiring import _observe_last_success_ts, set_active_supervisor
 
     set_active_supervisor(None)
     obs = list(_observe_last_success_ts())
@@ -41,8 +40,7 @@ def test_observe_callback_returns_zero_when_no_supervisor():
 
 
 def test_observe_callback_returns_zero_before_first_success():
-    from mymcp.recorder.wiring import set_active_supervisor
-    from mymcp.recorder.wiring import _observe_last_success_ts
+    from mymcp.recorder.wiring import _observe_last_success_ts, set_active_supervisor
 
     sup = _make_supervisor()
     set_active_supervisor(sup)
@@ -54,8 +52,7 @@ def test_observe_callback_returns_zero_before_first_success():
 
 
 def test_observe_callback_returns_unix_timestamp_after_success():
-    from mymcp.recorder.wiring import set_active_supervisor
-    from mymcp.recorder.wiring import _observe_last_success_ts
+    from mymcp.recorder.wiring import _observe_last_success_ts, set_active_supervisor
 
     sup = _make_supervisor()
     set_active_supervisor(sup)
@@ -99,8 +96,7 @@ def test_gauge_appears_in_prometheus_scrape(client):
 
 
 def test_last_attempt_callback_returns_zero_when_no_supervisor():
-    from mymcp.recorder.wiring import set_active_supervisor
-    from mymcp.recorder.wiring import _observe_last_attempt_ts
+    from mymcp.recorder.wiring import _observe_last_attempt_ts, set_active_supervisor
 
     set_active_supervisor(None)
     obs = list(_observe_last_attempt_ts())
@@ -109,8 +105,7 @@ def test_last_attempt_callback_returns_zero_when_no_supervisor():
 
 
 def test_last_attempt_callback_returns_zero_before_first_attempt():
-    from mymcp.recorder.wiring import set_active_supervisor
-    from mymcp.recorder.wiring import _observe_last_attempt_ts
+    from mymcp.recorder.wiring import _observe_last_attempt_ts, set_active_supervisor
 
     sup = _make_supervisor()
     set_active_supervisor(sup)
@@ -122,8 +117,7 @@ def test_last_attempt_callback_returns_zero_before_first_attempt():
 
 
 def test_last_attempt_callback_returns_unix_timestamp():
-    from mymcp.recorder.wiring import set_active_supervisor
-    from mymcp.recorder.wiring import _observe_last_attempt_ts
+    from mymcp.recorder.wiring import _observe_last_attempt_ts, set_active_supervisor
 
     sup = _make_supervisor()
     set_active_supervisor(sup)

@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   core) behind `MYMCP_METRICS_TOKEN`.
 - Compat suite: write/edit/bash/metrics coverage plus an EventTailer audit
   acceptance test, run against both the Python and Go servers in CI.
+- Go core M3b (phase 1): `mymcp-recorder` console entry + `mymcp-recorder.service`
+  unit — the recorder can now run as a standalone sidecar around
+  `build_supervisor()`. Its Prometheus gauges no longer import the Python core
+  (`mcp_server`), a step toward retiring the Python core in v3.0.0.
 - Go core M3a: file `transfer` (`prepare_upload`/`prepare_download` tools +
   ticket-only `/files/raw` streaming endpoints), the `/admin/tokens` CRUD API,
   the `server_overview` tool (reads the recorder sidecar's `overview.md`), and
