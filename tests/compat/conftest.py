@@ -23,6 +23,7 @@ RO_TOKEN = os.environ.get("MYMCP_COMPAT_RO_TOKEN", "")
 TMP = os.environ.get("MYMCP_COMPAT_TMP", "/tmp/mymcp-compat")
 METRICS_TOKEN = os.environ.get("MYMCP_COMPAT_METRICS_TOKEN", "")
 AUDIT_DIR = os.environ.get("MYMCP_COMPAT_AUDIT_DIR", "")
+ADMIN_TOKEN = os.environ.get("MYMCP_COMPAT_ADMIN_TOKEN", "")
 
 
 @pytest.fixture
@@ -92,6 +93,13 @@ def audit_dir() -> str:
     if not AUDIT_DIR:
         pytest.skip("MYMCP_COMPAT_AUDIT_DIR not set")
     return AUDIT_DIR
+
+
+@pytest.fixture
+def admin_token() -> str:
+    if not ADMIN_TOKEN:
+        pytest.skip("MYMCP_COMPAT_ADMIN_TOKEN not set")
+    return ADMIN_TOKEN
 
 
 def pytest_collection_modifyitems(config, items):
