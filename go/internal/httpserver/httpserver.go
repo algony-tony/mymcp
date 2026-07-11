@@ -1,10 +1,13 @@
-// Package httpserver assembles the HTTP surface: /mcp behind Bearer auth
-// (401 bodies identical to the Python core), /health, /version, and the
-// serve loop with graceful shutdown.
+// Package httpserver assembles the HTTP surface: /mcp behind Bearer auth,
+// /metrics behind the metrics token, /health, /version, an HTTP request counter,
+// request-id propagation, and the serve loop with graceful shutdown that also
+// tears down in-flight bash process groups and closes the audit writer.
 package httpserver
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,27 +16,31 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/algony-tony/mymcp/go/internal/audit"
 	"github.com/algony-tony/mymcp/go/internal/auth"
 	"github.com/algony-tony/mymcp/go/internal/config"
 	"github.com/algony-tony/mymcp/go/internal/mcpserver"
+	"github.com/algony-tony/mymcp/go/internal/metrics"
 	"github.com/algony-tony/mymcp/go/internal/tools"
 )
 
-// BuildMux wires all routes. version is passed in so tests don't depend on ldflags.
-func BuildMux(d tools.Deps, store *auth.TokenStore, version string) *http.ServeMux {
+// BuildMux wires all routes and returns a handler wrapped with the HTTP request
+// counter. version is passed in so tests don't depend on ldflags.
+func BuildMux(d tools.Deps, store *auth.TokenStore, auditW *audit.Writer, m *metrics.Metrics, metricsToken, version string) http.Handler {
 	mux := http.NewServeMux()
 
-	srv := mcpserver.BuildServer(d)
+	srv := mcpserver.New(d, auditW, m).Build()
 	mcpHandler := mcp.NewStreamableHTTPHandler(
 		func(*http.Request) *mcp.Server { return srv },
 		&mcp.StreamableHTTPOptions{Stateless: true},
 	)
-
 	mux.Handle("/mcp", authMiddleware(store, mcpHandler))
 
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
@@ -42,13 +49,56 @@ func BuildMux(d tools.Deps, store *auth.TokenStore, version string) *http.ServeM
 	mux.HandleFunc("GET /version", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, 200, map[string]string{"version": version})
 	})
-	return mux
+	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, r *http.Request) {
+		if metricsToken == "" {
+			writeJSON(w, 503, map[string]string{"detail": "Metrics disabled: MYMCP_METRICS_TOKEN not configured"})
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer "+metricsToken {
+			writeJSON(w, 401, map[string]string{"detail": "Unauthorized"})
+			return
+		}
+		m.Handler().ServeHTTP(w, r)
+	})
+
+	return httpMetrics(m, mux)
+}
+
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (s *statusRecorder) WriteHeader(code int) {
+	s.status = code
+	s.ResponseWriter.WriteHeader(code)
+}
+
+// httpMetrics records mymcp_http_requests_total{path,method,status}. ServeMux
+// stores the matched route in r.Pattern, but for method-prefixed patterns
+// ("GET /health") it includes the method; src/mymcp/server.py:_path_label emits
+// the bare route path ("/health"), so we strip the leading "METHOD " to keep the
+// label value identical to the Python core. Unmatched requests → "<unmatched>",
+// keeping cardinality bounded against scanners.
+func httpMetrics(m *metrics.Metrics, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rec := &statusRecorder{ResponseWriter: w, status: 200}
+		next.ServeHTTP(rec, r)
+		path := r.Pattern
+		if i := strings.IndexByte(path, ' '); i >= 0 {
+			path = path[i+1:] // drop the "METHOD " prefix ServeMux records
+		}
+		if path == "" {
+			path = "<unmatched>"
+		}
+		m.HTTPRequests.WithLabelValues(path, r.Method, strconv.Itoa(rec.status)).Inc()
+	})
 }
 
 func authMiddleware(store *auth.TokenStore, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		authz := r.Header.Get("Authorization")
 		const prefix = "Bearer "
+		authz := r.Header.Get("Authorization")
 		if len(authz) < len(prefix) || authz[:len(prefix)] != prefix {
 			writeJSON(w, 401, map[string]string{"detail": "Missing Bearer token"})
 			return
@@ -63,21 +113,35 @@ func authMiddleware(store *auth.TokenStore, next http.Handler) http.Handler {
 			ip = "unknown"
 		}
 		ctx := mcpserver.WithAuthInfo(r.Context(), mcpserver.AuthInfo{
-			TokenName: info.Name, Role: info.Role, IP: ip,
+			TokenName: info.Name, Role: info.Role, IP: ip, RequestID: requestID(r),
 		})
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
+// requestID honours an inbound X-Request-ID (rejecting control chars) else
+// generates one — parity with RequestIdMiddleware.
+func requestID(r *http.Request) string {
+	if rid := r.Header.Get("X-Request-ID"); rid != "" && !strings.ContainsAny(rid, "\r\n\x00") {
+		return rid
+	}
+	return genRequestID()
+}
+
+func genRequestID() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
 func writeJSON(w http.ResponseWriter, code int, body any) {
-	raw, _ := json.Marshal(body) // static maps here never fail to marshal
+	raw, _ := json.Marshal(body)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	w.Write(raw)
 }
 
-// NeedTempTokens ports the _maybe_set_temp_tokens decision: no discovered
-// env file and no MYMCP_ADMIN_TOKEN in the environment.
+// NeedTempTokens ports the _maybe_set_temp_tokens decision.
 func NeedTempTokens() bool {
 	if config.DiscoveredEnvFile() != "" {
 		return false
@@ -85,8 +149,8 @@ func NeedTempTokens() bool {
 	return os.Getenv("MYMCP_ADMIN_TOKEN") == ""
 }
 
-// Serve runs the server until SIGTERM/SIGINT, then shuts down gracefully and
-// flushes the token store. host/port override config when non-zero.
+// Serve runs the server until SIGTERM/SIGINT, then kills in-flight bash process
+// groups, shuts down gracefully, and flushes token store + audit writer.
 func Serve(hostFlag string, portFlag int, version string) error {
 	var tempRW string
 	if NeedTempTokens() {
@@ -124,6 +188,12 @@ func Serve(hostFlag string, portFlag int, version string) error {
 		store.AddEphemeral(tempRW, "temp-rw", "rw")
 	}
 
+	auditW, err := audit.New(cfg.AuditEnabled, cfg.AuditLogDir, cfg.AuditMaxBytes, cfg.AuditBackupCount)
+	if err != nil {
+		return err
+	}
+	m := metrics.New(func() float64 { return float64(tools.InflightCount()) })
+
 	d := tools.Deps{Cfg: cfg, Protected: tools.ProtectedFromConfig(cfg)}
 	host, port := cfg.Host, cfg.Port
 	if hostFlag != "" {
@@ -134,7 +204,7 @@ func Serve(hostFlag string, portFlag int, version string) error {
 	}
 	server := &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", host, port),
-		Handler:           BuildMux(d, store, version),
+		Handler:           BuildMux(d, store, auditW, m, cfg.MetricsToken, version),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
@@ -152,6 +222,10 @@ func Serve(hostFlag string, portFlag int, version string) error {
 	case <-sigCh:
 	}
 
+	// TERM/grace/KILL in-flight bash process groups so their handlers unblock,
+	// mirroring the Python CLI signal handler.
+	tools.ShutdownInflight(cfg.ShutdownGraceSec)
+
 	ctx, cancel := context.WithTimeout(context.Background(),
 		time.Duration(cfg.ShutdownGraceSec)*time.Second)
 	defer cancel()
@@ -162,6 +236,9 @@ func Serve(hostFlag string, portFlag int, version string) error {
 	}
 	if err := store.Flush(); err != nil {
 		fmt.Fprintf(os.Stderr, "[mymcp] token store flush failed: %v\n", err)
+	}
+	if err := auditW.Close(); err != nil {
+		fmt.Fprintf(os.Stderr, "[mymcp] audit close failed: %v\n", err)
 	}
 	return shutdownErr
 }

@@ -18,6 +18,13 @@ type Config struct {
 	AdminToken string
 	TokenFile  string
 
+	MetricsToken string
+
+	BashMaxOutputBytes     int
+	BashMaxOutputBytesHard int
+	WriteFileMaxBytes      int
+	EditStringMaxBytes     int
+
 	ReadFileDefaultLimit int
 	ReadFileMaxLimit     int
 	ReadFileMaxLineBytes int
@@ -28,6 +35,13 @@ type Config struct {
 
 	AuditLogDir      string
 	ShutdownGraceSec int
+
+	AuditEnabled     bool
+	AuditMaxBytes    int64
+	AuditBackupCount int
+
+	AuditOutputBashHeadBytes int
+	AuditOutputBashTailBytes int
 
 	protectedPathsCSV string
 }
@@ -63,6 +77,20 @@ func Load() (*Config, error) {
 	cfg.AdminToken = getStr(get, "MYMCP_ADMIN_TOKEN", "")
 	cfg.TokenFile = getStr(get, "MYMCP_TOKEN_FILE", "/etc/mymcp/tokens.json")
 
+	cfg.MetricsToken = getStr(get, "MYMCP_METRICS_TOKEN", "")
+	if cfg.BashMaxOutputBytes, err = getInt(get, "MYMCP_BASH_MAX_OUTPUT_BYTES", 102400); err != nil {
+		return nil, err
+	}
+	if cfg.BashMaxOutputBytesHard, err = getInt(get, "MYMCP_BASH_MAX_OUTPUT_BYTES_HARD", 1048576); err != nil {
+		return nil, err
+	}
+	if cfg.WriteFileMaxBytes, err = getInt(get, "MYMCP_WRITE_FILE_MAX_BYTES", 10*1024*1024); err != nil {
+		return nil, err
+	}
+	if cfg.EditStringMaxBytes, err = getInt(get, "MYMCP_EDIT_STRING_MAX_BYTES", 1024*1024); err != nil {
+		return nil, err
+	}
+
 	if cfg.ReadFileDefaultLimit, err = getInt(get, "MYMCP_READ_FILE_DEFAULT_LIMIT", 2000); err != nil {
 		return nil, err
 	}
@@ -83,6 +111,23 @@ func Load() (*Config, error) {
 	}
 	cfg.AuditLogDir = getStr(get, "MYMCP_AUDIT_LOG_DIR", "/var/log/mymcp")
 	if cfg.ShutdownGraceSec, err = getInt(get, "MYMCP_SHUTDOWN_GRACE_SEC", 5); err != nil {
+		return nil, err
+	}
+	if cfg.AuditEnabled, err = getBool(get, "MYMCP_AUDIT_ENABLED", false); err != nil {
+		return nil, err
+	}
+	auditMax, err := getInt(get, "MYMCP_AUDIT_MAX_BYTES", 10*1024*1024)
+	if err != nil {
+		return nil, err
+	}
+	cfg.AuditMaxBytes = int64(auditMax)
+	if cfg.AuditBackupCount, err = getInt(get, "MYMCP_AUDIT_BACKUP_COUNT", 5); err != nil {
+		return nil, err
+	}
+	if cfg.AuditOutputBashHeadBytes, err = getInt(get, "MYMCP_AUDIT_OUTPUT_BASH_HEAD_BYTES", 4096); err != nil {
+		return nil, err
+	}
+	if cfg.AuditOutputBashTailBytes, err = getInt(get, "MYMCP_AUDIT_OUTPUT_BASH_TAIL_BYTES", 4096); err != nil {
 		return nil, err
 	}
 	cfg.protectedPathsCSV = getStr(get, "MYMCP_PROTECTED_PATHS", "")
@@ -173,9 +218,15 @@ func getInt(get getter, key string, def int) (int, error) {
 	return n, nil
 }
 
+func getBool(get getter, key string, def bool) (bool, error) {
+	v, ok := get(key)
+	if !ok {
+		return def, nil
+	}
+	return ParseBool(key, v)
+}
+
 // ParseBool parses the pydantic-accepted boolean spellings, case-insensitively.
-// Reserved for M2 fields (audit_enabled etc.); exported now so semantics are
-// pinned by tests from the start.
 func ParseBool(key, v string) (bool, error) {
 	switch strings.ToLower(strings.TrimSpace(v)) {
 	case "true", "1", "yes", "on":

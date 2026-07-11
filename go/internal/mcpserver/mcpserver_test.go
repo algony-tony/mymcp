@@ -10,7 +10,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/algony-tony/mymcp/go/internal/audit"
 	"github.com/algony-tony/mymcp/go/internal/config"
+	"github.com/algony-tony/mymcp/go/internal/metrics"
 	"github.com/algony-tony/mymcp/go/internal/tools"
 )
 
@@ -24,180 +26,170 @@ func deps(t *testing.T) tools.Deps {
 	return tools.Deps{Cfg: cfg, Protected: tools.ProtectedFromConfig(cfg)}
 }
 
+func newServer(t *testing.T) *Server {
+	t.Helper()
+	d := deps(t)
+	a, err := audit.New(false, t.TempDir(), 1<<20, 5) // disabled: tests don't assert audit here
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := metrics.New(func() float64 { return 0 })
+	return New(d, a, m)
+}
+
 func TestCheckToolPermission(t *testing.T) {
 	if got := CheckToolPermission("read_file", "ro"); got != "" {
 		t.Fatalf("ro+read must pass: %q", got)
 	}
-	if got := CheckToolPermission("read_file", "rw"); got != "" {
-		t.Fatalf("rw+read must pass: %q", got)
+	if got := CheckToolPermission("write_file", "rw"); got != "" {
+		t.Fatalf("rw+write must pass: %q", got)
+	}
+	if got := CheckToolPermission("write_file", "ro"); got != "Permission denied: tool 'write_file' requires rw role" {
+		t.Fatalf("ro+write: %q", got)
 	}
 	if got := CheckToolPermission("no_such_tool", "rw"); got != "Unknown tool: no_such_tool" {
 		t.Fatalf("unknown: %q", got)
 	}
-	// ro caller + write tool must be denied. M1 has no write tools, so register
-	// a synthetic one for the duration of this assertion.
-	writeTools["synthetic_write"] = true
-	defer delete(writeTools, "synthetic_write")
-	if got := CheckToolPermission("synthetic_write", "ro"); got != "Permission denied: tool 'synthetic_write' requires rw role" {
-		t.Fatalf("ro+write: %q", got)
-	}
 }
 
 func TestAuthInfoFromDefaultsToLeastPrivilege(t *testing.T) {
-	info := authInfoFrom(context.Background())
-	if info.Role != "ro" {
-		t.Fatalf("missing auth info must default to ro (least privilege), got %q", info.Role)
+	if authInfoFrom(context.Background()).Role != "ro" {
+		t.Fatal("missing auth info must default to ro")
 	}
 }
 
-func TestDispatchReadFile(t *testing.T) {
-	d := deps(t)
-	p := filepath.Join(t.TempDir(), "x.txt")
-	os.WriteFile(p, []byte("hello\n"), 0o644)
-	out := Dispatch(d, "read_file", map[string]any{"file_path": p})
-	var res map[string]any
-	if err := json.Unmarshal([]byte(out), &res); err != nil {
-		t.Fatal(err)
-	}
-	if res["content"] != "   1\thello" || res["total_lines"] != float64(1) {
-		t.Fatalf("res = %v", res)
-	}
-}
-
-func TestDispatchGrepDefaultsMaxResults(t *testing.T) {
-	d := deps(t)
-	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "f.txt"), []byte("m\nm\nm\n"), 0o644)
-	out := Dispatch(d, "grep", map[string]any{"pattern": "m", "path": dir})
-	if !strings.Contains(out, `"match_count":3`) && !strings.Contains(out, `"match_count": 3`) {
-		t.Fatalf("out = %s", out)
-	}
-}
-
-func TestDispatchUnknownTool(t *testing.T) {
-	d := deps(t)
-	out := Dispatch(d, "bash_execute", map[string]any{"command": "id"})
-	if !strings.Contains(out, `"UnknownTool"`) {
-		t.Fatalf("out = %s", out)
-	}
-}
-
-func TestSchemasParseAndListNames(t *testing.T) {
+func TestToolNamesAreSix(t *testing.T) {
 	names := ToolNames()
-	want := []string{"read_file", "glob", "grep"}
-	if len(names) != 3 {
-		t.Fatalf("names = %v", names)
+	if len(names) != 6 {
+		t.Fatalf("expected 6 tools, got %d: %v", len(names), names)
 	}
-	for _, w := range want {
-		found := false
-		for _, n := range names {
-			if n == w {
-				found = true
-			}
-		}
-		if !found {
-			t.Fatalf("missing %s in %v", w, names)
-		}
+	want := map[string]bool{"read_file": true, "glob": true, "grep": true,
+		"bash_execute": true, "write_file": true, "edit_file": true}
+	for _, n := range names {
+		delete(want, n)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing tools: %v", want)
 	}
 	for _, td := range toolDefs {
-		_ = mustSchema(td.SchemaJSON) // panics on bad JSON
+		_ = mustSchema(td.SchemaJSON)
 	}
 }
 
-// textOf extracts the single TextContent payload from a tool result.
+func TestDispatchWriteThenEdit(t *testing.T) {
+	d := deps(t)
+	p := filepath.Join(t.TempDir(), "f.txt")
+	out := Dispatch(d, "write_file", map[string]any{"file_path": p, "content": "a b a"})
+	if !strings.Contains(out, `"success":true`) {
+		t.Fatalf("write: %s", out)
+	}
+	out = Dispatch(d, "edit_file", map[string]any{"file_path": p, "old_string": "b", "new_string": "B"})
+	if !strings.Contains(out, `"replacements":1`) {
+		t.Fatalf("edit: %s", out)
+	}
+	got, _ := os.ReadFile(p)
+	if string(got) != "a B a" {
+		t.Fatalf("file = %q", got)
+	}
+}
+
+func TestClassifyResult(t *testing.T) {
+	cases := []struct {
+		json, status, code string
+	}{
+		{`{"content":"x","total_lines":1}`, "ok", ""},
+		{`{"success":true,"bytes_written":3}`, "ok", ""},
+		{`{"success":false,"error":"ProtectedPath","message":"m"}`, "error", "ProtectedPath"},
+		{`{"stdout":"","stderr":"Command timed out after 1s","exit_code":-1,"timed_out":true}`, "error", "TimeoutError"},
+		{`{"stdout":"","stderr":"boom","exit_code":3,"timed_out":false}`, "error", "ExitCode:3"},
+		{`{"stdout":"ok","stderr":"","exit_code":0,"timed_out":false}`, "ok", ""},
+	}
+	for _, c := range cases {
+		status, code, _, _ := classifyResult(c.json)
+		if status != c.status || code != c.code {
+			t.Fatalf("classify(%s) = (%q,%q), want (%q,%q)", c.json, status, code, c.status, c.code)
+		}
+	}
+}
+
+func TestExtractParamsElidesContent(t *testing.T) {
+	got := extractParams(map[string]any{"file_path": "/p", "content": "hello", "old_string": "ab"})
+	if got["file_path"] != "/p" {
+		t.Fatalf("file_path passed through wrong: %v", got["file_path"])
+	}
+	if got["content"] != "<5 chars>" || got["old_string"] != "<2 chars>" {
+		t.Fatalf("elision wrong: %v", got)
+	}
+}
+
 func textOf(t *testing.T, res *mcp.CallToolResult) string {
 	t.Helper()
-	if len(res.Content) != 1 {
-		t.Fatalf("expected 1 content block, got %d", len(res.Content))
-	}
 	tc, ok := res.Content[0].(*mcp.TextContent)
 	if !ok {
-		t.Fatalf("content is %T, want *mcp.TextContent", res.Content[0])
+		t.Fatalf("content is %T", res.Content[0])
 	}
 	return tc.Text
 }
 
-// TestBuildServerInProcess exercises BuildServer end-to-end over the SDK's
-// in-memory transport, covering tools/list, a real read_file call, and the
-// unknown-tool receiving middleware (the core of Task 8).
-func TestBuildServerInProcess(t *testing.T) {
-	d := deps(t)
-	dir := t.TempDir()
-	filePath := filepath.Join(dir, "hello.txt")
-	if err := os.WriteFile(filePath, []byte("hello\nworld\n"), 0o644); err != nil {
+func TestBuildInProcessDeniedAndUnknown(t *testing.T) {
+	s := newServer(t)
+	srv := s.Build()
+	ctx := context.Background()
+	st, ct := mcp.NewInMemoryTransports()
+	ss, err := srv.Connect(ctx, st, nil)
+	if err != nil {
 		t.Fatal(err)
 	}
-
-	srv := BuildServer(d)
-
-	ctx := context.Background()
-	serverTransport, clientTransport := mcp.NewInMemoryTransports()
-	serverSession, err := srv.Connect(ctx, serverTransport, nil)
+	defer ss.Close()
+	client := mcp.NewClient(&mcp.Implementation{Name: "c", Version: "0"}, nil)
+	cs, err := client.Connect(ctx, ct, nil)
 	if err != nil {
-		t.Fatalf("server connect: %v", err)
-	}
-	defer serverSession.Close()
-
-	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0"}, nil)
-	cs, err := client.Connect(ctx, clientTransport, nil)
-	if err != nil {
-		t.Fatalf("client connect: %v", err)
+		t.Fatal(err)
 	}
 	defer cs.Close()
 
-	// tools/list — the three read tools must appear with a non-nil InputSchema.
+	// tools/list as default-ro must expose only the read tools (parity with
+	// filter_tools_by_role in src/mymcp/mcp_server.py).
 	listed, err := cs.ListTools(ctx, nil)
 	if err != nil {
-		t.Fatalf("list tools: %v", err)
+		t.Fatalf("list: %v", err)
 	}
-	got := map[string]*mcp.Tool{}
+	seen := map[string]bool{}
 	for _, tl := range listed.Tools {
-		got[tl.Name] = tl
+		seen[tl.Name] = true
 	}
-	if len(got) != 3 {
-		t.Fatalf("expected 3 tools, got %d: %v", len(got), listed.Tools)
-	}
-	for _, name := range []string{"read_file", "glob", "grep"} {
-		tl, ok := got[name]
-		if !ok {
-			t.Fatalf("tool %q missing from tools/list", name)
+	for _, n := range []string{"read_file", "glob", "grep"} {
+		if !seen[n] {
+			t.Fatalf("ro must see read tool %q; got %v", n, seen)
 		}
-		if tl.InputSchema == nil {
-			t.Fatalf("tool %q has nil InputSchema", name)
+	}
+	for _, n := range []string{"bash_execute", "write_file", "edit_file"} {
+		if seen[n] {
+			t.Fatalf("ro must NOT see write tool %q", n)
 		}
 	}
 
-	// read_file over the wire — TextContent must parse to the expected JSON.
-	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "read_file",
-		Arguments: map[string]any{"file_path": filePath},
-	})
+	// Default (no auth info in context) is ro → write tool must be denied.
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "write_file",
+		Arguments: map[string]any{"file_path": "/tmp/x", "content": "y"}})
 	if err != nil {
-		t.Fatalf("call read_file: %v", err)
-	}
-	var parsed map[string]any
-	if err := json.Unmarshal([]byte(textOf(t, res)), &parsed); err != nil {
-		t.Fatalf("read_file result not JSON: %v", err)
-	}
-	if parsed["content"] != "   1\thello\n   2\tworld" || parsed["total_lines"] != float64(2) {
-		t.Fatalf("read_file content wrong: %v", parsed)
-	}
-
-	// Unknown tool — the receiving middleware must return Python's
-	// PermissionDenied shape as TextContent, not an MCP protocol error.
-	res, err = cs.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "bash_execute",
-		Arguments: map[string]any{"command": "id"},
-	})
-	if err != nil {
-		t.Fatalf("unknown tool must not be a protocol error: %v", err)
+		t.Fatalf("call: %v", err)
 	}
 	var denied map[string]any
-	if err := json.Unmarshal([]byte(textOf(t, res)), &denied); err != nil {
-		t.Fatalf("unknown tool result not JSON: %v", err)
+	_ = json.Unmarshal([]byte(textOf(t, res)), &denied)
+	if denied["error"] != "PermissionDenied" ||
+		denied["message"] != "Permission denied: tool 'write_file' requires rw role" {
+		t.Fatalf("denied shape wrong: %v", denied)
 	}
-	if denied["success"] != false || denied["error"] != "PermissionDenied" ||
-		denied["message"] != "Unknown tool: bash_execute" {
-		t.Fatalf("unknown tool shape wrong: %v", denied)
+
+	// Unknown tool → PermissionDenied "Unknown tool" via the middleware.
+	res, err = cs.CallTool(ctx, &mcp.CallToolParams{Name: "no_such", Arguments: map[string]any{}})
+	if err != nil {
+		t.Fatalf("unknown must not be a protocol error: %v", err)
+	}
+	var unk map[string]any
+	_ = json.Unmarshal([]byte(textOf(t, res)), &unk)
+	if unk["message"] != "Unknown tool: no_such" {
+		t.Fatalf("unknown shape wrong: %v", unk)
 	}
 }

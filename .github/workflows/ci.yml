@@ -99,10 +99,12 @@ jobs:
       - run: pip install -e ".[dev]" -c requirements-dev.txt
       - name: seed tokens and boot server
         run: |
-          mkdir -p /tmp/mymcp-compat /tmp/mymcp-compat-protected
+          mkdir -p /tmp/mymcp-compat /tmp/mymcp-compat-protected /tmp/mymcp-compat-audit
           cp tests/compat/ci-tokens.json /tmp/compat-tokens.json
           MYMCP_ADMIN_TOKEN=compat-admin MYMCP_TOKEN_FILE=/tmp/compat-tokens.json \
           MYMCP_PROTECTED_PATHS=/tmp/mymcp-compat-protected MYMCP_PORT=18770 \
+          MYMCP_METRICS_TOKEN=compat-metrics \
+          MYMCP_AUDIT_ENABLED=true MYMCP_AUDIT_LOG_DIR=/tmp/mymcp-compat-audit \
             mymcp serve &
           for i in $(seq 20); do curl -sf http://127.0.0.1:18770/health && break; sleep 0.5; done
       - name: run compat suite
@@ -110,6 +112,8 @@ jobs:
           MYMCP_COMPAT_URL=http://127.0.0.1:18770 \
           MYMCP_COMPAT_RW_TOKEN=tok_compat_rw_0000000000000000 \
           MYMCP_COMPAT_RO_TOKEN=tok_compat_ro_0000000000000000 \
+          MYMCP_COMPAT_METRICS_TOKEN=compat-metrics \
+          MYMCP_COMPAT_AUDIT_DIR=/tmp/mymcp-compat-audit \
             pytest tests/compat/ -v --benchmark-disable
 
   compat-go:
@@ -127,10 +131,12 @@ jobs:
       - name: build and boot go server
         run: |
           cd go && go build -o /tmp/mymcp-go ./cmd/mymcp && cd ..
-          mkdir -p /tmp/mymcp-compat /tmp/mymcp-compat-protected
+          mkdir -p /tmp/mymcp-compat /tmp/mymcp-compat-protected /tmp/mymcp-compat-audit
           cp tests/compat/ci-tokens.json /tmp/compat-tokens.json
           MYMCP_ADMIN_TOKEN=compat-admin MYMCP_TOKEN_FILE=/tmp/compat-tokens.json \
           MYMCP_PROTECTED_PATHS=/tmp/mymcp-compat-protected MYMCP_PORT=18770 \
+          MYMCP_METRICS_TOKEN=compat-metrics \
+          MYMCP_AUDIT_ENABLED=true MYMCP_AUDIT_LOG_DIR=/tmp/mymcp-compat-audit \
             /tmp/mymcp-go serve &
           for i in $(seq 20); do curl -sf http://127.0.0.1:18770/health && break; sleep 0.5; done
       - name: run compat suite
@@ -138,6 +144,8 @@ jobs:
           MYMCP_COMPAT_URL=http://127.0.0.1:18770 \
           MYMCP_COMPAT_RW_TOKEN=tok_compat_rw_0000000000000000 \
           MYMCP_COMPAT_RO_TOKEN=tok_compat_ro_0000000000000000 \
+          MYMCP_COMPAT_METRICS_TOKEN=compat-metrics \
+          MYMCP_COMPAT_AUDIT_DIR=/tmp/mymcp-compat-audit \
             pytest tests/compat/ -v --benchmark-disable
 
   security-audit:
