@@ -1,0 +1,20 @@
+[Unit]
+Description=MyMCP Recorder (overview sidecar)
+After=network.target mymcp.service
+Wants=mymcp.service
+
+[Service]
+Type=simple
+User={service_user}
+WorkingDirectory={working_directory}
+EnvironmentFile={env_file}
+ExecStart={exec_start}
+Restart=on-failure
+RestartSec=10
+
+# The recorder only tails audit.log and writes the overview directory; it never
+# executes tools. NoNewPrivileges is always safe here.
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
