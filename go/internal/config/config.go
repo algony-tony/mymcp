@@ -43,6 +43,13 @@ type Config struct {
 	AuditOutputBashHeadBytes int
 	AuditOutputBashTailBytes int
 
+	TransferEnabled       bool
+	TransferMaxBytes      int64
+	TransferDefaultTTLSec int
+	TransferMaxTTLSec     int
+	PublicBaseURL         string
+	RecorderDataDir       string
+
 	protectedPathsCSV string
 }
 
@@ -130,6 +137,22 @@ func Load() (*Config, error) {
 	if cfg.AuditOutputBashTailBytes, err = getInt(get, "MYMCP_AUDIT_OUTPUT_BASH_TAIL_BYTES", 4096); err != nil {
 		return nil, err
 	}
+	if cfg.TransferEnabled, err = getBool(get, "MYMCP_TRANSFER_ENABLED", true); err != nil {
+		return nil, err
+	}
+	transferMax, err := getInt(get, "MYMCP_TRANSFER_MAX_BYTES", 2*1024*1024*1024)
+	if err != nil {
+		return nil, err
+	}
+	cfg.TransferMaxBytes = int64(transferMax)
+	if cfg.TransferDefaultTTLSec, err = getInt(get, "MYMCP_TRANSFER_DEFAULT_TTL_SEC", 300); err != nil {
+		return nil, err
+	}
+	if cfg.TransferMaxTTLSec, err = getInt(get, "MYMCP_TRANSFER_MAX_TTL_SEC", 900); err != nil {
+		return nil, err
+	}
+	cfg.PublicBaseURL = getStr(get, "MYMCP_PUBLIC_BASE_URL", "")
+	cfg.RecorderDataDir = getStr(get, "MYMCP_RECORDER_DATA_DIR", "/var/lib/mymcp/recorder")
 	cfg.protectedPathsCSV = getStr(get, "MYMCP_PROTECTED_PATHS", "")
 	return cfg, nil
 }
