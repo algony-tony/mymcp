@@ -3,8 +3,30 @@ package main
 import (
 	"bytes"
 	"os"
+	"path/filepath"
 	"testing"
 )
+
+func TestTokenAddThenList(t *testing.T) {
+	tok := filepath.Join(t.TempDir(), "tokens.json")
+	t.Setenv("MYMCP_TOKEN_FILE", tok)
+	t.Setenv("MYMCP_ADMIN_TOKEN", "admin")
+	if code := run([]string{"token", "add", "--role", "rw", "ci"}); code != 0 {
+		t.Fatalf("add exit=%d", code)
+	}
+	if code := run([]string{"token", "list"}); code != 0 {
+		t.Fatalf("list exit=%d", code)
+	}
+}
+
+func TestTokenRevokeMissing(t *testing.T) {
+	tok := filepath.Join(t.TempDir(), "tokens.json")
+	t.Setenv("MYMCP_TOKEN_FILE", tok)
+	t.Setenv("MYMCP_ADMIN_TOKEN", "admin")
+	if code := run([]string{"token", "revoke", "tok_absent"}); code != 1 {
+		t.Fatalf("revoke-missing exit=%d (want 1)", code)
+	}
+}
 
 func TestRunVersion(t *testing.T) {
 	r, w, _ := os.Pipe()
