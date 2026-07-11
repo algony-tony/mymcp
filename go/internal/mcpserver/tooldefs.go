@@ -107,6 +107,47 @@ var toolDefs = []toolDef{
   "additionalProperties": false
 }`,
 	},
+	{
+		Name: "prepare_upload",
+		Description: "Mint a one-shot ticket URL for uploading bytes to a server path.\n\n" +
+			"Workflow: this tool RETURNS a ticket URL; it does NOT pull from the " +
+			"client. The client must then upload via:\n" +
+			"    curl -X PUT --data-binary @/local/path <ticket_url>\n" +
+			"Tickets are single-use and expire (default MYMCP_TRANSFER_DEFAULT_TTL_SEC=300s).",
+		SchemaJSON: `{
+  "type": "object",
+  "properties": {
+    "dest_path": {"type": "string", "description": "Absolute server path to write to"},
+    "max_bytes": {"type": "integer", "description": "Reject upload above this many bytes"},
+    "expires_in": {"type": "integer", "description": "Ticket TTL seconds (default 300)"},
+    "overwrite": {"type": "boolean", "description": "If false, refuse when dest_path exists (default true)"}
+  },
+  "required": ["dest_path"],
+  "additionalProperties": false
+}`,
+	},
+	{
+		Name: "prepare_download",
+		Description: "Mint a one-shot ticket URL for downloading bytes from a server path.\n\n" +
+			"Workflow: this tool RETURNS a ticket URL; it does NOT push to the " +
+			"client. The client must then fetch via:\n" +
+			"    curl -o /local/path <ticket_url>\n" +
+			"Tickets are single-use and expire (default MYMCP_TRANSFER_DEFAULT_TTL_SEC=300s).",
+		SchemaJSON: `{
+  "type": "object",
+  "properties": {
+    "src_path": {"type": "string", "description": "Absolute server path to read from"},
+    "expires_in": {"type": "integer", "description": "Ticket TTL seconds (default 300)"}
+  },
+  "required": ["src_path"],
+  "additionalProperties": false
+}`,
+	},
+	{
+		Name:        "server_overview",
+		Description: "Return a maintained map of this server's services, apps, data, and recent changes.",
+		SchemaJSON:  `{"type": "object", "properties": {}, "additionalProperties": false}`,
+	},
 }
 
 // mustSchema validates the raw JSON and returns it as json.RawMessage suitable
