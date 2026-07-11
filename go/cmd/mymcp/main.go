@@ -115,7 +115,12 @@ func runToken(args []string) int {
 			fmt.Fprintln(os.Stderr, "token:", err)
 			return 1
 		}
-		if store.RevokeToken(args[1]) {
+		found, err := store.RevokeToken(args[1])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "token:", err)
+			return 1
+		}
+		if found {
 			fmt.Printf("revoked %s\n", args[1])
 			return 0
 		}

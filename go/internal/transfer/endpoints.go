@@ -23,6 +23,10 @@ type Endpoints struct {
 	Audit     *audit.Writer
 	Protected []fsutil.ProtectedEntry
 	Enabled   bool
+	// OnAuditFail is invoked when a redemption audit record cannot be written;
+	// it bumps mymcp_audit_write_failures_total (SOC: audit loss must be
+	// visible). Nil disables the callback (used by tests).
+	OnAuditFail func()
 }
 
 // Register wires PUT+GET /files/raw/{ticket_id} onto mux.
@@ -79,7 +83,11 @@ func (e *Endpoints) resolveTicket(w http.ResponseWriter, r *http.Request, wantOp
 	return tk
 }
 
-func (e *Endpoints) auditRedeem(tk *Ticket, ok bool, n int64, code, ip string) {
+// auditRedeem writes one transfer_upload/transfer_download record. On write
+// failure it bumps mymcp_audit_write_failures_total (via OnAuditFail) and
+// returns the error so a confirmable mutation is not acknowledged unaudited —
+// silent audit loss is a SOC red line.
+func (e *Endpoints) auditRedeem(tk *Ticket, ok bool, n int64, code, ip string) error {
 	tool := "transfer_download"
 	if tk.Op == "upload" {
 		tool = "transfer_upload"
@@ -89,7 +97,7 @@ func (e *Endpoints) auditRedeem(tk *Ticket, ok bool, n int64, code, ip string) {
 	if !ok {
 		result, errCode, errMsg = "error", code, code
 	}
-	_ = e.Audit.Log(audit.Entry{
+	err := e.Audit.Log(audit.Entry{
 		TS: time.Now().UTC().Format(time.RFC3339Nano), TokenName: tk.CreatedBy,
 		Role: tk.CreatedByRole, IP: ip, Tool: tool, Result: result,
 		ErrorCode: errCode, ErrorMessage: errMsg,
@@ -99,6 +107,10 @@ func (e *Endpoints) auditRedeem(tk *Ticket, ok bool, n int64, code, ip string) {
 			"issuer_role": tk.CreatedByRole, "redeemer_ip": ip,
 		},
 	})
+	if err != nil && e.OnAuditFail != nil {
+		e.OnAuditFail()
+	}
+	return err
 }
 
 func firstN(s string, n int) string {
@@ -167,7 +179,11 @@ func (e *Endpoints) Upload(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "write_failed", err.Error())
 		return
 	}
-	e.auditRedeem(tk, true, written, "", ip)
+	if err := e.auditRedeem(tk, true, written, "", ip); err != nil {
+		// The bytes are on disk, but do not confirm an unauditable mutation.
+		writeErr(w, 500, "audit_failed", "upload succeeded but the audit record could not be written")
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "path": tk.Path, "bytes_written": written})
 }

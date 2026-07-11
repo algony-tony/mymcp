@@ -140,16 +140,22 @@ func (s *TokenStore) CreateToken(name, role string) (string, error) {
 	return token, nil
 }
 
-// RevokeToken removes a token; false if it did not exist.
-func (s *TokenStore) RevokeToken(token string) bool {
+// RevokeToken removes a token and persists the change. Returns (found, err):
+// found=false when the token did not exist; err set when the delete could not
+// be persisted. Matching the Python reference, a save failure must propagate
+// (→ 500) rather than confirm an unpersisted revocation that would resurrect the
+// credential on the next restart.
+func (s *TokenStore) RevokeToken(token string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.data.Tokens[token]; !ok {
-		return false
+		return false, nil
 	}
 	delete(s.data.Tokens, token)
-	_ = s.saveLocked()
-	return true
+	if err := s.saveLocked(); err != nil {
+		return true, err
+	}
+	return true, nil
 }
 
 // ListTokens returns a copy of the token map (values copied, not shared).

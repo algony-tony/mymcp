@@ -121,4 +121,36 @@ func TestDisabledReturns404(t *testing.T) {
 	}
 }
 
+func TestUploadAuditFailureCountsAnd500(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses file permissions; cannot force an audit write failure")
+	}
+	dir := t.TempDir()
+	auditDir := t.TempDir()
+	// maxBytes=1 forces a rotate on every Log; a read-only log file makes the
+	// rotate's reopen fail, so Audit.Log returns an error.
+	a, err := audit.New(true, auditDir, 1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(auditDir, "audit.log"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	failed := 0
+	store := NewTicketStore()
+	e := &Endpoints{Tickets: store, Audit: a, Enabled: true, OnAuditFail: func() { failed++ }}
+	dst := filepath.Join(dir, "out.bin")
+	tk := store.Mint("upload", dst, 1024, 300, "n", "rw")
+	req := httptest.NewRequest("PUT", "/files/raw/"+tk.TicketID, bytes.NewReader([]byte("hi")))
+	req.SetPathValue("ticket_id", tk.TicketID)
+	rec := httptest.NewRecorder()
+	e.Upload(rec, req)
+	if rec.Code != 500 {
+		t.Fatalf("audit failure must not confirm the upload: code=%d", rec.Code)
+	}
+	if failed == 0 {
+		t.Fatal("OnAuditFail must be invoked (SOC: audit loss must be visible)")
+	}
+}
+
 var _ = fsutil.ModeWrite

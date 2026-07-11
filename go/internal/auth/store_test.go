@@ -172,11 +172,11 @@ func TestCreateRevokeList(t *testing.T) {
 	if info, ok := list[tok]; !ok || info.Role != "rw" || info.Name != "ci" {
 		t.Fatalf("list wrong: %+v", list)
 	}
-	if !s.RevokeToken(tok) {
-		t.Fatal("revoke must succeed")
+	if found, err := s.RevokeToken(tok); !found || err != nil {
+		t.Fatalf("revoke must succeed: found=%v err=%v", found, err)
 	}
-	if s.RevokeToken(tok) {
-		t.Fatal("second revoke must fail")
+	if found, _ := s.RevokeToken(tok); found {
+		t.Fatal("second revoke must report not-found")
 	}
 	if s.Validate(tok) != nil {
 		t.Fatal("revoked token must not validate")

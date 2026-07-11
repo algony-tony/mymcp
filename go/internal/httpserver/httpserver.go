@@ -64,7 +64,8 @@ func BuildMux(d tools.Deps, store *auth.TokenStore, auditW *audit.Writer, m *met
 
 	// Transfer endpoints (ticket-only auth; share d.Tickets with the tools).
 	(&transfer.Endpoints{
-		Tickets: d.Tickets, Audit: auditW, Protected: d.Protected, Enabled: d.Cfg.TransferEnabled,
+		Tickets: d.Tickets, Audit: auditW, Protected: d.Protected,
+		Enabled: d.Cfg.TransferEnabled, OnAuditFail: m.IncAuditFailure,
 	}).Register(mux)
 
 	// Admin token CRUD behind the admin token.
@@ -120,7 +121,14 @@ func adminRevoke(store *auth.TokenStore) http.HandlerFunc {
 			return
 		}
 		token := r.PathValue("token")
-		if !store.RevokeToken(token) {
+		found, err := store.RevokeToken(token)
+		if err != nil {
+			// Never confirm a revocation that was not persisted (SOC): a lost
+			// write would resurrect the credential on restart.
+			writeJSON(w, 500, map[string]string{"detail": err.Error()})
+			return
+		}
+		if !found {
 			writeJSON(w, 404, map[string]string{"detail": "Token not found"})
 			return
 		}
