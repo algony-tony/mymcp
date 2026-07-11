@@ -119,6 +119,50 @@ func (s *TokenStore) saveLocked() error {
 	return nil
 }
 
+// CreateToken mints a persisted ro/rw token: "tok_" + 32 hex chars.
+func (s *TokenStore) CreateToken(name, role string) (string, error) {
+	if role != "ro" && role != "rw" {
+		return "", fmt.Errorf("Invalid role: %q. Must be 'ro' or 'rw'.", role)
+	}
+	token, err := GenerateToken()
+	if err != nil {
+		return "", err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data.Tokens[token] = &TokenInfo{
+		Name: name, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		LastUsed: nil, Enabled: true, Role: role,
+	}
+	if err := s.saveLocked(); err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
+// RevokeToken removes a token; false if it did not exist.
+func (s *TokenStore) RevokeToken(token string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.data.Tokens[token]; !ok {
+		return false
+	}
+	delete(s.data.Tokens, token)
+	_ = s.saveLocked()
+	return true
+}
+
+// ListTokens returns a copy of the token map (values copied, not shared).
+func (s *TokenStore) ListTokens() map[string]TokenInfo {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make(map[string]TokenInfo, len(s.data.Tokens))
+	for tok, info := range s.data.Tokens {
+		out[tok] = *info
+	}
+	return out
+}
+
 // GenerateToken returns "tok_" + 32 hex chars (16 random bytes), the same
 // shape the Python core mints.
 func GenerateToken() (string, error) {
