@@ -15,6 +15,17 @@ from mymcp.recorder.overview import OverviewStore
 from mymcp.recorder.task import RecorderSupervisor
 from mymcp.tools.files import register_protected_path
 
+# The active supervisor for this process. Set by build_supervisor so the
+# Prometheus gauge callbacks below can report its state without importing the
+# Python core (mcp_server). The in-process core and the standalone
+# mymcp-recorder sidecar both go through build_supervisor.
+_active_supervisor: "RecorderSupervisor | None" = None
+
+
+def set_active_supervisor(sup: "RecorderSupervisor | None") -> None:
+    global _active_supervisor
+    _active_supervisor = sup
+
 
 def build_supervisor(settings: Settings) -> RecorderSupervisor:
     data_dir = Path(settings.recorder_data_dir)
@@ -49,7 +60,7 @@ def build_supervisor(settings: Settings) -> RecorderSupervisor:
         require_bootstrap=True,
         max_tokens=settings.recorder_llm_max_tokens,
     )
-    return RecorderSupervisor(
+    supervisor = RecorderSupervisor(
         merge_cycle=merge,
         bootstrapper=bootstrapper,
         merge_interval_sec=settings.recorder_merge_interval_sec,
@@ -58,13 +69,12 @@ def build_supervisor(settings: Settings) -> RecorderSupervisor:
         circuit_breaker_threshold=settings.recorder_circuit_breaker_threshold,
         llm_client=client,
     )
+    set_active_supervisor(supervisor)
+    return supervisor
 
 
 def _observe_circuit_open() -> list[Observation]:
-    # Late import to avoid circular wiring at module import time.
-    from mymcp.mcp_server import get_recorder_supervisor
-
-    sup = get_recorder_supervisor()
+    sup = _active_supervisor
     if sup is None:
         return [Observation(0)]
     return [Observation(1 if getattr(sup, "circuit_open", False) else 0)]
@@ -76,14 +86,10 @@ def _observe_pending_events() -> list[Observation]:
     A growing value means the recorder is falling behind (LLM failing, circuit
     open, slow merges). Useful as both a saturation gauge and an alert source.
     """
-    from mymcp.mcp_server import get_recorder_supervisor
-
-    sup = get_recorder_supervisor()
+    sup = _active_supervisor
     if sup is None:
         return [Observation(0)]
     try:
-        # sup is typed `object | None` at the boundary; the real type is
-        # RecorderSupervisor — getattr-chain keeps mypy happy without a cast.
         merge = getattr(sup, "_merge_cycle", None)
         tailer = getattr(merge, "_tailer", None)
         n = int(tailer.pending_count()) if tailer is not None else 0
@@ -99,14 +105,10 @@ def _observe_last_success_ts() -> list[Observation]:
     staleness signal is now the composite of pending_events and
     last_attempt_timestamp (see _observe_last_attempt_ts).
     """
-    from mymcp.mcp_server import get_recorder_supervisor
-    from mymcp.recorder.task import RecorderSupervisor
-
-    sup = get_recorder_supervisor()
+    sup = _active_supervisor
     if sup is None:
         return [Observation(0)]
-    sup_typed: RecorderSupervisor = sup  # type: ignore[assignment]
-    ts = sup_typed.last_merge_ts_unix  # public; mypy catches rename
+    ts = sup.last_merge_ts_unix
     return [Observation(ts if ts is not None else 0)]
 
 
@@ -122,14 +124,10 @@ def _observe_last_attempt_ts() -> list[Observation]:
             AND time() - mymcp_recorder_merge_last_attempt_timestamp > 1800 )
           OR mymcp_recorder_circuit_open == 1
     """
-    from mymcp.mcp_server import get_recorder_supervisor
-    from mymcp.recorder.task import RecorderSupervisor
-
-    sup = get_recorder_supervisor()
+    sup = _active_supervisor
     if sup is None:
         return [Observation(0)]
-    sup_typed: RecorderSupervisor = sup  # type: ignore[assignment]
-    ts = sup_typed.last_merge_attempt_ts_unix  # public; mypy catches rename
+    ts = sup.last_merge_attempt_ts_unix
     return [Observation(ts if ts is not None else 0)]
 
 
