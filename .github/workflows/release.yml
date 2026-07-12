@@ -96,3 +96,36 @@ jobs:
             dist/*
             mymcp-*-offline-bundle.tar.gz
           generate_release_notes: true
+
+  # Groundwork for the v3 binary wheels (M3b): cross-compile the Go core into
+  # static linux/amd64 + linux/arm64 binaries and upload them as run artifacts.
+  # Additive — does not touch the v2 wheel/publish pipeline above. Phase 3 will
+  # assemble these into platform-tagged wheels and attach them to the release.
+  build-binaries:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.25"
+          cache-dependency-path: go/go.sum
+      - name: cross-compile static binary
+        working-directory: go
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          go build -trimpath -ldflags "-s -w" -o "mymcp-linux-${{ matrix.goarch }}" ./cmd/mymcp
+          file "mymcp-linux-${{ matrix.goarch }}"
+      - name: verify amd64 binary runs
+        if: matrix.goarch == 'amd64'
+        run: ./go/mymcp-linux-amd64 version
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mymcp-linux-${{ matrix.goarch }}
+          path: go/mymcp-linux-${{ matrix.goarch }}
+          if-no-files-found: error

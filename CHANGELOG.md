@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unit — the recorder can now run as a standalone sidecar around
   `build_supervisor()`. Its Prometheus gauges no longer import the Python core
   (`mcp_server`), a step toward retiring the Python core in v3.0.0.
+- Go core M3b (phase 2): the `[recorder]` extra now lists the sidecar's real
+  dependencies (httpx, anyio, pydantic-settings, python-json-logger,
+  opentelemetry), and the release workflow cross-compiles static
+  linux/amd64 + linux/arm64 binaries — groundwork for the v3 binary wheels.
 - Go core M3a: file `transfer` (`prepare_upload`/`prepare_download` tools +
   ticket-only `/files/raw` streaming endpoints), the `/admin/tokens` CRUD API,
   the `server_overview` tool (reads the recorder sidecar's `overview.md`), and
