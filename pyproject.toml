@@ -136,6 +136,6 @@ paths_to_mutate = [
     "src/mymcp/transfer/endpoints.py",
     "src/mymcp/mcp_server.py",
 ]
-also_copy = ["src/"]
+also_copy = ["src/", "scripts/"]
 tests_dir = ["tests/"]
 pytest_add_cli_args = ["--benchmark-disable"]

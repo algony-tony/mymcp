@@ -16,6 +16,10 @@ pytest.importorskip("wheel")
 REPO = Path(__file__).resolve().parents[1]
 ASSEMBLE = REPO / "scripts" / "assemble_wheel.py"
 
+if not ASSEMBLE.exists():
+    # e.g. the mutmut `mutants/` sandbox, which only mirrors the mutated dirs.
+    pytest.skip("assemble_wheel.py not present in this sandbox", allow_module_level=True)
+
 
 def _make_pure_wheel(tmp: Path) -> Path:
     """Hand-build a minimal pure wheel via `wheel pack`."""
