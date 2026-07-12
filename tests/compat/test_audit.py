@@ -1,5 +1,5 @@
-"""M2 acceptance: the Python recorder EventTailer consumes the audit.log the
-server writes (works against BOTH the Python and Go servers)."""
+"""Acceptance: the Python recorder EventTailer consumes the audit.log the Go
+server writes (the compat suite's audit-format contract)."""
 
 import os
 import time

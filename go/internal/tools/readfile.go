@@ -1,7 +1,7 @@
-// Package tools implements the MCP tool behaviors, ported line-for-line from
-// src/mymcp/tools/files.py. Every function returns a map that the MCP layer
-// serializes to JSON — key names and error codes are part of the compat
-// contract with the Python core.
+// Package tools implements the MCP tool behaviors. Every function returns a map
+// that the MCP layer serializes to JSON — key names and error codes are part of
+// the compat contract, frozen in tests/compat/golden_tools.json (originally
+// ported line-for-line from the now-removed Python src/mymcp/tools/files.py).
 package tools
 
 import (

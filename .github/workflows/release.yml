@@ -102,10 +102,9 @@ jobs:
             mymcp-*-offline-bundle.tar.gz
           generate_release_notes: true
 
-  # Groundwork for the v3 binary wheels (M3b): cross-compile the Go core into
-  # static linux/amd64 + linux/arm64 binaries and upload them as run artifacts.
-  # Additive — does not touch the v2 wheel/publish pipeline above. Phase 3 will
-  # assemble these into platform-tagged wheels and attach them to the release.
+  # Cross-compile the Go core into static linux/amd64 + linux/arm64 binaries and
+  # upload them as run artifacts. assemble-wheels turns them into the published
+  # platform wheels (the `mymcp` command IS this binary).
   build-binaries:
     runs-on: ubuntu-latest
     strategy:
@@ -135,10 +134,9 @@ jobs:
           path: go/mymcp-linux-${{ matrix.goarch }}
           if-no-files-found: error
 
-  # Groundwork: assemble the v3 platform wheels (Go binary as `mymcp`) from the
-  # pure wheel + the cross-compiled binaries. Uploaded as artifacts for
-  # validation only; NOT published yet (v2.x still ships the pure wheel). Phase
-  # 3b wires these into publish and flips the pyproject to zero base deps.
+  # Assemble the v3 platform wheels (Go binary as `mymcp`) from the pure wheel +
+  # the cross-compiled binaries. These are what publish-pypi + github-release
+  # ship; the pure wheel/sdist from `build` are inputs only, never published.
   assemble-wheels:
     runs-on: ubuntu-latest
     needs: [build, build-binaries]

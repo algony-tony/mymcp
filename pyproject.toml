@@ -53,8 +53,9 @@ otlp = [
     "opentelemetry-instrumentation-asgi>=0.62b0",
     "opentelemetry-instrumentation-logging>=0.62b0",
 ]
-# The recorder speaks HTTP directly via httpx (a core dependency); no SDKs
-# needed. Extras kept (empty) so existing install commands don't break.
+# The recorder speaks HTTP directly via httpx (see the [recorder] extra below);
+# no LLM SDKs needed. These provider extras are kept (empty) so existing install
+# commands don't break — install [recorder] for the actual dependencies.
 recorder-anthropic = []
 recorder-openai    = []
 recorder = [

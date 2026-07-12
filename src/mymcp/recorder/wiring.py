@@ -15,9 +15,8 @@ from mymcp.recorder.overview import OverviewStore
 from mymcp.recorder.task import RecorderSupervisor
 
 # The active supervisor for this process. Set by build_supervisor so the
-# Prometheus gauge callbacks below can report its state without importing the
-# Python core (mcp_server). The in-process core and the standalone
-# mymcp-recorder sidecar both go through build_supervisor.
+# Prometheus gauge callbacks below can report its state. In v3 the only caller
+# is the standalone mymcp-recorder sidecar (the in-process Python core is gone).
 _active_supervisor: "RecorderSupervisor | None" = None
 
 
