@@ -13,7 +13,6 @@ from mymcp.recorder.llm.factory import build_llm_client
 from mymcp.recorder.merge_cycle import MergeCycle
 from mymcp.recorder.overview import OverviewStore
 from mymcp.recorder.task import RecorderSupervisor
-from mymcp.tools.files import register_protected_path
 
 # The active supervisor for this process. Set by build_supervisor so the
 # Prometheus gauge callbacks below can report its state without importing the
@@ -32,9 +31,10 @@ def build_supervisor(settings: Settings) -> RecorderSupervisor:
     overview_dir = data_dir / "overview"
     cursor_path = data_dir / "cursor.json"
 
-    # The overview directory is mymcp-owned; external file tools may READ it
-    # (so external LLMs can fetch changelog.md) but not WRITE to it.
-    register_protected_path(str(overview_dir), modes={"write"})
+    # The overview directory is mymcp-owned: external file tools may READ it (so
+    # external LLMs can fetch changelog.md) but never WRITE to it. That
+    # write-protection now lives in the Go core (tools.ProtectedFromConfig),
+    # which is the only server in v3 — the recorder no longer touches it.
 
     client: LLMClient = build_llm_client(
         provider=settings.recorder_llm_provider,

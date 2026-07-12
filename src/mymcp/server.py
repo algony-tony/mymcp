@@ -131,11 +131,9 @@ def create_app() -> FastAPI:
         if settings.recorder_enabled:
             try:
                 from mymcp import mcp_server as _mcp
-                from mymcp.recorder import admin as recorder_admin
                 from mymcp.recorder.wiring import build_supervisor
 
                 supervisor = build_supervisor(settings)
-                recorder_admin.set_supervisor(supervisor)
                 _mcp.set_recorder_supervisor(supervisor)
                 recorder_task = asyncio.create_task(supervisor.run())
                 logger.info("recorder: started")
@@ -172,9 +170,6 @@ def create_app() -> FastAPI:
     app.add_middleware(RequestIdMiddleware)  # added last → runs first
 
     app.include_router(admin_router)
-    from mymcp.recorder import admin as recorder_admin
-
-    app.include_router(recorder_admin.router)
     register_transfer_routes(app)
 
     @app.get("/health")
