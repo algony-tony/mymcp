@@ -164,3 +164,21 @@ func loadCfg(t *testing.T) (*config.Config, error) {
 func protectedAll(dir string) fsutil.ProtectedEntry {
 	return fsutil.ProtectedEntry{Pattern: dir, Modes: fsutil.ModeRead | fsutil.ModeWrite}
 }
+
+func TestProtectedFromConfigWriteProtectsOverviewDir(t *testing.T) {
+	cfg := &config.Config{
+		AuditLogDir:     "/tmp/does-not-matter-audit",
+		RecorderDataDir: "/var/lib/mymcp/recorder",
+	}
+	prot := ProtectedFromConfig(cfg)
+	overview := "/var/lib/mymcp/recorder/overview/overview.md"
+
+	// Writes to the overview tree are denied...
+	if msg := fsutil.CheckProtectedPath(overview, fsutil.ModeWrite, prot); msg == "" {
+		t.Fatalf("expected overview dir to be write-protected, got allow")
+	}
+	// ...but reads are allowed (external LLMs fetch changelog.md via read_file).
+	if msg := fsutil.CheckProtectedPath(overview, fsutil.ModeRead, prot); msg != "" {
+		t.Fatalf("expected overview dir to be readable, got deny: %s", msg)
+	}
+}

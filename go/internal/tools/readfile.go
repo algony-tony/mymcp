@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/algony-tony/mymcp/go/internal/config"
@@ -36,6 +37,15 @@ func ProtectedFromConfig(cfg *config.Config) []fsutil.ProtectedEntry {
 	var out []fsutil.ProtectedEntry
 	for _, p := range cfg.ProtectedPaths() {
 		out = append(out, fsutil.ProtectedEntry{Pattern: p, Modes: fsutil.ModeRead | fsutil.ModeWrite})
+	}
+	// The recorder overview dir is mymcp-owned: external file tools may READ it
+	// (so external LLMs can fetch changelog.md) but never WRITE to it. Mirrors
+	// the recorder's former register_protected_path(overview, modes={"write"}).
+	if cfg.RecorderDataDir != "" {
+		out = append(out, fsutil.ProtectedEntry{
+			Pattern: filepath.Join(cfg.RecorderDataDir, "overview"),
+			Modes:   fsutil.ModeWrite,
+		})
 	}
 	return out
 }
