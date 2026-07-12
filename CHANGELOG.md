@@ -40,6 +40,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the `server_overview` tool (reads the recorder sidecar's `overview.md`), and
   offline `mymcp token list/add/revoke` — completing the 9-tool surface. The
   full compat suite now runs green against both the Python and Go servers.
+- Go core M3b (phase 3b-prep): the Go server now write-protects the recorder
+  overview dir (`<recorder_data_dir>/overview`) — external file tools may read
+  `changelog.md` but never write it, closing an M3a gap. The recorder sidecar no
+  longer imports the Python core: `wiring.py` dropped `register_protected_path`
+  (that protection moved to Go) and the FastAPI `/admin/overview` router
+  (`recorder/admin.py`) was removed. A subprocess import-purity guard locks the
+  decoupling in. Prep for the atomic v3.0.0 core deletion.
 
 ## [2.5.0] - 2026-07-04
 
