@@ -31,8 +31,10 @@ type Deps struct {
 	Tickets *transfer.TicketStore
 }
 
-// ProtectedFromConfig builds the legacy protected table (audit dir + extras),
-// which blocks both read and write, matching config.PROTECTED_PATHS.
+// ProtectedFromConfig builds the protected table: the audit dir + extras
+// (matching config.PROTECTED_PATHS) block both read and write, and the
+// recorder overview dir is added write-only (readable so external LLMs can
+// fetch changelog.md).
 func ProtectedFromConfig(cfg *config.Config) []fsutil.ProtectedEntry {
 	var out []fsutil.ProtectedEntry
 	for _, p := range cfg.ProtectedPaths() {
