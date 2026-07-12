@@ -30,6 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dependencies (httpx, anyio, pydantic-settings, python-json-logger,
   opentelemetry), and the release workflow cross-compiles static
   linux/amd64 + linux/arm64 binaries — groundwork for the v3 binary wheels.
+- Go core M3b (phase 3a): `scripts/assemble_wheel.py` turns the pure wheel + a
+  Go binary into a platform-tagged wheel where the `mymcp` command IS the Go
+  binary (dropping the Python `mymcp` console entry, keeping `mymcp-recorder`);
+  the release workflow assembles linux/amd64 + linux/arm64 wheels as artifacts.
+  Proves the v3 binary-wheel mechanism without any breaking change.
 - Go core M3a: file `transfer` (`prepare_upload`/`prepare_download` tools +
   ticket-only `/files/raw` streaming endpoints), the `/admin/tokens` CRUD API,
   the `server_overview` tool (reads the recorder sidecar's `overview.md`), and
