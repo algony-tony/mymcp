@@ -18,21 +18,12 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Operating System :: POSIX :: Linux",
     "Topic :: System :: Systems Administration",
-    "Framework :: FastAPI",
 ]
-dependencies = [
-    "mcp>=1.0.0",
-    "fastapi>=0.115.0",
-    "uvicorn[standard]>=0.30.0",
-    "python-multipart>=0.0.9",
-    "httpx>=0.27.0",
-    "anyio>=4.0.0",
-    "opentelemetry-api>=1.41.0",
-    "opentelemetry-sdk>=1.41.0",
-    "opentelemetry-exporter-prometheus>=0.62b0",
-    "pydantic-settings>=2.0",
-    "python-json-logger>=2.0",
-]
+# v3: the server is the bundled Go binary (installed as `mymcp` from the
+# platform wheel by scripts/assemble_wheel.py). The Python package is a
+# recorder-only sidecar; a base install pulls nothing. Recorder features
+# require the [recorder] extra.
+dependencies = []
 
 [project.optional-dependencies]
 dev = [
@@ -77,8 +68,10 @@ Repository = "https://github.com/algony-tony/mymcp"
 Issues = "https://github.com/algony-tony/mymcp/issues"
 Changelog = "https://github.com/algony-tony/mymcp/blob/master/CHANGELOG.md"
 
+# The `mymcp` command is the Go binary, injected into the platform wheel's
+# <name>-<ver>.data/scripts/ by scripts/assemble_wheel.py (which also strips any
+# `mymcp = ...` console entry). Only the recorder sidecar is a Python entry.
 [project.scripts]
-mymcp = "mymcp.cli:main"
 mymcp-recorder = "mymcp.recorder.__main__:main"
 
 [tool.setuptools]
@@ -88,7 +81,7 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-mymcp = ["deploy/templates/*.in"]
+"mymcp.recorder" = ["templates/*.in"]
 
 [tool.setuptools_scm]
 write_to = "src/mymcp/_version.py"
@@ -126,15 +119,13 @@ markers = [
 ]
 
 [tool.mutmut]
+# v3: the tool/server logic moved to the Go core (tested in go/). What remains
+# mutation-worthy in Python is the recorder sidecar + config.
 paths_to_mutate = [
-    "src/mymcp/auth.py",
     "src/mymcp/config.py",
-    "src/mymcp/tools/bash.py",
-    "src/mymcp/tools/files.py",
-    "src/mymcp/tools/transfer.py",
-    "src/mymcp/transfer/tickets.py",
-    "src/mymcp/transfer/endpoints.py",
-    "src/mymcp/mcp_server.py",
+    "src/mymcp/recorder/cursor.py",
+    "src/mymcp/recorder/events.py",
+    "src/mymcp/recorder/merge_cycle.py",
 ]
 also_copy = ["src/", "scripts/"]
 tests_dir = ["tests/"]
