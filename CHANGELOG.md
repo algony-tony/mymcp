@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-07-12
+
+The server is rewritten in **Go**. The Python core is gone; the Python package is
+now a **recorder-only sidecar**. This is the v3 lightweighting milestone — the
+`mymcp` command is a static Go binary shipped inside platform-tagged wheels.
+
+### Changed (BREAKING)
+- The server is the Go binary. `mymcp serve` is Go, not Python. `algony-mymcp` is
+  published as **linux amd64/arm64 platform wheels** where the `mymcp` command IS
+  the Go binary (`.data/scripts/mymcp`); the pure wheel/sdist are no longer
+  published (a pure wheel has no `mymcp` binary).
+- **Base install has zero dependencies.** The recorder now requires
+  `pip install "algony-mymcp[recorder]"` and runs as the standalone
+  `mymcp-recorder` sidecar (`MYMCP_RECORDER_ENABLED=true`).
+- The overview directory write-protection now lives in the Go core; the
+  `server_overview` tool reads `overview.md` written by the sidecar.
+
+### Removed
+- The entire Python core: `server.py`, `mcp_server.py`, `cli.py`,
+  `tool_definitions.py`, `audit.py` (writer), `auth.py`, `tools/`, `transfer/`,
+  and `deploy/` (its systemd templates moved under `mymcp/recorder/templates/`).
+  The Python `mymcp = mymcp.cli:main` console entry is gone (the Go binary
+  provides `mymcp`). FastAPI/uvicorn/mcp/starlette are no longer runtime deps.
+- The `compat-python` CI job (there is no Python server to test); `compat-go`
+  runs the black-box suite against the Go server using a vendored
+  `golden_tools.json` schema snapshot.
+
 ### Added
 - Go core M1 (read-only): `go/` module serving MCP over Streamable
   HTTP with token auth and `read_file` / `glob` / `grep`, behavior-compatible
