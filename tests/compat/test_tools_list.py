@@ -1,8 +1,17 @@
-"""tools/list: the three read tools must be present with byte-identical schemas."""
+"""tools/list: every tool must be present with byte-identical schema.
+
+The golden schemas are vendored in ``golden_tools.json`` — a snapshot of the
+Python core's ``TOOL_DEFS`` captured when the Go and Python servers were proven
+byte-identical (through the compat suite). v3 deleted the Python server, so the
+JSON fixture is now the frozen contract the Go server must keep matching.
+"""
+
+import json
+from pathlib import Path
 
 import pytest
 
-from mymcp.tool_definitions import TOOL_DEFS
+TOOL_DEFS = json.loads((Path(__file__).parent / "golden_tools.json").read_text())
 
 M1_TOOLS = ("read_file", "glob", "grep")
 M2_WRITE_TOOLS = ("bash_execute", "write_file", "edit_file")
@@ -21,8 +30,8 @@ async def test_tool_present_with_exact_schema(rw, name):
     assert name in tools, f"{name} missing from tools/list"
     golden = TOOL_DEFS[name]
     got = tools[name]
-    assert got.description == golden.description
-    assert got.inputSchema == golden.inputSchema
+    assert got.description == golden["description"]
+    assert got.inputSchema == golden["inputSchema"]
 
 
 @pytest.mark.anyio

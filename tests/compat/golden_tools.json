@@ -1,0 +1,225 @@
+{
+  "bash_execute": {
+    "description": "Execute any shell command on the Linux server. Stateless: each call is a fresh subprocess, no persistent shell state.\n\nWARNING: bash_execute is NOT subject to MYMCP_PROTECTED_PATHS. It can read or modify any path the service user can access (including audit logs and tokens.json). Untrusted clients should be issued ro tokens, which cannot call this tool.\n\nDefaults: working_dir='/' if omitted; timeout 30s (max 600s, clamped). On timeout, exit_code is -1 and timed_out is true.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "description": "Shell command to run",
+          "type": "string"
+        },
+        "max_output_bytes": {
+          "description": "Max stdout/stderr bytes each (default 102400)",
+          "type": "integer"
+        },
+        "timeout": {
+          "description": "Timeout seconds (default 30, max 600)",
+          "type": "integer"
+        },
+        "working_dir": {
+          "description": "Working directory (default /)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command"
+      ],
+      "type": "object"
+    }
+  },
+  "edit_file": {
+    "description": "Replace a string in a file. old_string must be unique unless replace_all=true.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "file_path": {
+          "type": "string"
+        },
+        "new_string": {
+          "description": "Replacement string (max 1MB)",
+          "type": "string"
+        },
+        "old_string": {
+          "description": "String to find (max 1MB)",
+          "type": "string"
+        },
+        "replace_all": {
+          "description": "Replace every occurrence (default false)",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "file_path",
+        "old_string",
+        "new_string"
+      ],
+      "type": "object"
+    }
+  },
+  "glob": {
+    "description": "Find files by glob pattern, e.g. '**/*.py'. Results sorted by mtime desc.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "description": "Root directory (default /)",
+          "type": "string"
+        },
+        "pattern": {
+          "description": "Glob pattern, e.g. '**/*.log'",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pattern"
+      ],
+      "type": "object"
+    }
+  },
+  "grep": {
+    "description": "Search file contents with regex. Uses ripgrep if installed, else Python fallback.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "case_insensitive": {
+          "description": "Case-insensitive (default false)",
+          "type": "boolean"
+        },
+        "context_lines": {
+          "description": "Lines of context (default 0)",
+          "type": "integer"
+        },
+        "glob": {
+          "description": "File filter e.g. '*.log'",
+          "type": "string"
+        },
+        "max_results": {
+          "description": "Max matches (default 500, max 5000)",
+          "type": "integer"
+        },
+        "output_mode": {
+          "description": "Output mode (default content)",
+          "enum": [
+            "content",
+            "files",
+            "count"
+          ],
+          "type": "string"
+        },
+        "path": {
+          "description": "File or directory to search (default /)",
+          "type": "string"
+        },
+        "pattern": {
+          "description": "Regex pattern",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pattern"
+      ],
+      "type": "object"
+    }
+  },
+  "prepare_download": {
+    "description": "Mint a one-shot ticket URL for downloading bytes from a server path.\n\nWorkflow: this tool RETURNS a ticket URL; it does NOT push to the client. The client must then fetch via:\n    curl -o /local/path <ticket_url>\nTickets are single-use and expire (default MYMCP_TRANSFER_DEFAULT_TTL_SEC=300s).",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "expires_in": {
+          "description": "Ticket TTL seconds (default 300)",
+          "type": "integer"
+        },
+        "src_path": {
+          "description": "Absolute server path to read from",
+          "type": "string"
+        }
+      },
+      "required": [
+        "src_path"
+      ],
+      "type": "object"
+    }
+  },
+  "prepare_upload": {
+    "description": "Mint a one-shot ticket URL for uploading bytes to a server path.\n\nWorkflow: this tool RETURNS a ticket URL; it does NOT pull from the client. The client must then upload via:\n    curl -X PUT --data-binary @/local/path <ticket_url>\nTickets are single-use and expire (default MYMCP_TRANSFER_DEFAULT_TTL_SEC=300s).",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "dest_path": {
+          "description": "Absolute server path to write to",
+          "type": "string"
+        },
+        "expires_in": {
+          "description": "Ticket TTL seconds (default 300)",
+          "type": "integer"
+        },
+        "max_bytes": {
+          "description": "Reject upload above this many bytes",
+          "type": "integer"
+        },
+        "overwrite": {
+          "description": "If false, refuse when dest_path exists (default true)",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "dest_path"
+      ],
+      "type": "object"
+    }
+  },
+  "read_file": {
+    "description": "Read a file with line numbers. Supports pagination via offset/limit.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "file_path": {
+          "description": "Absolute path to file",
+          "type": "string"
+        },
+        "limit": {
+          "description": "Lines to read (default MYMCP_READ_FILE_DEFAULT_LIMIT=2000, max MYMCP_READ_FILE_MAX_LIMIT=50000)",
+          "type": "integer"
+        },
+        "offset": {
+          "description": "Start line 1-based (default 1)",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "file_path"
+      ],
+      "type": "object"
+    }
+  },
+  "server_overview": {
+    "description": "Return a maintained map of this server's services, apps, data, and recent changes.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    }
+  },
+  "write_file": {
+    "description": "Create or overwrite a file. Max 10MB.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "description": "File content (max 10MB)",
+          "type": "string"
+        },
+        "file_path": {
+          "description": "Absolute path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "file_path",
+        "content"
+      ],
+      "type": "object"
+    }
+  }
+}

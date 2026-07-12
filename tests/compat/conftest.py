@@ -5,8 +5,9 @@
     MYMCP_COMPAT_TMP=/tmp/compat-scratch \
     pytest tests/compat/ -v
 
-The suite never imports server internals — except tool_definitions, used as
-the golden source for schema comparison.
+The suite never imports server internals. Schema comparison uses the vendored
+golden_tools.json snapshot; the audit-format check uses the recorder's public
+EventTailer (which the sidecar package still ships).
 """
 
 import json
