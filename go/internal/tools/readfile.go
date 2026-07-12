@@ -1,7 +1,7 @@
-// Package tools implements the MCP tool behaviors, ported line-for-line from
-// src/mymcp/tools/files.py. Every function returns a map that the MCP layer
-// serializes to JSON — key names and error codes are part of the compat
-// contract with the Python core.
+// Package tools implements the MCP tool behaviors. Every function returns a map
+// that the MCP layer serializes to JSON — key names and error codes are part of
+// the compat contract, frozen in tests/compat/golden_tools.json (originally
+// ported line-for-line from the now-removed Python src/mymcp/tools/files.py).
 package tools
 
 import (
@@ -31,8 +31,10 @@ type Deps struct {
 	Tickets *transfer.TicketStore
 }
 
-// ProtectedFromConfig builds the legacy protected table (audit dir + extras),
-// which blocks both read and write, matching config.PROTECTED_PATHS.
+// ProtectedFromConfig builds the protected table: the audit dir + extras
+// (matching config.PROTECTED_PATHS) block both read and write, and the
+// recorder overview dir is added write-only (readable so external LLMs can
+// fetch changelog.md).
 func ProtectedFromConfig(cfg *config.Config) []fsutil.ProtectedEntry {
 	var out []fsutil.ProtectedEntry
 	for _, p := range cfg.ProtectedPaths() {

@@ -4,10 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
+As of v3 the **server is the Go core in `go/`**. The Python package (`src/mymcp`)
+is a **recorder-only sidecar**; a base install has zero dependencies.
+
 ```bash
-# Install in editable mode for development (creates a venv first if needed).
-# requirements-dev.txt is a pip-compile lockfile used as a constraints file so
-# local + CI installs match exactly; pyproject.toml stays the source of truth.
+# --- Go core (the server) ---
+cd go && go build -o /tmp/mymcp ./cmd/mymcp      # build
+/tmp/mymcp serve                                  # run (prints temp tokens to stderr)
+cd go && go test ./... && go vet ./... && gofmt -l .
+
+# --- Python recorder sidecar + repo tooling ---
+# Editable install with dev + recorder deps (dev now includes [recorder] + the
+# mcp client for the compat suite). requirements-dev.txt is a pip-compile
+# lockfile used as a constraints file; pyproject.toml stays the source of truth.
 pip install -e ".[dev]" -c requirements-dev.txt
 
 # Regenerate the lockfile after changing dependencies in pyproject.toml
@@ -15,56 +24,66 @@ pip-compile --extra dev --strip-extras \
   --unsafe-package algony-mymcp --unsafe-package pip --unsafe-package setuptools \
   --output-file requirements-dev.txt pyproject.toml
 
-# Run all tests
-pytest tests/ -v --benchmark-disable
-
-# Run a single test
-pytest tests/test_files.py::test_read_file_basic -v
-
-# Start dev server (foreground; prints temp admin+rw tokens to stderr)
-mymcp serve
-
-# Start dev server with explicit .env
-mymcp serve --env-file ./.env
-
-# Lint and type-check
+pytest tests/ -v --benchmark-disable             # Python (recorder) tests
 ruff check . && ruff format --check . && mypy src/mymcp
+mymcp-recorder                                    # run the sidecar (MYMCP_RECORDER_ENABLED=true)
 
-# Upgrade an installed mymcp
+# --- Compat suite (black-box, run against the Go server) ---
+cd go && go build -o /tmp/mymcp ./cmd/mymcp
+# boot /tmp/mymcp serve with MYMCP_* env, then:
+#   MYMCP_COMPAT_URL=http://127.0.0.1:PORT ... pytest tests/compat/ -v
+
+# --- Package + upgrade (platform wheel bundles the Go binary AS `mymcp`) ---
+python -m build --wheel -n                        # pure wheel (assembler input)
+python scripts/assemble_wheel.py dist/*.whl <go-binary> manylinux2014_x86_64 platform-dist/
 pipx upgrade algony-mymcp && sudo systemctl restart mymcp
 ```
 
 ## Architecture
 
-Python MCP server exposing Linux system tools over Streamable HTTP (stateless mode). FastAPI app with Bearer token auth, served by uvicorn.
+The server is a **Go** binary (`go/`, module `github.com/algony-tony/mymcp/go`)
+exposing Linux system tools over MCP Streamable HTTP (stateless) with Bearer
+token auth. It ships as a platform wheel where the `mymcp` command IS the Go
+binary (`scripts/assemble_wheel.py` injects it into `<name>.data/scripts/`). The
+Python package is a **recorder-only sidecar** — zero base deps; recorder
+features need the `[recorder]` extra; the sidecar entry is `mymcp-recorder`.
 
-**Request flow:** Client → `mymcp.server` McpAuthMiddleware (token validation, sets contextvar) → `mymcp.mcp_server` call_tool (permission check, dispatch, audit) → `mymcp.tools.*` (actual execution)
+**Request flow (Go):** Client → `httpserver` McpAuth middleware (token
+validation) → `mcpserver.callTool` (permission check, dispatch, audit) →
+`tools.*` (execution).
 
-### Key files
+### Key files (Go core)
 
-- `src/mymcp/cli.py` — argparse entry, logging configuration, signal handlers
-- `src/mymcp/server.py` — FastAPI app factory (`create_app()`), middlewares, routes; no module-level side effects
-- `src/mymcp/mcp_server.py` — MCP Server with tool definitions, permission enforcement, dispatch, error handling, and audit logging. `call_tool()` is the central handler: checks permissions, catches exceptions (including unhandled), extracts error details for audit.
-- `src/mymcp/config.py` — pydantic-settings `Settings`; reads `MYMCP_*` env vars + optional .env file. `get_settings()` returns a cached singleton; `reset_settings_cache()` is a test helper.
-- `src/mymcp/audit.py` — Rotating file audit logger. Entries include `error_code`/`error_message` on failures.
-- `src/mymcp/auth.py` — TokenStore (JSON file-backed), admin API router, FastAPI dependencies.
-- `src/mymcp/tools/files.py` — read_file, write_file, edit_file, glob_files, grep_files. All file tools check `check_protected_path()` before access.
-- `src/mymcp/tools/bash.py` — `run_bash_execute` with timeout, output truncation, and SIGTERM-safe subprocess tracking via `_track_process` / `shutdown_inflight_processes`.
+- `go/cmd/mymcp/main.go` — CLI entry: `serve`, `version`, `token list/add/revoke`.
+- `go/internal/httpserver/httpserver.go` — HTTP server + `/mcp`, `/metrics`, `/admin/tokens`, `/files/raw`, and the auth/metrics middleware.
+- `go/internal/mcpserver/mcpserver.go` — tool definitions, permission enforcement (`readTools`/`writeTools`), the `callTool` choke point (dispatch + audit), tools/list role filter.
+- `go/internal/config/config.go` — `MYMCP_*` env + `.env` parsing; `ProtectedPaths()`.
+- `go/internal/audit/audit.go` — rotating JSON-lines audit writer (RotatingFileHandler-compatible; consumed unchanged by the Python recorder's `EventTailer`).
+- `go/internal/auth/store.go` — JSON file-backed token store (`tokens.json`).
+- `go/internal/tools/*.go` — `read_file`, `write_file`, `edit_file`, `glob`, `grep`, `bash`, `transfer`, `overview`.
+- `go/internal/fsutil/fsutil.go` + `tools/readfile.go:ProtectedFromConfig` — protected-path checks; the recorder overview dir is **write-only** protected.
 
 ### Design patterns
 
-- **Contextvar for auth info**: `_current_audit_info` is set by middleware, read by tool handlers — no parameter threading needed.
-- **Permission model**: Tools are split into `READ_TOOLS` and `WRITE_TOOLS` sets. `ro` tokens can only call read tools; `rw` can call all.
-- **Protected paths**: The audit log dir is always protected, plus any `MYMCP_PROTECTED_PATHS` extras. File tools filter these out; `bash_execute` is NOT protected (use `ro` tokens for untrusted clients).
-- **Error handling**: `dispatch_tool` is wrapped in try/except. Tool-level errors return `{"success": False, "error": "...", "message": "..."}`. bash_execute returns `{"exit_code": N, "timed_out": bool}` instead — both patterns are detected in `call_tool()` for audit logging.
-- **Stateless transport**: `StreamableHTTPSessionManager(stateless=True)` — no session tracking, each request is independent.
-- **Subprocess cleanup**: bash_execute spawns children with `start_new_session=True` and tracks them in a thread-safe weakref set. The CLI installs SIGTERM/SIGINT handlers that call `shutdown_inflight_processes()` to TERM/KILL the process group with a configurable grace period (`MYMCP_SHUTDOWN_GRACE_SEC`).
+- **Permission model**: `readTools`/`writeTools` sets; `ro` tokens call only read tools, `rw` all. The tools/list result is role-filtered.
+- **Protected paths**: the audit log dir + `MYMCP_PROTECTED_PATHS` extras are read+write protected; the recorder overview dir (`<recorder_data_dir>/overview`) is write-only protected (external LLMs read `changelog.md` but cannot write it). `bash_execute` is NOT subject to protected paths — issue `ro` tokens to untrusted clients.
+- **SOC red line**: an audit write failure increments `mymcp_audit_write_failures_total` and returns InternalError/500 — never confirm an unauditable mutation.
+- **Stateless transport**: each request is independent (no session tracking).
+
+### Python ↔ Go contract
+
+The Python recorder and the Go server share the same `audit.log` format,
+`MYMCP_*` env vars, and `tokens.json`. The black-box compat suite
+(`tests/compat/`) runs against the Go server and asserts its tool schemas match
+the vendored `golden_tools.json` snapshot (frozen from the Python core when the
+two were proven byte-identical); the recorder's `EventTailer` consumes the Go
+audit log unchanged.
 
 ### Optional: llm-recorder
 
-When enabled (`MYMCP_RECORDER_ENABLED=true`), `mymcp.recorder` runs an
-asyncio background task (no extra install needed — LLM calls go through
-httpx, a core dependency) that:
+The recorder runs as a **standalone `mymcp-recorder` sidecar process** (install
+the `[recorder]` extra; LLM calls go through httpx). When enabled
+(`MYMCP_RECORDER_ENABLED=true`) it:
 
 - Consumes successful mutating events from `audit.log` via a persistent cursor.
 - Periodically (every `MYMCP_RECORDER_MERGE_INTERVAL_SEC`, default 300s) calls
@@ -73,9 +92,10 @@ httpx, a core dependency) that:
 - Auto-bootstraps the initial overview via a self-built agent loop using
   internal `bash_probe` / `read_file_probe` tools.
 
-The MCP tool `server_overview` returns the current overview. The changelog is
-read by external LLMs via the existing `read_file` tool — the overview
-directory is registered as write-protected so writes are refused.
+The MCP tool `server_overview` (Go core) returns the current overview by reading
+`overview.md` written by the sidecar. The changelog is read by external LLMs via
+the `read_file` tool — the Go core write-protects the overview directory so
+writes are refused.
 
 LLM provider is `MYMCP_RECORDER_LLM_PROVIDER ∈ {anthropic, openai}`. The
 OpenAI adapter supports OpenAI-compatible endpoints via

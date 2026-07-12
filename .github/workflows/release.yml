@@ -28,7 +28,7 @@ jobs:
 
   offline-bundle:
     runs-on: ubuntu-latest
-    needs: build
+    needs: [build, assemble-wheels]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
@@ -36,17 +36,16 @@ jobs:
           python-version: "3.11"
       - uses: actions/download-artifact@v8
         with:
-          name: dist
-          path: dist
+          name: platform-wheel-amd64
+          path: platform-dist
       - name: Build offline bundle
         run: |
           set -euo pipefail
           BUNDLE=mymcp-${{ needs.build.outputs.version }}-offline-bundle
           mkdir -p $BUNDLE/wheels
-          pip download dist/*.whl -d $BUNDLE/wheels \
-              --python-version 3.11 \
-              --platform manylinux2014_x86_64 \
-              --only-binary=:all:
+          # The platform wheel bundles the Go binary and has zero deps; just
+          # vendor it (amd64 only — the offline installer targets x86_64 hosts).
+          cp platform-dist/*.whl $BUNDLE/wheels/
           bash scripts/fetch-ripgrep.sh $BUNDLE
           cp scripts/install-offline.sh $BUNDLE/
           chmod +x $BUNDLE/install-offline.sh
@@ -57,19 +56,24 @@ jobs:
           name: offline-bundle
           path: mymcp-*-offline-bundle.tar.gz
 
+  # v3: publish ONLY the platform wheels (Go binary as `mymcp`). The pure wheel
+  # and sdist from `build` are assembler inputs, never published — a pure wheel
+  # has no `mymcp` binary and would be a broken fallback for pip on Linux.
   publish-pypi:
     runs-on: ubuntu-latest
-    needs: build
+    needs: assemble-wheels
     permissions:
       id-token: write
     environment: pypi
     steps:
       - uses: actions/download-artifact@v8
         with:
-          name: dist
-          path: dist
+          pattern: platform-wheel-*
+          path: platform-dist
+          merge-multiple: true
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
+          packages-dir: platform-dist
           # Don't fail the job if the version is already on PyPI (e.g. it was
           # uploaded manually for the first release before Trusted Publisher
           # was wired up). Lets github-release proceed.
@@ -77,15 +81,16 @@ jobs:
 
   github-release:
     runs-on: ubuntu-latest
-    needs: [build, offline-bundle, publish-pypi]
-    if: always() && needs.build.result == 'success' && needs.offline-bundle.result == 'success'
+    needs: [assemble-wheels, offline-bundle, publish-pypi]
+    if: always() && needs.assemble-wheels.result == 'success' && needs.offline-bundle.result == 'success'
     permissions:
       contents: write
     steps:
       - uses: actions/download-artifact@v8
         with:
-          name: dist
-          path: dist
+          pattern: platform-wheel-*
+          path: platform-dist
+          merge-multiple: true
       - uses: actions/download-artifact@v8
         with:
           name: offline-bundle
@@ -93,14 +98,13 @@ jobs:
       - uses: softprops/action-gh-release@v3
         with:
           files: |
-            dist/*
+            platform-dist/*.whl
             mymcp-*-offline-bundle.tar.gz
           generate_release_notes: true
 
-  # Groundwork for the v3 binary wheels (M3b): cross-compile the Go core into
-  # static linux/amd64 + linux/arm64 binaries and upload them as run artifacts.
-  # Additive — does not touch the v2 wheel/publish pipeline above. Phase 3 will
-  # assemble these into platform-tagged wheels and attach them to the release.
+  # Cross-compile the Go core into static linux/amd64 + linux/arm64 binaries and
+  # upload them as run artifacts. assemble-wheels turns them into the published
+  # platform wheels (the `mymcp` command IS this binary).
   build-binaries:
     runs-on: ubuntu-latest
     strategy:
@@ -130,10 +134,9 @@ jobs:
           path: go/mymcp-linux-${{ matrix.goarch }}
           if-no-files-found: error
 
-  # Groundwork: assemble the v3 platform wheels (Go binary as `mymcp`) from the
-  # pure wheel + the cross-compiled binaries. Uploaded as artifacts for
-  # validation only; NOT published yet (v2.x still ships the pure wheel). Phase
-  # 3b wires these into publish and flips the pyproject to zero base deps.
+  # Assemble the v3 platform wheels (Go binary as `mymcp`) from the pure wheel +
+  # the cross-compiled binaries. These are what publish-pypi + github-release
+  # ship; the pure wheel/sdist from `build` are inputs only, never published.
   assemble-wheels:
     runs-on: ubuntu-latest
     needs: [build, build-binaries]

@@ -21,22 +21,27 @@ A Python MCP server that exposes full Linux system control to AI clients (Claude
 - **Admin API**: create/revoke tokens without restarting the server
 - **Streamable HTTP transport**: stateless mode, each request is independent (no session issues on reconnect)
 
+> **v3.0.0:** the server is now a single static **Go binary** shipped inside
+> linux amd64/arm64 platform wheels — `pipx install algony-mymcp` still gives you
+> the `mymcp` command, now with **zero Python dependencies**. The optional
+> overview recorder is a separate `mymcp-recorder` sidecar (`pip install
+> "algony-mymcp[recorder]"`). The `install-service`/`uninstall-service`/`doctor`
+> CLI subcommands were removed; the systemd unit still runs `mymcp serve`. See
+> [CHANGELOG](CHANGELOG.md) for the full breaking-change list.
+
 ## Requirements
 
-- Python 3.11+
-- `ripgrep` (`rg`) — optional but recommended for faster `grep` tool (falls back to Python regex)
+- Linux x86_64 or arm64 (the wheel bundles a static binary; no Python runtime deps)
+- `ripgrep` (`rg`) — optional but recommended for faster `grep` tool (falls back to a native scan)
 
 ## Install
-
-Requires Python 3.11+ on Linux.
 
 ```bash
 pipx install algony-mymcp
 ```
 
 The PyPI distribution name is `algony-mymcp` (the bare name `mymcp` is reserved
-on PyPI). After install the command and the Python import path are still
-plain `mymcp`.
+on PyPI). The installed command is plain `mymcp` (the Go binary).
 
 Plain `pip` works too (a venv is recommended):
 
@@ -57,19 +62,20 @@ mymcp serve
 
 ### Production install (systemd)
 
+v3 removed the `install-service` helper (it was Python-CLI machinery). Install
+the unit manually: create `/etc/mymcp/.env` (see [Configuration](#configuration)),
+generate an admin token (`mymcp token add --role rw` writes to the token store),
+and drop a unit at `/etc/systemd/system/mymcp.service` whose `ExecStart` is
+`mymcp serve --env-file /etc/mymcp/.env`. Then:
+
 ```bash
-sudo mymcp install-service --yes
-sudo systemctl start mymcp
+sudo systemctl daemon-reload
+sudo systemctl enable --now mymcp
 ```
 
-This writes `/etc/mymcp/.env`, generates an admin token (printed once),
-optionally generates a metrics token, installs `/etc/systemd/system/mymcp.service`,
-sets up logrotate for `/var/log/mymcp/audit.log`, and (by default) installs
-`ripgrep` for fast file search.
-
-Useful flags: `--port 9000`, `--bind 127.0.0.1`, `--config-dir`, `--log-dir`,
-`--service-user mymcp` (run as a restricted user), `--no-metrics`,
-`--no-audit`, `--skip-ripgrep`.
+Existing v2 deployments already have this unit — a `pipx upgrade` + restart
+keeps it (the `ExecStart=mymcp serve` line is unchanged; it now runs the Go
+binary). Install `ripgrep` separately for fast file search.
 
 ### Upgrade
 
@@ -90,11 +96,12 @@ Each GitHub Release ships a `mymcp-X.Y.Z-offline-bundle.tar.gz` containing
 all wheels and ripgrep binaries:
 
 ```bash
-tar xzf mymcp-2.0.0-offline-bundle.tar.gz
-cd mymcp-2.0.0-offline-bundle
-sudo ./install-offline.sh
-sudo mymcp install-service --yes
+tar xzf mymcp-3.0.0-offline-bundle.tar.gz
+cd mymcp-3.0.0-offline-bundle
+sudo ./install-offline.sh   # installs the platform wheel (Go binary) + ripgrep
 ```
+
+Then install the systemd unit manually (see Production install) and start it.
 
 ### Why we don't ship a Dockerfile
 
@@ -120,108 +127,53 @@ ENV MYMCP_HOST=0.0.0.0 MYMCP_PORT=8080
 CMD ["mymcp", "serve"]
 ```
 
-The recommended deployment is `pipx install algony-mymcp` + the shipped
-systemd unit (`mymcp install-service`), which gives the service direct
-host access matching the product's purpose.
+The recommended deployment is `pipx install algony-mymcp` + a systemd unit
+running `mymcp serve`, which gives the service direct host access matching the
+product's purpose.
 
 ## Optional: server overview recorder
 
-An asyncio module that maintains a self-updating server overview document
-via LLM. No extra install needed — LLM calls go through httpx, a core
-dependency. Disabled by default; enable with `MYMCP_RECORDER_ENABLED=true`.
-See `docs/superpowers/specs/2026-05-29-llm-recorder-design.md` for full details.
+A standalone `mymcp-recorder` sidecar that maintains a self-updating server
+overview document via LLM (calls go through httpx). Install with
+`pip install "algony-mymcp[recorder]"`; disabled by default, enable with
+`MYMCP_RECORDER_ENABLED=true`. See
+`docs/superpowers/specs/2026-05-29-llm-recorder-design.md` for full details.
 
 ## CLI Reference
+
+`mymcp` is the Go server binary and uses Go-style single-dash flags.
 
 ### Top-level commands
 
 | Command | Purpose |
 |---------|---------|
 | `mymcp serve` | Run the MCP server in the foreground |
-| `mymcp version` | Print the installed version |
-| `mymcp install-service` | Install the systemd service and config files |
-| `mymcp uninstall-service` | Remove the systemd service |
-| `mymcp token ...` | Manage tokens in the local token store |
-| `mymcp doctor` | Print environment and dependency diagnostics |
+| `mymcp version` | Print the version |
+| `mymcp token list` | Show admin/metrics state and ro/rw tokens |
+| `mymcp token add [--role ro\|rw] <name>` | Create a token (printed once) |
+| `mymcp token revoke <token>` | Delete a token |
+
+The v2 `install-service` / `uninstall-service` / `doctor` subcommands were
+removed in v3 (see the note at the top). `mymcp-recorder` is a separate command
+provided by the `[recorder]` extra.
 
 ### `mymcp serve`
 
-```bash
-mymcp serve --help
-```
-
-Important flags:
-
 | Flag | Description |
 |------|-------------|
-| `--env-file PATH` | Load settings from a specific env file |
-| `--host HOST` | Override bind host |
-| `--port PORT` | Override bind port |
-| `--log-level {DEBUG,INFO,WARNING,ERROR,CRITICAL}` | Set application log level |
-| `--log-format {text,json}` | Use text or JSON stderr logs |
-| `--with-metrics-token` | In temporary-token mode, also generate an ephemeral metrics token |
+| `-env-file PATH` | Load settings from a specific env file |
+| `-host HOST` | Override bind host |
+| `-port PORT` | Override bind port |
 
-### `mymcp install-service`
-
-```bash
-sudo mymcp install-service --help
-```
-
-Important flags:
-
-| Flag | Description |
-|------|-------------|
-| `--port PORT` | Listen port (default `8765`) |
-| `--bind HOST` | Bind address (default `0.0.0.0`) |
-| `--config-dir PATH` | Config directory (default `/etc/mymcp`) |
-| `--log-dir PATH` | Audit log directory (default `/var/log/mymcp`) |
-| `--service-user {root,mymcp}` | Run as root or a restricted `mymcp` user |
-| `--enable-metrics` / `--no-metrics` | Enable or disable `/metrics` token setup |
-| `--enable-audit` / `--no-audit` | Enable or disable audit logging setup |
-| `--install-ripgrep` / `--skip-ripgrep` | Install or skip `rg` for fast grep |
-| `--yes` | Skip interactive confirmation |
-
-### `mymcp uninstall-service`
-
-```bash
-sudo mymcp uninstall-service --help
-```
-
-| Flag | Description |
-|------|-------------|
-| `--config-dir PATH` | Config directory to target |
-| `--log-dir PATH` | Log directory to target |
-| `--purge` | Also delete config and log directories |
-
-### `mymcp token`
-
-```bash
-mymcp token --help
-```
-
-Subcommands:
-
-| Subcommand | Purpose |
-|------------|---------|
-| `mymcp token list` | Show admin/metrics state and ro/rw tokens |
-| `mymcp token add --name NAME --role {ro,rw}` | Create a new token |
-| `mymcp token revoke TOKEN` | Delete a token |
-| `mymcp token rotate-admin` | Generate and persist a new admin token |
-| `mymcp token rotate-metrics` | Generate and persist a new metrics token |
-| `mymcp token disable-metrics` | Disable the `/metrics` endpoint |
-
-### `mymcp doctor`
-
-Use this when install, Python path, `rg`, or env-file resolution looks wrong:
-
-```bash
-mymcp doctor
-```
+All other settings come from `MYMCP_*` env vars (see Configuration). With no
+token store present, `serve` runs in temporary-token mode: it prints an
+ephemeral admin + rw token to stderr and discards them on exit.
 
 ## Configuration
 
-`mymcp install-service` writes `/etc/mymcp/.env`. The `serve` command also
-honors `--env-file PATH`, `MYMCP_ENV_FILE`, and (in dev) `./.env`.
+The `serve` command reads `MYMCP_*` env vars and resolves an env file from
+`-env-file PATH`, then `MYMCP_ENV_FILE`, then `/etc/mymcp/.env`, then (in dev)
+`./.env`.
 
 ### Core
 
@@ -263,12 +215,12 @@ All limits are configurable via environment variables. Default values work well 
 
 ### Recorder (optional)
 
-These only apply when the recorder is enabled. No extra install is needed —
-the recorder uses httpx, which is a core dependency.
+These only apply to the `mymcp-recorder` sidecar (install
+`pip install "algony-mymcp[recorder]"`) when it is enabled.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MYMCP_RECORDER_ENABLED` | `false` | Enable the background recorder task and `server_overview` tool |
+| `MYMCP_RECORDER_ENABLED` | `false` | Let the `mymcp-recorder` sidecar start (the Go `server_overview` tool works regardless, returning a stub until an overview exists) |
 | `MYMCP_RECORDER_DATA_DIR` | `/var/lib/mymcp/recorder` | Where overview + changelog + cursor live |
 | `MYMCP_RECORDER_MERGE_INTERVAL_SEC` | `300` | How often the merge cycle runs |
 | `MYMCP_RECORDER_MAX_EVENTS_PER_CYCLE` | `50` | Cap on audit events folded per cycle |

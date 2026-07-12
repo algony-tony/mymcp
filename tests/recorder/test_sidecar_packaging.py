@@ -3,7 +3,9 @@ from importlib import resources
 
 def test_recorder_service_template_is_packaged_and_formats():
     text = (
-        resources.files("mymcp.deploy.templates").joinpath("mymcp-recorder.service.in").read_text()
+        resources.files("mymcp.recorder.templates")
+        .joinpath("mymcp-recorder.service.in")
+        .read_text()
     )
     rendered = text.format(
         service_user="mymcp",

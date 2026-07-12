@@ -89,34 +89,9 @@ jobs:
             -d "{\"files\":{\"mymcp-coverage.json\":{\"content\":$(echo "$LINE_JSON" | python -c 'import sys,json; print(json.dumps(sys.stdin.read()))')},\"mymcp-branch-coverage.json\":{\"content\":$(echo "$BRANCH_JSON" | python -c 'import sys,json; print(json.dumps(sys.stdin.read()))')}}}" \
             "https://api.github.com/gists/${{ secrets.GIST_ID }}"
 
-  compat-python:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-      - run: pip install -e ".[dev]" -c requirements-dev.txt
-      - name: seed tokens and boot server
-        run: |
-          mkdir -p /tmp/mymcp-compat /tmp/mymcp-compat-protected /tmp/mymcp-compat-audit
-          cp tests/compat/ci-tokens.json /tmp/compat-tokens.json
-          MYMCP_ADMIN_TOKEN=compat-admin MYMCP_TOKEN_FILE=/tmp/compat-tokens.json \
-          MYMCP_PROTECTED_PATHS=/tmp/mymcp-compat-protected MYMCP_PORT=18770 \
-          MYMCP_METRICS_TOKEN=compat-metrics \
-          MYMCP_AUDIT_ENABLED=true MYMCP_AUDIT_LOG_DIR=/tmp/mymcp-compat-audit \
-            mymcp serve &
-          for i in $(seq 20); do curl -sf http://127.0.0.1:18770/health && break; sleep 0.5; done
-      - name: run compat suite
-        run: |
-          MYMCP_COMPAT_URL=http://127.0.0.1:18770 \
-          MYMCP_COMPAT_RW_TOKEN=tok_compat_rw_0000000000000000 \
-          MYMCP_COMPAT_RO_TOKEN=tok_compat_ro_0000000000000000 \
-          MYMCP_COMPAT_METRICS_TOKEN=compat-metrics \
-          MYMCP_COMPAT_AUDIT_DIR=/tmp/mymcp-compat-audit \
-          MYMCP_COMPAT_ADMIN_TOKEN=compat-admin \
-            pytest tests/compat/ -v --benchmark-disable
-
+  # v3: there is no Python server anymore — the Go binary is the only server, so
+  # the former compat-python job is gone. compat-go runs the black-box suite
+  # against the Go server, using the vendored golden_tools.json schema snapshot.
   compat-go:
     runs-on: ubuntu-latest
     steps:
@@ -210,7 +185,7 @@ jobs:
 
       - name: Restrict mutmut to smoke-test files
         env:
-          MUTATION_PATHS_JSON: '["src/mymcp/auth.py", "src/mymcp/config.py"]'
+          MUTATION_PATHS_JSON: '["src/mymcp/config.py"]'
         run: |
           python - <<'PY'
           import json
@@ -253,16 +228,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - shard: auth-config
-            paths_json: '["src/mymcp/auth.py", "src/mymcp/config.py"]'
-          - shard: bash
-            paths_json: '["src/mymcp/tools/bash.py"]'
-          - shard: files
-            paths_json: '["src/mymcp/tools/files.py"]'
-          - shard: protocol
-            paths_json: '["src/mymcp/mcp_server.py"]'
-          - shard: server-audit
-            paths_json: '["src/mymcp/server.py", "src/mymcp/audit.py"]'
+          - shard: config
+            paths_json: '["src/mymcp/config.py"]'
+          - shard: recorder-cursor-events
+            paths_json: '["src/mymcp/recorder/cursor.py", "src/mymcp/recorder/events.py"]'
+          - shard: recorder-merge
+            paths_json: '["src/mymcp/recorder/merge_cycle.py"]'
     concurrency:
       group: mutation-master-${{ matrix.shard }}
       cancel-in-progress: true
