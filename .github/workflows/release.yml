@@ -123,11 +123,21 @@ jobs:
           GOOS: linux
           GOARCH: ${{ matrix.goarch }}
         run: |
-          go build -trimpath -ldflags "-s -w" -o "mymcp-linux-${{ matrix.goarch }}" ./cmd/mymcp
+          # Inject the tag (e.g. v3.0.0) so `mymcp version` / /health report the
+          # real release instead of the "dev" default baked into version.go.
+          go build -trimpath \
+            -ldflags "-s -w -X github.com/algony-tony/mymcp/go/internal/version.Version=${GITHUB_REF_NAME}" \
+            -o "mymcp-linux-${{ matrix.goarch }}" ./cmd/mymcp
           file "mymcp-linux-${{ matrix.goarch }}"
-      - name: verify amd64 binary runs
+      - name: verify amd64 binary runs and reports the injected version
         if: matrix.goarch == 'amd64'
-        run: ./go/mymcp-linux-amd64 version
+        run: |
+          got=$(./go/mymcp-linux-amd64 version)
+          echo "$got"
+          if [ "$got" != "mymcp ${GITHUB_REF_NAME}" ]; then
+            echo "::error::version not injected: got '$got', want 'mymcp ${GITHUB_REF_NAME}'"
+            exit 1
+          fi
       - uses: actions/upload-artifact@v7
         with:
           name: mymcp-linux-${{ matrix.goarch }}
