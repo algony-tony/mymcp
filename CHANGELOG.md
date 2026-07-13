@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.1] - 2026-07-13
+
+### Fixed
+- The release build now injects the git tag into the Go binary via ldflags
+  (`-X …/internal/version.Version=$GITHUB_REF_NAME`), so `mymcp version` and
+  `/health` report the real release (e.g. `v3.0.1`) instead of the `dev`
+  compile-time default. The v3.0.0 binary shipped self-reporting `dev` (package
+  metadata was correct at `3.0.0`; only the binary string was wrong). The amd64
+  release smoke test now asserts the injected version so the regression can't
+  return silently.
+
 ## [3.0.0] - 2026-07-12
 
 The server is rewritten in **Go**. The Python core is gone; the Python package is
