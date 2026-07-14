@@ -775,8 +775,8 @@ locust -f tests/loadtest/locustfile.py --host http://localhost:8765
 
 | Dimension | Tool | Target |
 |-----------|------|--------|
-| Line coverage (Python recorder) | pytest-cov | 97%+ |
-| Branch coverage (Python recorder) | pytest-cov --cov-branch | tracked |
+| Line coverage (Python recorder) | pytest-cov | 85%+ floor (~90% now) |
+| Branch coverage (Python recorder) | pytest-cov --cov-branch | ~88% now |
 | Go statement coverage (server) | go test -coverpkg=./... | 78%+ floor (~80% now) |
 | Integration tests | httpx ASGITransport | full auth->tool->audit chain |
 | Boundary analysis | pytest | all parameter edge cases |
