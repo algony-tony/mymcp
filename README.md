@@ -3,6 +3,7 @@
 [![CI](https://github.com/algony-tony/mymcp/actions/workflows/ci.yml/badge.svg)](https://github.com/algony-tony/mymcp/actions/workflows/ci.yml)
 [![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/algony-tony/f5b7d1a23781d63db40ea2e2dcdf71c2/raw/mymcp-coverage.json&cacheSeconds=3600)](https://github.com/algony-tony/mymcp/actions/workflows/ci.yml)
 [![Branch Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/algony-tony/f5b7d1a23781d63db40ea2e2dcdf71c2/raw/mymcp-branch-coverage.json&cacheSeconds=3600)](https://github.com/algony-tony/mymcp/actions/workflows/ci.yml)
+[![Go Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/algony-tony/f5b7d1a23781d63db40ea2e2dcdf71c2/raw/mymcp-go-coverage.json&cacheSeconds=3600)](https://github.com/algony-tony/mymcp/actions/workflows/ci.yml)
 [![Mutation Score](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/algony-tony/f5b7d1a23781d63db40ea2e2dcdf71c2/raw/mymcp-mutation.json&cacheSeconds=3600)](https://github.com/algony-tony/mymcp/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
@@ -748,8 +749,12 @@ All standard OTel env vars work. The most useful:
 # Run all tests (excludes benchmarks)
 python -m pytest tests/ -v --benchmark-disable
 
-# Run with coverage report
+# Run with coverage report (Python recorder sidecar)
 python -m pytest tests/ -v --cov=. --cov-branch --cov-report=term-missing --benchmark-disable
+
+# Go statement coverage (the server; whole-module, matches the CI badge)
+cd go && go test -covermode=atomic -coverpkg=./... -coverprofile=cover.out ./... \
+  && go tool cover -func=cover.out | tail -1
 
 # Run benchmark tests only
 python -m pytest tests/test_benchmark.py --benchmark-only -v
@@ -770,8 +775,9 @@ locust -f tests/loadtest/locustfile.py --host http://localhost:8765
 
 | Dimension | Tool | Target |
 |-----------|------|--------|
-| Line coverage | pytest-cov | 97%+ |
-| Branch coverage | pytest-cov --cov-branch | tracked |
+| Line coverage (Python recorder) | pytest-cov | 97%+ |
+| Branch coverage (Python recorder) | pytest-cov --cov-branch | tracked |
+| Go statement coverage (server) | go test -coverpkg=./... | 65%+ floor (~69% now) |
 | Integration tests | httpx ASGITransport | full auth->tool->audit chain |
 | Boundary analysis | pytest | all parameter edge cases |
 | Performance benchmarks | pytest-benchmark | per-function timing |

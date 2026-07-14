@@ -25,6 +25,10 @@ jobs:
 
   go:
     runs-on: ubuntu-latest
+    env:
+      # Ratchet floor for whole-module Go statement coverage. Bump it up as
+      # coverage improves; never let it silently regress.
+      GO_COVER_MIN: "65"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
@@ -35,8 +39,38 @@ jobs:
         run: test -z "$(gofmt -l go/)"
       - name: vet
         run: cd go && go vet ./...
-      - name: test
-        run: cd go && go test ./...
+      - name: test with coverage
+        working-directory: go
+        run: |
+          # -coverpkg=./... measures how much of ALL packages the whole suite
+          # exercises (an honest module-wide number), not just each package's
+          # self-coverage. Go has no native branch coverage, so this is the one
+          # mainstream Go coverage metric: statement coverage.
+          go test -covermode=atomic -coverpkg=./... -coverprofile=cover.out ./...
+          COV=$(go tool cover -func=cover.out | awk '/^total:/{print substr($NF,1,length($NF)-1)}')
+          echo "Go statement coverage: ${COV}%"
+          awk -v c="$COV" -v m="$GO_COVER_MIN" 'BEGIN{exit !(c+0 >= m+0)}' \
+            || { echo "::error::Go coverage ${COV}% is below the ${GO_COVER_MIN}% floor"; exit 1; }
+      - name: Update Go coverage badge
+        if: github.ref == 'refs/heads/master'
+        working-directory: go
+        run: |
+          COV=$(go tool cover -func=cover.out | awk '/^total:/{print substr($NF,1,length($NF)-1)}')
+          CINT=${COV%.*}
+          if   [ "$CINT" -ge 90 ]; then COLOR=brightgreen
+          elif [ "$CINT" -ge 80 ]; then COLOR=green
+          elif [ "$CINT" -ge 70 ]; then COLOR=yellowgreen
+          elif [ "$CINT" -ge 60 ]; then COLOR=yellow
+          else COLOR=red; fi
+          # Build the shields endpoint JSON, then JSON-string-escape it for the
+          # gist "content" field. Values are fully controlled (no python/jq dep).
+          BADGE="{\"schemaVersion\":1,\"label\":\"go coverage\",\"message\":\"${COV}%\",\"color\":\"${COLOR}\"}"
+          ESCAPED=$(printf '%s' "$BADGE" | sed 's/\\/\\\\/g; s/"/\\"/g')
+          BODY="{\"files\":{\"mymcp-go-coverage.json\":{\"content\":\"${ESCAPED}\"}}}"
+          curl -s -X PATCH \
+            -H "Authorization: token ${{ secrets.GIST_TOKEN }}" \
+            -d "$BODY" \
+            "https://api.github.com/gists/${{ secrets.GIST_ID }}"
 
   test:
     runs-on: ubuntu-latest
