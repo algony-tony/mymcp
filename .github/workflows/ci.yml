@@ -28,7 +28,7 @@ jobs:
     env:
       # Ratchet floor for whole-module Go statement coverage. Bump it up as
       # coverage improves; never let it silently regress.
-      GO_COVER_MIN: "65"
+      GO_COVER_MIN: "78"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
@@ -109,14 +109,14 @@ jobs:
           elif [ "$LINE_COV" -ge 70 ]; then COLOR="yellowgreen"
           elif [ "$LINE_COV" -ge 60 ]; then COLOR="yellow"
           else COLOR="red"; fi
-          LINE_JSON="{\"schemaVersion\":1,\"label\":\"coverage\",\"message\":\"${LINE_COV}%\",\"color\":\"${COLOR}\"}"
+          LINE_JSON="{\"schemaVersion\":1,\"label\":\"recorder coverage\",\"message\":\"${LINE_COV}%\",\"color\":\"${COLOR}\"}"
 
           if [ "$BRANCH_COV" -ge 85 ]; then BCOLOR="brightgreen"
           elif [ "$BRANCH_COV" -ge 75 ]; then BCOLOR="green"
           elif [ "$BRANCH_COV" -ge 65 ]; then BCOLOR="yellowgreen"
           elif [ "$BRANCH_COV" -ge 55 ]; then BCOLOR="yellow"
           else BCOLOR="red"; fi
-          BRANCH_JSON="{\"schemaVersion\":1,\"label\":\"branch coverage\",\"message\":\"${BRANCH_COV}%\",\"color\":\"${BCOLOR}\"}"
+          BRANCH_JSON="{\"schemaVersion\":1,\"label\":\"recorder branch cov\",\"message\":\"${BRANCH_COV}%\",\"color\":\"${BCOLOR}\"}"
 
           curl -s -X PATCH \
             -H "Authorization: token ${{ secrets.GIST_TOKEN }}" \
