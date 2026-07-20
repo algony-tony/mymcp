@@ -121,7 +121,7 @@ mypy-extensions==1.1.0
     # via mypy
 nodeenv==1.10.0
     # via pre-commit
-opentelemetry-api==1.43.0
+opentelemetry-api==1.44.0
     # via
     #   algony-mymcp
     #   algony-mymcp (pyproject.toml)
@@ -133,45 +133,45 @@ opentelemetry-api==1.43.0
     #   opentelemetry-instrumentation-logging
     #   opentelemetry-sdk
     #   opentelemetry-semantic-conventions
-opentelemetry-exporter-otlp-proto-common==1.43.0
+opentelemetry-exporter-otlp-proto-common==1.44.0
     # via opentelemetry-exporter-otlp-proto-http
-opentelemetry-exporter-otlp-proto-http==1.43.0
+opentelemetry-exporter-otlp-proto-http==1.44.0
     # via algony-mymcp
-opentelemetry-exporter-prometheus==0.64b0
+opentelemetry-exporter-prometheus==0.65b0
     # via
     #   algony-mymcp
     #   algony-mymcp (pyproject.toml)
-opentelemetry-instrumentation==0.64b0
+opentelemetry-instrumentation==0.65b0
     # via
     #   opentelemetry-instrumentation-asgi
     #   opentelemetry-instrumentation-fastapi
     #   opentelemetry-instrumentation-logging
-opentelemetry-instrumentation-asgi==0.64b0
+opentelemetry-instrumentation-asgi==0.65b0
     # via
     #   algony-mymcp
     #   opentelemetry-instrumentation-fastapi
-opentelemetry-instrumentation-fastapi==0.64b0
+opentelemetry-instrumentation-fastapi==0.65b0
     # via algony-mymcp
-opentelemetry-instrumentation-logging==0.64b0
+opentelemetry-instrumentation-logging==0.65b0
     # via algony-mymcp
-opentelemetry-proto==1.43.0
+opentelemetry-proto==1.44.0
     # via
     #   opentelemetry-exporter-otlp-proto-common
     #   opentelemetry-exporter-otlp-proto-http
-opentelemetry-sdk==1.43.0
+opentelemetry-sdk==1.44.0
     # via
     #   algony-mymcp
     #   algony-mymcp (pyproject.toml)
     #   opentelemetry-exporter-otlp-proto-http
     #   opentelemetry-exporter-prometheus
-opentelemetry-semantic-conventions==0.64b0
+opentelemetry-semantic-conventions==0.65b0
     # via
     #   opentelemetry-instrumentation
     #   opentelemetry-instrumentation-asgi
     #   opentelemetry-instrumentation-fastapi
     #   opentelemetry-instrumentation-logging
     #   opentelemetry-sdk
-opentelemetry-util-http==0.64b0
+opentelemetry-util-http==0.65b0
     # via
     #   opentelemetry-instrumentation-asgi
     #   opentelemetry-instrumentation-fastapi
