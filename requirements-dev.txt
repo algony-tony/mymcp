@@ -50,7 +50,7 @@ coverage==7.15.0
     # via
     #   mutmut
     #   pytest-cov
-cryptography==49.0.0
+cryptography==50.0.0
     # via pyjwt
 distlib==0.4.3
     # via virtualenv
