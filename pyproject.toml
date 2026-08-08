@@ -96,6 +96,10 @@ fallback_version = "0.0.0+unknown"
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+# ruff >=0.16 formats Python/JSON snippets embedded in Markdown. Our docs
+# (plans/specs) carry illustrative pseudo-code fragments that are not meant to
+# be machine-formatted, so keep Markdown out of both check and format.
+extend-exclude = ["*.md"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "SIM"]
