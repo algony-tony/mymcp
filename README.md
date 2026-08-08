@@ -607,9 +607,10 @@ Tickets are **single-use**, **path-scoped**, **byte-bounded**, and expire after 
 ### `server_overview` (`ro`)
 
 Returns the current contents of the server overview document maintained by
-the optional recorder module. Only available when the recorder is installed
-and `MYMCP_RECORDER_ENABLED=true`; otherwise the call fails with a clear
-error message. Takes no parameters.
+the optional recorder sidecar. It does not check `MYMCP_RECORDER_ENABLED` —
+it reports `RecorderDisabled` whenever `overview.md` is absent (message
+points at `systemctl status mymcp-recorder`) or exists but can't be read
+(message names the path and the underlying error). Takes no parameters.
 
 The recorder periodically folds successful mutating audit events into an
 overview of what's installed and recently changed on the host. The
