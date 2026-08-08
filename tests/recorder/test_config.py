@@ -61,7 +61,7 @@ def test_recorder_llm_max_tokens_default(monkeypatch):
 
     reset_settings_cache()
     s = Settings()
-    assert s.recorder_llm_max_tokens == 16384
+    assert s.recorder_llm_max_tokens == 32768
 
 
 def test_recorder_llm_max_tokens_override(monkeypatch):

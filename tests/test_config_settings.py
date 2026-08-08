@@ -114,3 +114,14 @@ def test_transfer_settings_env_override(monkeypatch):
     assert cfg.TRANSFER_ENABLED is False
     assert cfg.TRANSFER_MAX_BYTES == 5_242_880
     assert cfg.PUBLIC_BASE_URL == "https://mcp.example.com"
+
+
+def test_recorder_llm_max_tokens_default_accommodates_reasoning_models():
+    """Reasoning models bill thinking tokens against the output budget.
+
+    16384 truncated real merges on deepseek-v4-flash (issue #92 item 5).
+    """
+    from mymcp.config import get_settings, reset_settings_cache
+
+    reset_settings_cache()
+    assert get_settings().recorder_llm_max_tokens == 32768
