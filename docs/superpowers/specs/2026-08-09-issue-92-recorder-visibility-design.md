@@ -176,12 +176,20 @@ Two properties of that `stale` definition matter:
   The `2×` factor matches the v2 banner's threshold so one slow cycle is not
   flagged.
 
-Counting mutating events requires knowing which tools mutate. That set
-(`writeTools`) lives in the `mcpserver` package; a direct reference from `tools`
-would be an import cycle. **Inject the predicate through `Deps`** rather than
-copying the set into `tools` — a copy creates a second source of truth that must
-be kept in sync with the permission model, which is exactly the kind of drift
-that produces the next silent failure.
+Counting mutating events requires knowing which tools mutate — and the correct
+set is **not** `mcpserver.writeTools`. The recorder consumes
+`MUTATING_TOOLS` (`events.py:34-43`), which is six entries to `writeTools`' four:
+it adds `prepare_download` (classified read-only for permissions, but it still
+hands out host bytes) and `transfer_upload` (the *endpoint* audit name for a
+redeemed upload ticket, which is not an MCP tool at all and so can never appear
+in `writeTools`). Counting with `writeTools` would report a backlog that differs
+from the one the sidecar actually drains.
+
+So the Go side defines its own `mutatingTools` in `recorderstatus.go` as a
+faithful port of `MUTATING_TOOLS`, with a comment naming the Python source and
+stating why it is not `writeTools`. This also removes the import-cycle concern
+entirely — `tools` never needs to reference `mcpserver`. Success is `result ∈
+{"ok", "success"}`, matching `_SUCCESS_RESULTS` (`events.py:48`).
 
 **Output.** Add `last_updated`, `pending_events`, and `stale` to the result, and
 when `stale` is true prefix the overview body with a banner. Both, not either:
@@ -270,9 +278,10 @@ verification step reports a live recorder.
   so far covers `audit.log`, `MYMCP_*`, and `tokens.json`. Record it in CLAUDE.md's
   contract section so the format is not changed unilaterally.
 - **Duplicated mutating-event filter.** `pending_events` reimplements
-  `pending_count`'s semantics in Go. Injecting the tool predicate keeps the tool
-  set single-sourced, but the success/mutating filter logic itself exists twice.
-  Cover it with tests on both sides.
+  `pending_count`'s semantics — including the `MUTATING_TOOLS` membership list —
+  in Go. The set now exists in two languages and can drift; a tool added to the
+  recorder's set but not to Go's would make the backlog silently under-count.
+  Pin both with tests and name the counterpart file in each comment.
 - **A shrinking batch drains more slowly.** Deliberate: a recorder that drains
   slowly recovers, one that trips its breaker does not.
 
