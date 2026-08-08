@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -15,10 +16,17 @@ func ServerOverview(d Deps) map[string]any {
 	path := filepath.Join(d.Cfg.RecorderDataDir, "overview", "overview.md")
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return map[string]any{
-			"success": false, "error": "RecorderDisabled",
-			"message": "server_overview requires MYMCP_RECORDER_ENABLED=true",
+		// The error code stays RecorderDisabled for compat (the Python core's
+		// shape); only the message distinguishes the causes. "File absent" is
+		// overwhelmingly "the sidecar was never started" — issue #92 — so the
+		// message names the sidecar rather than a config flag the Go core does
+		// not gate on.
+		msg := fmt.Sprintf("overview not generated yet at %s — is the recorder "+
+			"sidecar running? Check: systemctl status mymcp-recorder", path)
+		if !os.IsNotExist(err) {
+			msg = fmt.Sprintf("could not read overview at %s: %v", path, err)
 		}
+		return map[string]any{"success": false, "error": "RecorderDisabled", "message": msg}
 	}
 	return map[string]any{"success": true, "overview": fsutil.DecodeReplace(raw)}
 }
