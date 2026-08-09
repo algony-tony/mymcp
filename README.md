@@ -125,8 +125,8 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now mymcp-recorder
 ```
 
-Adjust `User`, `EnvironmentFile`, and `ExecStart` to your install
-(`which mymcp-recorder` gives the last one).
+Adjust `User`, `EnvironmentFile`, and `ExecStart` to your install:
+match `User=` to whatever the main service uses (check with `systemctl cat mymcp.service`), or omit it to run as root; `which mymcp-recorder` gives the last one.
 
 **Verify it is actually consuming events** — do not skip this; the failure mode
 this guards against went unnoticed for four weeks on a production host:
@@ -289,7 +289,7 @@ These only apply to the `mymcp-recorder` sidecar (install
 | `MYMCP_RECORDER_LLM_MODEL` | *(provider default)* | Model id override |
 | `MYMCP_RECORDER_LLM_API_KEY` | *(unset)* | API key for the chosen provider |
 | `MYMCP_RECORDER_LLM_BASE_URL` | *(unset)* | Base URL override (e.g. DeepSeek for the OpenAI adapter) |
-| `MYMCP_RECORDER_LLM_MAX_TOKENS` | `32768` | Per-call output ceiling for the recorder's LLM. Must stay under your model's output limit. On reasoning models, thinking tokens count against this budget too — raise it rather than lowering `MYMCP_RECORDER_MAX_EVENTS_PER_CYCLE` if merges report `max_tokens`. |
+| `MYMCP_RECORDER_LLM_MAX_TOKENS` | `32768` | Per-call output ceiling for the recorder's LLM. Must stay ≤ your model's output limit. On reasoning models, thinking tokens count against this budget too — raise it rather than lowering `MYMCP_RECORDER_MAX_EVENTS_PER_CYCLE` if merges report `max_tokens`. |
 | `MYMCP_RECORDER_CIRCUIT_BREAKER_THRESHOLD` | `5` | Consecutive merge failures before the breaker opens. Once open, recovery is event-driven (a new event triggers a single retry; success clears the breaker). Set to `0` to disable. |
 
 ## Managing Tokens

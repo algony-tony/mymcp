@@ -116,11 +116,13 @@ def test_transfer_settings_env_override(monkeypatch):
     assert cfg.PUBLIC_BASE_URL == "https://mcp.example.com"
 
 
-def test_recorder_llm_max_tokens_default_accommodates_reasoning_models():
+def test_recorder_llm_max_tokens_default_accommodates_reasoning_models(monkeypatch):
     """Reasoning models bill thinking tokens against the output budget.
 
     16384 truncated real merges on deepseek-v4-flash (issue #92 item 5).
     """
+    monkeypatch.delenv("MYMCP_ENV_FILE", raising=False)
+    monkeypatch.delenv("MYMCP_RECORDER_LLM_MAX_TOKENS", raising=False)
     from mymcp.config import get_settings, reset_settings_cache
 
     reset_settings_cache()
