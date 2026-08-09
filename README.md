@@ -107,7 +107,9 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now mymcp-recorder
 ```
 
-Review the rendered `User`, `EnvironmentFile`, and `ExecStart` before starting it.
+Review the rendered `User`, `EnvironmentFile`, and `ExecStart` before starting
+it: match `User=` to whatever the main service uses (check with
+`systemctl cat mymcp.service`), or omit it to run as root.
 
 **Verify it is actually consuming events** — do not skip this; the failure mode
 this guards against went unnoticed for four weeks on a production host:

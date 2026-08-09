@@ -21,18 +21,15 @@ def test_recorder_entry_point_declared():
     assert scripts["mymcp-recorder"] == "mymcp.recorder.__main__:main"
 
 
-def test_render_unit_uses_real_settings(monkeypatch):
-    """The template must be rendered by shipped code, not by this test.
+def test_render_unit_leaves_no_placeholders():
+    """render_unit must substitute every template placeholder.
 
     Issue #92: the only renderer was a test with values hardcoded inside it, so
     no code path and no document told an operator what to substitute.
     """
-    monkeypatch.setenv("MYMCP_RECORDER_ENABLED", "true")
-    from mymcp.config import get_settings, reset_settings_cache
     from mymcp.recorder.__main__ import render_unit
 
-    reset_settings_cache()
-    unit = render_unit(get_settings())
+    unit = render_unit()
 
     assert "{" not in unit, f"unsubstituted placeholder left in unit:\n{unit}"
     assert "[Unit]" in unit and "[Service]" in unit and "[Install]" in unit
@@ -59,3 +56,21 @@ def test_install_unit_prints_to_stdout(monkeypatch, capsys):
     reset_settings_cache()
     assert main(["--install-unit"]) == 0
     assert "[Service]" in capsys.readouterr().out
+
+
+def test_install_unit_output_error_is_reported_not_raised(tmp_path, monkeypatch, capsys):
+    """A bad --output path must produce a readable stderr message, not a traceback.
+
+    This whole task is about error messages that name the real cause — a new
+    tool emitting a raw traceback on a bad path would be self-defeating.
+    """
+    monkeypatch.setenv("MYMCP_RECORDER_ENABLED", "true")
+    from mymcp.config import reset_settings_cache
+    from mymcp.recorder.__main__ import main
+
+    reset_settings_cache()
+    dest = tmp_path / "does-not-exist" / "mymcp-recorder.service"
+    assert main(["--install-unit", "--output", str(dest)]) == 1
+    err = capsys.readouterr().err
+    assert "Traceback" not in err
+    assert str(dest) in err

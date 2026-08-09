@@ -41,7 +41,7 @@ async def _amain(supervisor) -> None:
     await _run(supervisor, stop)
 
 
-def render_unit(settings) -> str:
+def render_unit() -> str:
     """Render the packaged systemd unit template with this install's values.
 
     v3 dropped `install-service` (Python-CLI machinery), which left the
@@ -78,9 +78,16 @@ def main(argv: list[str] | None = None) -> int:
     settings = get_settings()
 
     if args.install_unit:
-        unit = render_unit(settings)
+        unit = render_unit()
         if args.output:
-            Path(args.output).write_text(unit, encoding="utf-8")
+            try:
+                Path(args.output).write_text(unit, encoding="utf-8")
+            except OSError as e:
+                print(
+                    f"mymcp-recorder: could not write unit to {args.output}: {e}",
+                    file=sys.stderr,
+                )
+                return 1
         else:
             print(unit)
         return 0
