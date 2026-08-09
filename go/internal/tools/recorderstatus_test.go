@@ -8,6 +8,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 )
 
 // writeAudit writes JSON-lines to <dir>/audit.log and returns its size.
@@ -167,5 +168,112 @@ func TestPendingEventsNegativeOffsetIsZero(t *testing.T) {
 
 	if got := pendingEvents(d.Cfg); got != 0 {
 		t.Fatalf("pendingEvents = %d, want 0", got)
+	}
+}
+
+// seedOverview writes overview/overview.md with the given body and returns its path.
+func seedOverview(t *testing.T, dataDir, body string) string {
+	t.Helper()
+	dir := filepath.Join(dataDir, "overview")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "overview.md")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+const overviewHeader = "# Server Overview\n_Last updated: 2026-07-13 02:08 UTC_\n_Hostname: h | OS: linux_\n\nbody\n"
+
+func TestRecorderStatusParsesLastUpdatedHeader(t *testing.T) {
+	d := testDeps(t)
+	dataDir, logDir := t.TempDir(), t.TempDir()
+	d.Cfg.RecorderDataDir, d.Cfg.AuditLogDir = dataDir, logDir
+	path := seedOverview(t, dataDir, overviewHeader)
+
+	now := time.Date(2026, 7, 13, 3, 8, 0, 0, time.UTC)
+	st := recorderStatusFor(d.Cfg, path, now)
+	want := time.Date(2026, 7, 13, 2, 8, 0, 0, time.UTC)
+	if !st.LastUpdated.Equal(want) {
+		t.Fatalf("LastUpdated = %v, want %v", st.LastUpdated, want)
+	}
+	if st.LastUpdatedRaw != "2026-07-13 02:08 UTC" {
+		t.Fatalf("LastUpdatedRaw = %q", st.LastUpdatedRaw)
+	}
+}
+
+func TestRecorderStatusFallsBackToMtime(t *testing.T) {
+	d := testDeps(t)
+	dataDir, logDir := t.TempDir(), t.TempDir()
+	d.Cfg.RecorderDataDir, d.Cfg.AuditLogDir = dataDir, logDir
+	path := seedOverview(t, dataDir, "# Server Overview\nno header here\n")
+	mtime := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(path, mtime, mtime); err != nil {
+		t.Fatal(err)
+	}
+
+	st := recorderStatusFor(d.Cfg, path, mtime.Add(time.Hour))
+	if !st.LastUpdated.Equal(mtime.UTC()) {
+		t.Fatalf("LastUpdated = %v, want mtime %v", st.LastUpdated, mtime)
+	}
+	if st.LastUpdatedRaw != "" {
+		t.Fatalf("LastUpdatedRaw should be empty when the header is absent, got %q", st.LastUpdatedRaw)
+	}
+}
+
+func TestRecorderStatusIdleServerIsNeverStale(t *testing.T) {
+	d := testDeps(t)
+	dataDir, logDir := t.TempDir(), t.TempDir()
+	d.Cfg.RecorderDataDir, d.Cfg.AuditLogDir = dataDir, logDir
+	d.Cfg.RecorderMergeIntervalSec = 300
+	path := seedOverview(t, dataDir, overviewHeader)
+	// No audit.log at all => nothing pending. Overview is a month old.
+	now := time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)
+
+	st := recorderStatusFor(d.Cfg, path, now)
+	if st.PendingEvents != 0 {
+		t.Fatalf("PendingEvents = %d, want 0", st.PendingEvents)
+	}
+	if st.Stale {
+		t.Fatal("an idle server with nothing to fold must not be reported stale")
+	}
+}
+
+func TestRecorderStatusBacklogPlusOldOverviewIsStale(t *testing.T) {
+	d := testDeps(t)
+	dataDir, logDir := t.TempDir(), t.TempDir()
+	d.Cfg.RecorderDataDir, d.Cfg.AuditLogDir = dataDir, logDir
+	d.Cfg.RecorderMergeIntervalSec = 300
+	path := seedOverview(t, dataDir, overviewHeader)
+	writeAudit(t, logDir, auditLine("write_file", "ok"))
+	now := time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC) // ~27 days later
+
+	st := recorderStatusFor(d.Cfg, path, now)
+	if st.PendingEvents != 1 {
+		t.Fatalf("PendingEvents = %d, want 1", st.PendingEvents)
+	}
+	if !st.Stale {
+		t.Fatal("backlog + month-old overview must be stale")
+	}
+	if st.StaleMinutes < 38000 {
+		t.Fatalf("StaleMinutes = %d, want roughly 27 days", st.StaleMinutes)
+	}
+}
+
+func TestRecorderStatusOneSlowCycleIsNotStale(t *testing.T) {
+	d := testDeps(t)
+	dataDir, logDir := t.TempDir(), t.TempDir()
+	d.Cfg.RecorderDataDir, d.Cfg.AuditLogDir = dataDir, logDir
+	d.Cfg.RecorderMergeIntervalSec = 300
+	path := seedOverview(t, dataDir, overviewHeader)
+	writeAudit(t, logDir, auditLine("write_file", "ok"))
+	// 400s after the last merge: there IS a backlog, but the threshold is 600s.
+	now := time.Date(2026, 7, 13, 2, 8, 0, 0, time.UTC).Add(400 * time.Second)
+
+	st := recorderStatusFor(d.Cfg, path, now)
+	if st.Stale {
+		t.Fatal("one slow cycle (under 2x the merge interval) must not be stale")
 	}
 }

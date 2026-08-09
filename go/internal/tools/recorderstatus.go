@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/algony-tony/mymcp/go/internal/config"
 )
@@ -146,4 +148,84 @@ func pendingEvents(cfg *config.Config) int {
 		return count + countFrom(logPath, 0)
 	}
 	return countFrom(logPath, cur.Offset)
+}
+
+// lastUpdatedRe matches the header line the sidecar stamps on every write —
+// see _build_header in src/mymcp/recorder/merge_cycle.py and stamp_last_updated
+// in src/mymcp/recorder/overview.py.
+var lastUpdatedRe = regexp.MustCompile(`(?m)^_Last updated: ([^_]+)_\s*$`)
+
+// lastUpdatedLayouts covers both stamps the sidecar can produce: merge_cycle
+// writes "2006-01-02 15:04 UTC", bootstrap and overview.stamp write ISO8601.
+var lastUpdatedLayouts = []string{
+	"2006-01-02 15:04 MST",
+	time.RFC3339,
+	"2006-01-02T15:04:05.999999-07:00",
+	"2006-01-02T15:04:05",
+}
+
+// RecorderStatus is the freshness of the on-disk overview, derived entirely
+// from files: the core cannot see the sidecar's in-memory state (the sidecar
+// serves no HTTP and pushes metrics via OTLP).
+type RecorderStatus struct {
+	// LastUpdated is when the overview was last written. Zero if unknown.
+	LastUpdated time.Time
+	// LastUpdatedRaw is the header's verbatim text, empty if it was absent or
+	// unparseable and LastUpdated came from the file's mtime instead.
+	LastUpdatedRaw string
+	// PendingEvents is the unconsumed mutating-event backlog.
+	PendingEvents int
+	// Stale is PendingEvents > 0 AND LastUpdated older than 2x the merge
+	// interval. Both conjuncts matter: an idle server has no backlog and is
+	// never stale, which is the false positive the metrics-based version of
+	// this check originally had.
+	Stale bool
+	// StaleMinutes is the age of LastUpdated in whole minutes; 0 unless Stale.
+	StaleMinutes int
+}
+
+func parseLastUpdated(body []byte) (time.Time, string) {
+	m := lastUpdatedRe.FindSubmatch(body)
+	if m == nil {
+		return time.Time{}, ""
+	}
+	raw := strings.TrimSpace(string(m[1]))
+	for _, layout := range lastUpdatedLayouts {
+		if ts, err := time.Parse(layout, raw); err == nil {
+			return ts.UTC(), raw
+		}
+	}
+	return time.Time{}, ""
+}
+
+// recorderStatusFor derives freshness for the overview at overviewPath. A
+// missing or unreadable overview yields the zero RecorderStatus (never stale) —
+// that case is already reported by ServerOverview's RecorderDisabled branch.
+func recorderStatusFor(cfg *config.Config, overviewPath string, now time.Time) RecorderStatus {
+	var st RecorderStatus
+	body, err := os.ReadFile(overviewPath)
+	if err != nil {
+		return st
+	}
+	st.LastUpdated, st.LastUpdatedRaw = parseLastUpdated(body)
+	if st.LastUpdated.IsZero() {
+		if fi, err := os.Stat(overviewPath); err == nil {
+			st.LastUpdated = fi.ModTime().UTC()
+		}
+	}
+	st.PendingEvents = pendingEvents(cfg)
+
+	interval := cfg.RecorderMergeIntervalSec
+	if interval <= 0 {
+		interval = 300
+	}
+	// 2x the interval so a single slow cycle is not flagged — the threshold
+	// v2's banner used (src/mymcp/recorder/tool.py:85).
+	threshold := time.Duration(2*interval) * time.Second
+	age := now.Sub(st.LastUpdated)
+	if st.PendingEvents > 0 && !st.LastUpdated.IsZero() && age > threshold {
+		st.Stale = true
+		st.StaleMinutes = int(age.Minutes())
+	}
+	return st
 }
