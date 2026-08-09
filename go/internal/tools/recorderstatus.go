@@ -228,8 +228,9 @@ func recorderStatusFor(cfg *config.Config, overviewPath string, now time.Time) R
 	if interval <= 0 {
 		interval = 300
 	}
-	// 2x the interval so a single slow cycle is not flagged — the threshold
-	// v2's banner used (src/mymcp/recorder/tool.py:85).
+	// 2x the interval so a single slow cycle is not flagged — the same
+	// threshold v2's in-process banner used, before it was ported here and
+	// the original was deleted.
 	threshold := time.Duration(2*interval) * time.Second
 	age := now.Sub(st.LastUpdated)
 	if st.PendingEvents > 0 && !st.LastUpdated.IsZero() && age > threshold {

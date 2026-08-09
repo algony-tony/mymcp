@@ -155,8 +155,10 @@ The `recorder.supervisor.cycle` span wraps each tick so the
 `trace_id`/`span_id` for Loki↔Tempo correlation.
 
 Dashboards (`deploy/grafana/`) include a **Recorder Health** row with the
-above queries. The `server_overview` banner surfaces circuit/stale/error
-state in priority order.
+above queries. The `server_overview` banner (Go core) surfaces only the
+`stale` condition described above — it has no circuit-breaker or per-attempt
+error state to show, since the Go core cannot see the sidecar's in-memory
+state; those live in the metrics above instead.
 
 Spec: `docs/superpowers/specs/2026-05-29-llm-recorder-design.md`.
 Plan: `docs/superpowers/plans/2026-05-29-llm-recorder.md`.
