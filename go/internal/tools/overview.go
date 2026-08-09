@@ -39,8 +39,13 @@ func ServerOverview(d Deps) map[string]any {
 			" minutes — check: systemctl status mymcp-recorder_\n\n%s",
 			st.PendingEvents, st.StaleMinutes, body)
 	}
-	lastUpdated := st.LastUpdatedRaw
-	if lastUpdated == "" && !st.LastUpdated.IsZero() {
+	// Always emit RFC3339 here regardless of which source (header vs. mtime
+	// fallback) LastUpdated came from — a structured consumer parsing this
+	// field with one fixed format must not see two different formats.
+	// LastUpdatedRaw stays on the struct for internal use; it does not leak
+	// out of this tool.
+	lastUpdated := ""
+	if !st.LastUpdated.IsZero() {
 		lastUpdated = st.LastUpdated.Format(time.RFC3339)
 	}
 	return map[string]any{

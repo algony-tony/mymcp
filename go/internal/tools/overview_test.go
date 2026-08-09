@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestServerOverviewAbsentPointsAtSidecar(t *testing.T) {
@@ -74,8 +75,13 @@ func TestServerOverviewReportsFreshnessFields(t *testing.T) {
 	if res["success"] != true {
 		t.Fatalf("res = %v", res)
 	}
-	if res["last_updated"] != "2026-07-13 02:08 UTC" {
-		t.Fatalf("last_updated = %v", res["last_updated"])
+	// last_updated is always RFC3339, regardless of the header's own format
+	// ("2026-07-13 02:08 UTC" here) — Finding 3: a structured consumer must
+	// see one consistent format. Compute the expected instant from the same
+	// header value overviewHeader embeds, rather than pasting a string.
+	wantInstant := time.Date(2026, 7, 13, 2, 8, 0, 0, time.UTC)
+	if res["last_updated"] != wantInstant.Format(time.RFC3339) {
+		t.Fatalf("last_updated = %v, want %v", res["last_updated"], wantInstant.Format(time.RFC3339))
 	}
 	if res["pending_events"] != 0 {
 		t.Fatalf("pending_events = %v, want 0", res["pending_events"])

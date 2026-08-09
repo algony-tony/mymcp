@@ -58,6 +58,75 @@ def test_install_unit_prints_to_stdout(monkeypatch, capsys):
     assert "[Service]" in capsys.readouterr().out
 
 
+def test_install_unit_survives_malformed_env(tmp_path, monkeypatch, capsys):
+    """A malformed .env must not crash --install-unit with a raw traceback.
+
+    Issue #92 finding 2: main() used to call get_settings() unconditionally
+    before the --install-unit dispatch, even though render_unit() uses no
+    settings at all. A typo'd MYMCP_RECORDER_LLM_PROVIDER (or any other value
+    that fails pydantic validation) made get_settings() raise an uncaught
+    ValidationError and crash the one command meant to work *before* config is
+    fully correct.
+    """
+    import pytest
+    from pydantic import ValidationError
+
+    env_file = tmp_path / "mymcp.env"
+    env_file.write_text("MYMCP_RECORDER_LLM_PROVIDER=not-a-real-provider\n")
+    monkeypatch.setenv("MYMCP_ENV_FILE", str(env_file))
+    from mymcp.config import get_settings, reset_settings_cache
+    from mymcp.recorder.__main__ import main
+
+    reset_settings_cache()
+    # Confirm the premise: this .env really does fail Settings validation, so
+    # the test is exercising the crash this fix prevents, not a no-op.
+    with pytest.raises(ValidationError):
+        get_settings()
+    reset_settings_cache()
+
+    assert main(["--install-unit"]) == 0
+    out = capsys.readouterr().out
+    assert "Traceback" not in out
+    assert "[Service]" in out
+
+
+def test_render_unit_honors_explicit_env_file(tmp_path, monkeypatch):
+    """render_unit's EnvironmentFile= must follow MYMCP_ENV_FILE (finding 4)."""
+    env_file = tmp_path / "custom.env"
+    env_file.write_text("MYMCP_HOST=127.0.0.1\n")
+    monkeypatch.setenv("MYMCP_ENV_FILE", str(env_file))
+    from mymcp.recorder.__main__ import render_unit
+
+    unit = render_unit()
+    assert f"EnvironmentFile={env_file}" in unit
+
+
+def test_render_unit_falls_back_to_default_for_relative_discovery(tmp_path, monkeypatch):
+    """A relative ./.env discovery result is meaningless to systemd.
+
+    mymcp.config's discovery order falls back to ./.env, which is a path
+    relative to the process's cwd — not something a systemd unit can use.
+    render_unit must fall back to the /etc/mymcp/.env default instead of
+    emitting the relative path verbatim.
+    """
+    monkeypatch.delenv("MYMCP_ENV_FILE", raising=False)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("MYMCP_HOST=127.0.0.1\n")
+    from mymcp.recorder.__main__ import render_unit
+
+    unit = render_unit()
+    assert "EnvironmentFile=/etc/mymcp/.env" in unit
+
+
+def test_render_unit_defaults_env_file_when_nothing_discovered(tmp_path, monkeypatch):
+    monkeypatch.delenv("MYMCP_ENV_FILE", raising=False)
+    monkeypatch.chdir(tmp_path)  # no ./.env here, and no /etc/mymcp/.env on CI
+    from mymcp.recorder.__main__ import render_unit
+
+    unit = render_unit()
+    assert "EnvironmentFile=/etc/mymcp/.env" in unit
+
+
 def test_install_unit_output_error_is_reported_not_raised(tmp_path, monkeypatch, capsys):
     """A bad --output path must produce a readable stderr message, not a traceback.
 

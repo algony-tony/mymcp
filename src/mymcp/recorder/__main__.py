@@ -18,7 +18,7 @@ import sys
 from importlib import resources
 from pathlib import Path
 
-from mymcp.config import get_settings
+from mymcp.config import _discover_env_file, get_settings
 
 log = logging.getLogger("mymcp.recorder")
 
@@ -53,10 +53,20 @@ def render_unit() -> str:
         .read_text(encoding="utf-8")
     )
     exec_start = shutil.which("mymcp-recorder") or "/usr/local/bin/mymcp-recorder"
+    # Mirror mymcp.config's own discovery (MYMCP_ENV_FILE, then
+    # /etc/mymcp/.env, then ./.env) so an install using either alternative
+    # gets a correct EnvironmentFile= line — issue #92 finding 4. A relative
+    # path (the ./.env case) is meaningless to systemd, so fall back to the
+    # /etc/mymcp/.env default rather than emit it verbatim. This calls the
+    # path-discovery helper only — never get_settings()/Settings() — so
+    # render_unit keeps working even when the discovered .env fails
+    # validation (finding 2).
+    discovered = _discover_env_file()
+    env_file = discovered if discovered and Path(discovered).is_absolute() else "/etc/mymcp/.env"
     return template.format(
         service_user="mymcp",
         working_directory="/etc/mymcp",
-        env_file="/etc/mymcp/.env",
+        env_file=env_file,
         exec_start=exec_start,
     )
 
@@ -75,9 +85,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    settings = get_settings()
-
     if args.install_unit:
+        # render_unit() uses no Settings at all, and --install-unit is the one
+        # command meant to work *before* config is fully correct — get_settings()
+        # must not run on this path. A malformed .env (bad MYMCP_RECORDER_LLM_PROVIDER,
+        # a non-numeric int field) would otherwise raise an uncaught
+        # pydantic.ValidationError here and crash with a raw traceback (issue #92
+        # finding 2).
         unit = render_unit()
         if args.output:
             try:
@@ -91,6 +105,8 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(unit)
         return 0
+
+    settings = get_settings()
 
     logging.basicConfig(level=logging.INFO)
     if not settings.recorder_enabled:
