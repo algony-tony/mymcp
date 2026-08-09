@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 )
@@ -125,6 +126,45 @@ func TestPendingEventsRotatedLogCountsBothFiles(t *testing.T) {
 func TestPendingEventsMissingLogIsZero(t *testing.T) {
 	d := testDeps(t)
 	d.Cfg.RecorderDataDir, d.Cfg.AuditLogDir = t.TempDir(), t.TempDir()
+	if got := pendingEvents(d.Cfg); got != 0 {
+		t.Fatalf("pendingEvents = %d, want 0", got)
+	}
+}
+
+func TestPendingEventsOversizedLineDoesNotSwallowFollowingEvents(t *testing.T) {
+	d := testDeps(t)
+	dataDir, logDir := t.TempDir(), t.TempDir()
+	d.Cfg.RecorderDataDir, d.Cfg.AuditLogDir = dataDir, logDir
+
+	// bufio.Scanner permanently aborts the whole scan — silently dropping
+	// every line after, not just the offending one — the moment a single
+	// line exceeds its buffer, no matter how large that buffer is set. This
+	// line (9MB) is deliberately bigger than any fixed cap we'd plausibly
+	// configure and is not valid JSON, so it is skipped on its own merits;
+	// the point of the test is that the *next* line must still be counted,
+	// which only holds if the reader degrades one line at a time instead of
+	// enforcing any max line size at all.
+	huge := strings.Repeat("x", 9_000_000)
+	writeAudit(t, logDir, huge, auditLine("bash_execute", "ok"))
+
+	if got := pendingEvents(d.Cfg); got != 1 {
+		t.Fatalf("pendingEvents = %d, want 1", got)
+	}
+}
+
+func TestPendingEventsNegativeOffsetIsZero(t *testing.T) {
+	d := testDeps(t)
+	dataDir, logDir := t.TempDir(), t.TempDir()
+	d.Cfg.RecorderDataDir, d.Cfg.AuditLogDir = dataDir, logDir
+	writeAudit(t, logDir, auditLine("write_file", "ok"), auditLine("edit_file", "ok"))
+
+	// Hand-corrupt the cursor with a negative offset (inode still matches,
+	// so this hits the non-rotation path). Python's Cursor.load() does not
+	// clamp this either; the eventual f.seek(start_offset) raises OSError,
+	// caught to return 0. The Go port must fail the same way rather than
+	// treating negative-as-zero and recounting the whole file as pending.
+	writeCursor(t, dataDir, logDir, -1)
+
 	if got := pendingEvents(d.Cfg); got != 0 {
 		t.Fatalf("pendingEvents = %d, want 0", got)
 	}

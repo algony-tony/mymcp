@@ -45,7 +45,11 @@ type recorderCursor struct {
 
 // loadCursor reads cursor.json. A missing or corrupt cursor yields the zero
 // value, which means "nothing consumed yet" — the same fallback as
-// Cursor.load() in cursor.py.
+// Cursor.load() in cursor.py. It does not clamp a negative offset: Python's
+// Cursor.load() doesn't either, and a negative offset is left to reach
+// f.Seek in countFrom, where it fails and the file counts as 0 — the same
+// fail-safe path Python takes via the OSError from f.seek(). Clamping it to
+// 0 here would instead recount the whole file as pending.
 func loadCursor(dataDir string) recorderCursor {
 	var c recorderCursor
 	raw, err := os.ReadFile(filepath.Join(dataDir, "cursor.json"))
@@ -54,9 +58,6 @@ func loadCursor(dataDir string) recorderCursor {
 	}
 	if err := json.Unmarshal(raw, &c); err != nil {
 		return recorderCursor{}
-	}
-	if c.Offset < 0 {
-		c.Offset = 0
 	}
 	return c
 }
@@ -74,43 +75,49 @@ func inodeOf(path string) (uint64, bool) {
 }
 
 // countFrom counts mutating+successful audit events in path from byteOffset to
-// EOF. Unreadable files and malformed lines contribute zero rather than
-// failing: this feeds an advisory freshness signal, never a tool's success.
+// EOF. It reads line-by-line via bufio.Reader.ReadString rather than
+// bufio.Scanner: Scanner permanently stops the whole scan — silently
+// dropping every line after, not just the offending one — the moment a
+// single line exceeds its (necessarily finite) buffer. ReadString has no
+// such limit, matching events.py's _count_from, which iterates every line
+// unconditionally and only skips per-line on JSONDecodeError. A negative or
+// out-of-range byteOffset makes Seek fail, and the whole file counts as 0 —
+// unreadable files and malformed lines contribute zero rather than failing:
+// this feeds an advisory freshness signal, never a tool's success.
 func countFrom(path string, byteOffset int64) int {
 	f, err := os.Open(path)
 	if err != nil {
 		return 0
 	}
 	defer f.Close()
-	if byteOffset > 0 {
-		if _, err := f.Seek(byteOffset, 0); err != nil {
-			return 0
-		}
+	if _, err := f.Seek(byteOffset, 0); err != nil {
+		return 0
 	}
 	count := 0
-	sc := bufio.NewScanner(f)
-	// Audit lines carry truncated tool output and can exceed the 64KB default.
-	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if line == "" {
-			continue
+	r := bufio.NewReader(f)
+	for {
+		raw, readErr := r.ReadString('\n')
+		line := strings.TrimSpace(raw)
+		if line != "" {
+			var entry map[string]any
+			// Non-object JSON ("42", "[1,2]") fails to unmarshal into a map,
+			// which is the behaviour we want — events.py skips those
+			// explicitly.
+			if err := json.Unmarshal([]byte(line), &entry); err == nil {
+				result, _ := entry["result"].(string)
+				tool, _ := entry["tool"].(string)
+				if successResults[result] && mutatingTools[tool] {
+					count++
+				}
+			}
 		}
-		var entry map[string]any
-		// Non-object JSON ("42", "[1,2]") fails to unmarshal into a map, which
-		// is the behaviour we want — events.py skips those explicitly.
-		if err := json.Unmarshal([]byte(line), &entry); err != nil {
-			continue
+		if readErr != nil {
+			// io.EOF is the normal end of file; ReadString still returns
+			// whatever it read of a final, unterminated line alongside it,
+			// which is handled above before we break. Any other read error
+			// also stops here, keeping the partial count gathered so far.
+			break
 		}
-		result, _ := entry["result"].(string)
-		if !successResults[result] {
-			continue
-		}
-		tool, _ := entry["tool"].(string)
-		if !mutatingTools[tool] {
-			continue
-		}
-		count++
 	}
 	return count
 }
