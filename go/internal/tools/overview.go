@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/algony-tony/mymcp/go/internal/fsutil"
 )
@@ -28,5 +29,25 @@ func ServerOverview(d Deps) map[string]any {
 		}
 		return map[string]any{"success": false, "error": "RecorderDisabled", "message": msg}
 	}
-	return map[string]any{"success": true, "overview": fsutil.DecodeReplace(raw)}
+	st := recorderStatusFor(d.Cfg, path, time.Now())
+	body := fsutil.DecodeReplace(raw)
+	if st.Stale {
+		// Prefix rather than replace: a model that reads only the prose still
+		// sees this, which is the whole point — issue #92 was a frozen overview
+		// being consumed as current fact for four weeks.
+		body = fmt.Sprintf("_⚠️ %d events pending; recorder overview stale for %d"+
+			" minutes — check: systemctl status mymcp-recorder_\n\n%s",
+			st.PendingEvents, st.StaleMinutes, body)
+	}
+	lastUpdated := st.LastUpdatedRaw
+	if lastUpdated == "" && !st.LastUpdated.IsZero() {
+		lastUpdated = st.LastUpdated.Format(time.RFC3339)
+	}
+	return map[string]any{
+		"success":        true,
+		"overview":       body,
+		"last_updated":   lastUpdated,
+		"pending_events": st.PendingEvents,
+		"stale":          st.Stale,
+	}
 }
