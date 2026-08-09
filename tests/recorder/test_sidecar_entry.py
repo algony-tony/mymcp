@@ -46,4 +46,4 @@ def test_main_requires_recorder_enabled(monkeypatch):
     import mymcp.config as cfg
 
     cfg.reset_settings_cache()
-    assert main() == 1
+    assert main([]) == 1

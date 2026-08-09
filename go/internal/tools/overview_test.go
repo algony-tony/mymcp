@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestServerOverviewAbsentPointsAtSidecar(t *testing.T) {
@@ -61,5 +62,65 @@ func TestServerOverviewPresentReturnsContent(t *testing.T) {
 	res := ServerOverview(d)
 	if res["success"] != true || res["overview"] != "# Server\nstuff\n" {
 		t.Fatalf("res = %v", res)
+	}
+}
+
+func TestServerOverviewReportsFreshnessFields(t *testing.T) {
+	d := testDeps(t)
+	dataDir, logDir := t.TempDir(), t.TempDir()
+	d.Cfg.RecorderDataDir, d.Cfg.AuditLogDir = dataDir, logDir
+	seedOverview(t, dataDir, overviewHeader)
+
+	res := ServerOverview(d)
+	if res["success"] != true {
+		t.Fatalf("res = %v", res)
+	}
+	// last_updated is always RFC3339, regardless of the header's own format
+	// ("2026-07-13 02:08 UTC" here) — Finding 3: a structured consumer must
+	// see one consistent format. Compute the expected instant from the same
+	// header value overviewHeader embeds, rather than pasting a string.
+	wantInstant := time.Date(2026, 7, 13, 2, 8, 0, 0, time.UTC)
+	if res["last_updated"] != wantInstant.Format(time.RFC3339) {
+		t.Fatalf("last_updated = %v, want %v", res["last_updated"], wantInstant.Format(time.RFC3339))
+	}
+	if res["pending_events"] != 0 {
+		t.Fatalf("pending_events = %v, want 0", res["pending_events"])
+	}
+	if res["stale"] != false {
+		t.Fatalf("stale = %v, want false", res["stale"])
+	}
+	if body, _ := res["overview"].(string); !strings.HasPrefix(body, "# Server Overview") {
+		t.Fatalf("fresh overview must not be prefixed with a banner: %q", body)
+	}
+}
+
+func TestServerOverviewPrefixesBannerWhenStale(t *testing.T) {
+	d := testDeps(t)
+	dataDir, logDir := t.TempDir(), t.TempDir()
+	d.Cfg.RecorderDataDir, d.Cfg.AuditLogDir = dataDir, logDir
+	d.Cfg.RecorderMergeIntervalSec = 300
+	// Header is dated 2026-07-13; the test clock is now, so this is months old.
+	seedOverview(t, dataDir, overviewHeader)
+	writeAudit(t, logDir, auditLine("write_file", "ok"), auditLine("bash_execute", "ok"))
+
+	res := ServerOverview(d)
+	if res["stale"] != true {
+		t.Fatalf("stale = %v, want true", res["stale"])
+	}
+	if res["pending_events"] != 2 {
+		t.Fatalf("pending_events = %v, want 2", res["pending_events"])
+	}
+	body, _ := res["overview"].(string)
+	if !strings.HasPrefix(body, "_⚠️") {
+		t.Fatalf("stale overview must lead with a banner, got %q", body)
+	}
+	if !strings.Contains(body, "2 events pending") {
+		t.Fatalf("banner should state the backlog, got %q", body)
+	}
+	if !strings.Contains(body, "systemctl status mymcp-recorder") {
+		t.Fatalf("banner should state the remedy, got %q", body)
+	}
+	if !strings.Contains(body, "# Server Overview") {
+		t.Fatalf("banner must prefix, not replace, the overview: %q", body)
 	}
 }

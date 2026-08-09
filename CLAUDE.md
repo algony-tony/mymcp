@@ -73,7 +73,12 @@ validation) → `mcpserver.callTool` (permission check, dispatch, audit) →
 ### Python ↔ Go contract
 
 The Python recorder and the Go server share the same `audit.log` format,
-`MYMCP_*` env vars, and `tokens.json`. The black-box compat suite
+`MYMCP_*` env vars, `tokens.json`, and — since the overview staleness signal —
+`cursor.json` and the recorder's `MUTATING_TOOLS` set. The Go core reads
+`cursor.json` to compute the unconsumed backlog for `server_overview`'s `stale`
+flag, so its `{file, inode, offset}` shape and the six-entry mutating-tool set
+in `src/mymcp/recorder/events.py` cannot be changed unilaterally — see
+`go/internal/tools/recorderstatus.go`. The black-box compat suite
 (`tests/compat/`) runs against the Go server and asserts its tool schemas match
 the vendored `golden_tools.json` snapshot (frozen from the Python core when the
 two were proven byte-identical); the recorder's `EventTailer` consumes the Go
@@ -96,6 +101,12 @@ The MCP tool `server_overview` (Go core) returns the current overview by reading
 `overview.md` written by the sidecar. The changelog is read by external LLMs via
 the `read_file` tool — the Go core write-protects the overview directory so
 writes are refused.
+
+`server_overview` returns `last_updated`, `pending_events`, and `stale` alongside
+`overview`, and prefixes the body with a warning banner when stale. `stale` is
+the conjunction `pending_events > 0 AND last_updated older than 2 ×
+MYMCP_RECORDER_MERGE_INTERVAL_SEC` — an idle server with no backlog is never
+reported stale.
 
 LLM provider is `MYMCP_RECORDER_LLM_PROVIDER ∈ {anthropic, openai}`. The
 OpenAI adapter supports OpenAI-compatible endpoints via
@@ -144,11 +155,13 @@ The `recorder.supervisor.cycle` span wraps each tick so the
 `trace_id`/`span_id` for Loki↔Tempo correlation.
 
 Dashboards (`deploy/grafana/`) include a **Recorder Health** row with the
-above queries. The `server_overview` banner surfaces circuit/stale/error
-state in priority order.
+above queries. The `server_overview` banner (Go core) surfaces only the
+`stale` condition described above — it has no circuit-breaker or per-attempt
+error state to show, since the Go core cannot see the sidecar's in-memory
+state; those live in the metrics above instead.
 
 Spec: `docs/superpowers/specs/2026-05-29-llm-recorder-design.md`.
-Plan: `docs/superpowers/plans/2026-05-29-llm-recorder.md`.
+Plan: `docs/superpowers/plans/done/2026-05-29-llm-recorder.md`.
 
 ### Audit log integrity
 

@@ -216,3 +216,33 @@ func TestLoadM3aDefaults(t *testing.T) {
 		t.Fatalf("RecorderDataDir = %q", cfg.RecorderDataDir)
 	}
 }
+
+func TestRecorderMergeIntervalSec(t *testing.T) {
+	cases := []struct {
+		name string
+		env  string
+		want int
+	}{
+		{"default", "", 300},
+		{"override", "60", 60},
+		{"zero falls back", "0", 300},
+		{"negative falls back", "-5", 300},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.env == "" {
+				t.Setenv("MYMCP_RECORDER_MERGE_INTERVAL_SEC", "")
+				os.Unsetenv("MYMCP_RECORDER_MERGE_INTERVAL_SEC")
+			} else {
+				t.Setenv("MYMCP_RECORDER_MERGE_INTERVAL_SEC", tc.env)
+			}
+			cfg, err := Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.RecorderMergeIntervalSec != tc.want {
+				t.Fatalf("got %d, want %d", cfg.RecorderMergeIntervalSec, tc.want)
+			}
+		})
+	}
+}

@@ -335,3 +335,65 @@ async def test_merge_rejects_bad_schema_types(tmp_path):
     cycle = MergeCycle(client=fake, tailer=tailer, store=store, max_events_per_cycle=10)
     with pytest.raises(ValueError, match="section_updates"):
         await cycle.run_once()
+
+
+def _max_tokens_response() -> LLMResponse:
+    """A truncated response: the model spent its budget before finishing."""
+    return LLMResponse(
+        text='{"new_changelog_lines": ["partial',
+        tool_uses=[],
+        stop_reason="max_tokens",
+        usage=Usage(input_tokens=5000, output_tokens=16384),
+    )
+
+
+def _backlog_cycle(tmp_path: Path, *, count: int, max_events: int):
+    """A MergeCycle over `count` unconsumed write_file events."""
+    _write_log(
+        tmp_path,
+        *(_audit_line(tool="write_file", params={"file_path": f"/tmp/f{i}"}) for i in range(count)),
+    )
+    store = OverviewStore(tmp_path / "overview")
+    store.write_overview("# Server Overview\n\n## TL;DR\nSeed.\n")
+    tailer = EventTailer(log_dir=tmp_path, cursor_path=tmp_path / "cursor.json")
+    fake = AsyncMock()
+    cycle = MergeCycle(client=fake, tailer=tailer, store=store, max_events_per_cycle=max_events)
+    return cycle, fake
+
+
+@pytest.mark.anyio
+async def test_max_tokens_failure_halves_the_next_batch(tmp_path):
+    """A recovering recorder must drain a backlog, not trip its breaker.
+
+    Issue #92: the bigger the backlog the more a reasoning model thinks, so the
+    first merge after an outage is the most likely to truncate. Re-reading the
+    same oversized batch every cycle guarantees the breaker opens first.
+    """
+    cycle, fake = _backlog_cycle(tmp_path, count=50, max_events=50)
+    fake.call = AsyncMock(return_value=_max_tokens_response())
+
+    with pytest.raises(ValueError, match="max_tokens"):
+        await cycle.run_once()
+    assert cycle._adaptive_max == 25
+
+    with pytest.raises(ValueError, match="max_tokens"):
+        await cycle.run_once()
+    assert cycle._adaptive_max == 12
+
+    # A success restores the full batch size.
+    fake.call = AsyncMock(
+        return_value=_text_response({"new_changelog_lines": [], "section_updates": {}})
+    )
+    result = await cycle.run_once()
+    assert result.events_consumed == 12
+    assert cycle._adaptive_max == 50
+
+
+@pytest.mark.anyio
+async def test_adaptive_batch_has_a_floor(tmp_path):
+    cycle, fake = _backlog_cycle(tmp_path, count=8, max_events=8)
+    fake.call = AsyncMock(return_value=_max_tokens_response())
+    for _ in range(6):
+        with pytest.raises(ValueError, match="max_tokens"):
+            await cycle.run_once()
+    assert cycle._adaptive_max == 5, "must not shrink below the floor"

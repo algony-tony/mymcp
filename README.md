@@ -99,34 +99,17 @@ recorder enabled loses it silently. If `MYMCP_RECORDER_ENABLED=true` in your
 # 1. Recorder dependencies (v2 had them as base deps; v3 does not)
 pipx inject algony-mymcp "algony-mymcp[recorder]"
 
-# 2. Sidecar unit
-sudo tee /etc/systemd/system/mymcp-recorder.service >/dev/null <<'UNIT'
-[Unit]
-Description=MyMCP Recorder (overview sidecar)
-After=network.target mymcp.service
-Wants=mymcp.service
-
-[Service]
-Type=simple
-User=mymcp
-WorkingDirectory=/etc/mymcp
-EnvironmentFile=/etc/mymcp/.env
-ExecStart=/usr/local/bin/mymcp-recorder
-Restart=on-failure
-RestartSec=10
-NoNewPrivileges=true
-
-[Install]
-WantedBy=multi-user.target
-UNIT
+# 2. Sidecar unit (rendered for this install)
+mymcp-recorder --install-unit | sudo tee /etc/systemd/system/mymcp-recorder.service
 
 # 3. Start it
 sudo systemctl daemon-reload
 sudo systemctl enable --now mymcp-recorder
 ```
 
-Adjust `User`, `EnvironmentFile`, and `ExecStart` to your install:
-match `User=` to whatever the main service uses (check with `systemctl cat mymcp.service`), or omit it to run as root; `which mymcp-recorder` gives the last one.
+Review the rendered `User`, `EnvironmentFile`, and `ExecStart` before starting
+it: match `User=` to whatever the main service uses (check with
+`systemctl cat mymcp.service`), or omit it to run as root.
 
 **Verify it is actually consuming events** — do not skip this; the failure mode
 this guards against went unnoticed for four weeks on a production host:
@@ -611,6 +594,16 @@ the optional recorder sidecar. It does not check `MYMCP_RECORDER_ENABLED` —
 it reports `RecorderDisabled` whenever `overview.md` is absent (message
 points at `systemctl status mymcp-recorder`) or exists but can't be read
 (message names the path and the underlying error). Takes no parameters.
+
+On success the result carries the overview plus three freshness fields
+derived from disk: `last_updated` (RFC3339, empty if unknown),
+`pending_events` (mutating audit events the sidecar has not yet consumed),
+and `stale`. `stale` is true only when `pending_events > 0` **and**
+`last_updated` is older than `2 × MYMCP_RECORDER_MERGE_INTERVAL_SEC` — an
+idle server with nothing to fold is never reported stale. When it is true,
+the `overview` text is additionally prefixed with a warning banner naming
+the backlog, the age, and `systemctl status mymcp-recorder`, so a model
+reading only the prose still sees that the document is not current.
 
 The recorder periodically folds successful mutating audit events into an
 overview of what's installed and recently changed on the host. The
