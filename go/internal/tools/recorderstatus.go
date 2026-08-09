@@ -155,8 +155,17 @@ func pendingEvents(cfg *config.Config) int {
 // in src/mymcp/recorder/overview.py.
 var lastUpdatedRe = regexp.MustCompile(`(?m)^_Last updated: ([^_]+)_\s*$`)
 
-// lastUpdatedLayouts covers both stamps the sidecar can produce: merge_cycle
-// writes "2006-01-02 15:04 UTC", bootstrap and overview.stamp write ISO8601.
+// lastUpdatedLayouts. Every overview.md that OverviewStore.write_overview
+// produces goes through _stamp_last_updated (src/mymcp/recorder/overview.py:
+// 84-104), which unconditionally strips any existing "_Last updated: ..._"
+// line and replaces it with
+// datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00",
+// "Z") — e.g. "2026-07-13T02:08:00Z". That is the only format a real,
+// sidecar-written file will ever contain; time.RFC3339 matches it. The other
+// three layouts ("2006-01-02 15:04 MST" — merge_cycle's _build_header, which
+// is overwritten by the stamp above before anything hits disk — and two
+// looser ISO8601 variants) match nothing produced today but cost nothing to
+// tolerate for hand-edited or older-format files, so they stay.
 var lastUpdatedLayouts = []string{
 	"2006-01-02 15:04 MST",
 	time.RFC3339,

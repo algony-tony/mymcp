@@ -223,6 +223,57 @@ func TestRecorderStatusFallsBackToMtime(t *testing.T) {
 	}
 }
 
+// TestRecorderStatusParsesRealOnDiskFormat covers the only format that ever
+// actually lands in overview.md: OverviewStore.write_overview always routes
+// through _stamp_last_updated (src/mymcp/recorder/overview.py:84-104), which
+// unconditionally strips any existing "_Last updated: ..._" line — including
+// the "%Y-%m-%d %H:%M UTC" one _build_header just wrote — and replaces it
+// with datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00",
+// "Z"). Bootstrap's LLM-authored placeholder line meets the same fate via the
+// same write_overview call. TestRecorderStatusParsesLastUpdatedHeader above
+// exercises a format that is tolerated but never actually written by the
+// sidecar; this test exercises the one that is.
+func TestRecorderStatusParsesRealOnDiskFormat(t *testing.T) {
+	d := testDeps(t)
+	dataDir, logDir := t.TempDir(), t.TempDir()
+	d.Cfg.RecorderDataDir, d.Cfg.AuditLogDir = dataDir, logDir
+	body := "# Server Overview\n_Last updated: 2026-07-13T02:08:00Z_\n_Hostname: h | OS: linux_\n\nbody\n"
+	path := seedOverview(t, dataDir, body)
+
+	now := time.Date(2026, 7, 13, 3, 8, 0, 0, time.UTC)
+	st := recorderStatusFor(d.Cfg, path, now)
+	want := time.Date(2026, 7, 13, 2, 8, 0, 0, time.UTC)
+	if !st.LastUpdated.Equal(want) {
+		t.Fatalf("LastUpdated = %v, want %v", st.LastUpdated, want)
+	}
+	if st.LastUpdatedRaw != "2026-07-13T02:08:00Z" {
+		t.Fatalf("LastUpdatedRaw = %q", st.LastUpdatedRaw)
+	}
+}
+
+// TestRecorderStatusFallsBackToMtimeWhenHeaderUnparseable covers the branch
+// distinct from an absent header: the marker line is present and matches
+// lastUpdatedRe, but its content matches none of lastUpdatedLayouts. This
+// must fall back to mtime exactly like the absent-header case.
+func TestRecorderStatusFallsBackToMtimeWhenHeaderUnparseable(t *testing.T) {
+	d := testDeps(t)
+	dataDir, logDir := t.TempDir(), t.TempDir()
+	d.Cfg.RecorderDataDir, d.Cfg.AuditLogDir = dataDir, logDir
+	path := seedOverview(t, dataDir, "# Server Overview\n_Last updated: not-a-date_\n\nbody\n")
+	mtime := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(path, mtime, mtime); err != nil {
+		t.Fatal(err)
+	}
+
+	st := recorderStatusFor(d.Cfg, path, mtime.Add(time.Hour))
+	if !st.LastUpdated.Equal(mtime.UTC()) {
+		t.Fatalf("LastUpdated = %v, want mtime %v", st.LastUpdated, mtime)
+	}
+	if st.LastUpdatedRaw != "" {
+		t.Fatalf("LastUpdatedRaw should be empty when the header content is unparseable, got %q", st.LastUpdatedRaw)
+	}
+}
+
 func TestRecorderStatusIdleServerIsNeverStale(t *testing.T) {
 	d := testDeps(t)
 	dataDir, logDir := t.TempDir(), t.TempDir()
