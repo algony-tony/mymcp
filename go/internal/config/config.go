@@ -49,6 +49,10 @@ type Config struct {
 	TransferMaxTTLSec     int
 	PublicBaseURL         string
 	RecorderDataDir       string
+	// RecorderMergeIntervalSec mirrors the sidecar's
+	// MYMCP_RECORDER_MERGE_INTERVAL_SEC (both processes read the same .env).
+	// The core uses it only to derive the overview staleness threshold.
+	RecorderMergeIntervalSec int
 
 	protectedPathsCSV string
 }
@@ -153,6 +157,14 @@ func Load() (*Config, error) {
 	}
 	cfg.PublicBaseURL = getStr(get, "MYMCP_PUBLIC_BASE_URL", "")
 	cfg.RecorderDataDir = getStr(get, "MYMCP_RECORDER_DATA_DIR", "/var/lib/mymcp/recorder")
+	if cfg.RecorderMergeIntervalSec, err = getInt(get, "MYMCP_RECORDER_MERGE_INTERVAL_SEC", 300); err != nil {
+		return nil, err
+	}
+	if cfg.RecorderMergeIntervalSec <= 0 {
+		// A non-positive interval would make the staleness threshold 0 and flag
+		// every overview; fall back rather than fail the whole server start.
+		cfg.RecorderMergeIntervalSec = 300
+	}
 	cfg.protectedPathsCSV = getStr(get, "MYMCP_PROTECTED_PATHS", "")
 	return cfg, nil
 }
