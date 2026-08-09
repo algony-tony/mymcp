@@ -8,14 +8,17 @@ overview exists.
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import contextlib
 import logging
+import shutil
 import signal
 import sys
+from importlib import resources
+from pathlib import Path
 
 from mymcp.config import get_settings
-from mymcp.recorder.wiring import build_supervisor
 
 log = logging.getLogger("mymcp.recorder")
 
@@ -38,12 +41,66 @@ async def _amain(supervisor) -> None:
     await _run(supervisor, stop)
 
 
-def main() -> int:
-    logging.basicConfig(level=logging.INFO)
+def render_unit(settings) -> str:
+    """Render the packaged systemd unit template with this install's values.
+
+    v3 dropped `install-service` (Python-CLI machinery), which left the
+    template shipped but unrenderable — issue #92. This is the renderer.
+    """
+    template = (
+        resources.files("mymcp.recorder.templates")
+        .joinpath("mymcp-recorder.service.in")
+        .read_text(encoding="utf-8")
+    )
+    exec_start = shutil.which("mymcp-recorder") or "/usr/local/bin/mymcp-recorder"
+    return template.format(
+        service_user="mymcp",
+        working_directory="/etc/mymcp",
+        env_file="/etc/mymcp/.env",
+        exec_start=exec_start,
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="mymcp-recorder")
+    parser.add_argument(
+        "--install-unit",
+        action="store_true",
+        help="print a systemd unit for this install and exit",
+    )
+    parser.add_argument(
+        "--output",
+        metavar="PATH",
+        help="with --install-unit, write the unit to PATH instead of stdout",
+    )
+    args = parser.parse_args(argv)
+
     settings = get_settings()
+
+    if args.install_unit:
+        unit = render_unit(settings)
+        if args.output:
+            Path(args.output).write_text(unit, encoding="utf-8")
+        else:
+            print(unit)
+        return 0
+
+    logging.basicConfig(level=logging.INFO)
     if not settings.recorder_enabled:
         print(
             "mymcp-recorder: MYMCP_RECORDER_ENABLED is not true; refusing to start.",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        from mymcp.recorder.wiring import build_supervisor
+    except ImportError as e:
+        # `mymcp-recorder` is an unconditional [project.scripts] entry while
+        # the recorder's real deps live in the [recorder] extra, so a base
+        # install puts this command on PATH with nothing behind it.
+        print(
+            f"mymcp-recorder: recorder dependencies are missing ({e}).\n"
+            '  Install them with: pipx inject algony-mymcp "algony-mymcp[recorder]"',
             file=sys.stderr,
         )
         return 1
