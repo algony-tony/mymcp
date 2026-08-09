@@ -161,7 +161,7 @@ error state to show, since the Go core cannot see the sidecar's in-memory
 state; those live in the metrics above instead.
 
 Spec: `docs/superpowers/specs/2026-05-29-llm-recorder-design.md`.
-Plan: `docs/superpowers/plans/2026-05-29-llm-recorder.md`.
+Plan: `docs/superpowers/plans/done/2026-05-29-llm-recorder.md`.
 
 ### Audit log integrity
 

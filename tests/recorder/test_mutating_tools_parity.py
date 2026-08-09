@@ -30,8 +30,26 @@ the braces.
 import re
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-GO_SOURCE = REPO_ROOT / "go" / "internal" / "tools" / "recorderstatus.go"
+_GO_RELPATH = Path("go") / "internal" / "tools" / "recorderstatus.go"
+
+
+def _find_go_source() -> Path:
+    """Locate recorderstatus.go by walking up from this file.
+
+    Not `parents[2]`: mutmut copies the Python tree into `<repo>/mutants/`
+    and runs the suite from there, so a fixed hop count lands on `mutants/`,
+    which has no `go/`, and the missing-file guard below fires as a CI
+    failure. Walking up finds the real repo root from either location.
+    """
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / _GO_RELPATH
+        if candidate.is_file():
+            return candidate
+    # Return the conventional location so the guard reports a real path.
+    return Path(__file__).resolve().parents[2] / _GO_RELPATH
+
+
+GO_SOURCE = _find_go_source()
 
 
 def _extract_go_map_keys(source: str, var_name: str) -> set[str]:

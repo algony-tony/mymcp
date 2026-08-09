@@ -13,6 +13,13 @@ import (
 // model the core reads <recorder_data_dir>/overview/overview.md written by the
 // mymcp-recorder process; when absent it returns the Python core's
 // RecorderDisabled shape so the compat gate (recorder disabled) matches.
+//
+// On success the result also carries freshness derived from disk by
+// recorderStatusFor: last_updated (RFC3339, empty if unknown), pending_events
+// (the unconsumed mutating-event backlog), and stale. When stale is true the
+// overview body is additionally prefixed with a warning banner — the fields
+// serve programmatic callers, the banner serves a model that reads only the
+// prose, and issue #92 is why both are needed.
 func ServerOverview(d Deps) map[string]any {
 	path := filepath.Join(d.Cfg.RecorderDataDir, "overview", "overview.md")
 	raw, err := os.ReadFile(path)

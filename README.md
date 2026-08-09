@@ -595,6 +595,16 @@ it reports `RecorderDisabled` whenever `overview.md` is absent (message
 points at `systemctl status mymcp-recorder`) or exists but can't be read
 (message names the path and the underlying error). Takes no parameters.
 
+On success the result carries the overview plus three freshness fields
+derived from disk: `last_updated` (RFC3339, empty if unknown),
+`pending_events` (mutating audit events the sidecar has not yet consumed),
+and `stale`. `stale` is true only when `pending_events > 0` **and**
+`last_updated` is older than `2 × MYMCP_RECORDER_MERGE_INTERVAL_SEC` — an
+idle server with nothing to fold is never reported stale. When it is true,
+the `overview` text is additionally prefixed with a warning banner naming
+the backlog, the age, and `systemctl status mymcp-recorder`, so a model
+reading only the prose still sees that the document is not current.
+
 The recorder periodically folds successful mutating audit events into an
 overview of what's installed and recently changed on the host. The
 companion `changelog.md` in the same directory can be read with `read_file`.
