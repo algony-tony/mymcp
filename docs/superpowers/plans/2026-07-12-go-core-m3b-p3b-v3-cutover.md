@@ -525,7 +525,7 @@ These are the **user's** steps (interactive auth / production). Run them yoursel
    systemctl status mymcp
    ```
 4. **Verify RSS ≤ 20 MB**: `systemctl show mymcp -p MemoryCurrent` or `ps -o rss= -C mymcp`.
-5. **Optional recorder sidecar**: `pipx inject algony-mymcp "algony-mymcp[recorder]"` (or a dedicated venv), install `mymcp-recorder.service` (template in `mymcp/deploy/templates/`), `systemctl enable --now mymcp-recorder`.
+5. **Optional recorder sidecar**: `pipx inject algony-mymcp "algony-mymcp[recorder]"` (or a dedicated venv), install `mymcp-recorder.service` (template in `src/mymcp/recorder/templates/`), `systemctl enable --now mymcp-recorder`.
 6. **Rollback**: `pipx install --force algony-mymcp==2.5.0 && sudo systemctl restart mymcp`.
 
 ---

@@ -94,9 +94,14 @@ class Settings(BaseSettings):
     # Per-call output ceiling for the recorder's LLM. Must stay ≤ the chosen
     # model's max output (Claude Haiku/Sonnet 4.6: 64k, Opus 4.8: 128k,
     # GPT-5.x: 128k, DeepSeek v4: 384k); the API rejects values above the
-    # model's limit. 16384 is a safe cross-provider default; downstream
-    # deployments can raise it for providers with larger ceilings.
-    recorder_llm_max_tokens: int = Field(default=16384)
+    # model's limit.
+    #
+    # On reasoning models the thinking tokens are billed against this same
+    # output budget — a trivial deepseek-v4-flash call spent 40 of 54
+    # completion tokens on reasoning — so a merge folding a large backlog
+    # truncates well before it finishes answering. 32768 clears that on every
+    # provider listed above; deployments on small-output models must lower it.
+    recorder_llm_max_tokens: int = Field(default=32768)
     # Recorder supervisor pauses LLM calls after this many consecutive
     # merge_cycle failures. Restart the service to resume. 0 disables.
     recorder_circuit_breaker_threshold: int = Field(default=5)

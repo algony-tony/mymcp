@@ -76,7 +76,10 @@ sudo systemctl enable --now mymcp
 
 Existing v2 deployments already have this unit — a `pipx upgrade` + restart
 keeps it (the `ExecStart=mymcp serve` line is unchanged; it now runs the Go
-binary). Install `ripgrep` separately for fast file search.
+binary). That covers the main service only. A v2 deployment that ran the
+overview recorder needs a **second** unit as well — see [From v2.x](#from-v2x)
+below; without it the recorder silently stops and `server_overview` keeps
+serving a frozen overview. Install `ripgrep` separately for fast file search.
 
 ### Upgrade
 
@@ -84,6 +87,59 @@ binary). Install `ripgrep` separately for fast file search.
 pipx upgrade algony-mymcp
 sudo systemctl restart mymcp
 ```
+
+#### From v2.x
+
+v3 split the overview recorder into a separate `mymcp-recorder` process. A
+`pipx upgrade` does **not** create its unit, so a v2 deployment that had the
+recorder enabled loses it silently. If `MYMCP_RECORDER_ENABLED=true` in your
+`.env`, do this as well:
+
+```bash
+# 1. Recorder dependencies (v2 had them as base deps; v3 does not)
+pipx inject algony-mymcp "algony-mymcp[recorder]"
+
+# 2. Sidecar unit
+sudo tee /etc/systemd/system/mymcp-recorder.service >/dev/null <<'UNIT'
+[Unit]
+Description=MyMCP Recorder (overview sidecar)
+After=network.target mymcp.service
+Wants=mymcp.service
+
+[Service]
+Type=simple
+User=mymcp
+WorkingDirectory=/etc/mymcp
+EnvironmentFile=/etc/mymcp/.env
+ExecStart=/usr/local/bin/mymcp-recorder
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+# 3. Start it
+sudo systemctl daemon-reload
+sudo systemctl enable --now mymcp-recorder
+```
+
+Adjust `User`, `EnvironmentFile`, and `ExecStart` to your install:
+match `User=` to whatever the main service uses (check with `systemctl cat mymcp.service`), or omit it to run as root; `which mymcp-recorder` gives the last one.
+
+**Verify it is actually consuming events** — do not skip this; the failure mode
+this guards against went unnoticed for four weeks on a production host:
+
+```bash
+systemctl is-active mymcp-recorder                      # -> active
+# offset must advance within one merge interval (default 300s):
+cat /var/lib/mymcp/recorder/cursor.json; sleep 310; cat /var/lib/mymcp/recorder/cursor.json
+stat -c '%y %n' /var/lib/mymcp/recorder/overview/overview.md
+```
+
+If `offset` does not move while `/var/log/mymcp/audit.log` is growing, check
+`journalctl -u mymcp-recorder -n 50`.
 
 ### Backup and disaster recovery
 
@@ -221,7 +277,7 @@ These only apply to the `mymcp-recorder` sidecar (install
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MYMCP_RECORDER_ENABLED` | `false` | Let the `mymcp-recorder` sidecar start (the Go `server_overview` tool works regardless, returning a stub until an overview exists) |
+| `MYMCP_RECORDER_ENABLED` | `false` | Let the `mymcp-recorder` sidecar start. The Go `server_overview` tool does not read this flag — it reports `RecorderDisabled` whenever `overview.md` is absent, whatever the flag says. |
 | `MYMCP_RECORDER_DATA_DIR` | `/var/lib/mymcp/recorder` | Where overview + changelog + cursor live |
 | `MYMCP_RECORDER_MERGE_INTERVAL_SEC` | `300` | How often the merge cycle runs |
 | `MYMCP_RECORDER_MAX_EVENTS_PER_CYCLE` | `50` | Cap on audit events folded per cycle |
@@ -233,7 +289,7 @@ These only apply to the `mymcp-recorder` sidecar (install
 | `MYMCP_RECORDER_LLM_MODEL` | *(provider default)* | Model id override |
 | `MYMCP_RECORDER_LLM_API_KEY` | *(unset)* | API key for the chosen provider |
 | `MYMCP_RECORDER_LLM_BASE_URL` | *(unset)* | Base URL override (e.g. DeepSeek for the OpenAI adapter) |
-| `MYMCP_RECORDER_LLM_MAX_TOKENS` | `16384` | Per-call output ceiling for the recorder's LLM. Must stay ≤ the chosen model's `max_output_tokens`. Larger values let the recorder cover more sections per cycle but cost more per call. |
+| `MYMCP_RECORDER_LLM_MAX_TOKENS` | `32768` | Per-call output ceiling for the recorder's LLM. Must stay ≤ your model's output limit. On reasoning models, thinking tokens count against this budget too — raise it rather than lowering `MYMCP_RECORDER_MAX_EVENTS_PER_CYCLE` if merges report `max_tokens`. |
 | `MYMCP_RECORDER_CIRCUIT_BREAKER_THRESHOLD` | `5` | Consecutive merge failures before the breaker opens. Once open, recovery is event-driven (a new event triggers a single retry; success clears the breaker). Set to `0` to disable. |
 
 ## Managing Tokens
@@ -551,9 +607,10 @@ Tickets are **single-use**, **path-scoped**, **byte-bounded**, and expire after 
 ### `server_overview` (`ro`)
 
 Returns the current contents of the server overview document maintained by
-the optional recorder module. Only available when the recorder is installed
-and `MYMCP_RECORDER_ENABLED=true`; otherwise the call fails with a clear
-error message. Takes no parameters.
+the optional recorder sidecar. It does not check `MYMCP_RECORDER_ENABLED` —
+it reports `RecorderDisabled` whenever `overview.md` is absent (message
+points at `systemctl status mymcp-recorder`) or exists but can't be read
+(message names the path and the underlying error). Takes no parameters.
 
 The recorder periodically folds successful mutating audit events into an
 overview of what's installed and recently changed on the host. The
