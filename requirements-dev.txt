@@ -105,7 +105,7 @@ markdown-it-py==4.2.0
     #   mdit-py-plugins
     #   rich
     #   textual
-mcp==1.28.1
+mcp==2.0.0
     # via
     #   algony-mymcp
     #   algony-mymcp (pyproject.toml)
