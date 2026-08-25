@@ -82,3 +82,19 @@ func TestExistingAdminTokenIsFoundAndCommentsIgnored(t *testing.T) {
 		t.Fatalf("empty value must count as absent, got %q", got)
 	}
 }
+
+func TestMergeRewritesEveryDuplicateOfAnOwnedKey(t *testing.T) {
+	// config.go's parseEnvFile is last-line-wins, so rewriting only the first
+	// occurrence would leave the server loading a stale value.
+	existing := "MYMCP_AUDIT_ENABLED=false\nMYMCP_PORT=8765\nMYMCP_AUDIT_ENABLED=false\n"
+	got := MergeEnv(existing, map[string]string{"MYMCP_AUDIT_ENABLED": "true"})
+	if strings.Contains(got, "MYMCP_AUDIT_ENABLED=false") {
+		t.Fatalf("a stale duplicate survived the merge:\n%s", got)
+	}
+	if n := strings.Count(got, "MYMCP_AUDIT_ENABLED=true"); n != 2 {
+		t.Fatalf("expected both occurrences rewritten, got %d:\n%s", n, got)
+	}
+	if strings.Contains(got, envMarker) {
+		t.Fatalf("the key was present, so nothing should be appended under the marker:\n%s", got)
+	}
+}

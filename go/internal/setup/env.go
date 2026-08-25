@@ -99,7 +99,7 @@ func MergeEnv(existing string, owned map[string]string) string {
 		if k == "" {
 			continue
 		}
-		if v, ok := owned[k]; ok && !seen[k] {
+		if v, ok := owned[k]; ok {
 			lines[i] = k + "=" + v
 			seen[k] = true
 		}
