@@ -1,0 +1,15 @@
+[Unit]
+Description=MyMCP Server (Linux system tools over MCP)
+After=network.target
+
+[Service]
+Type=simple
+User={{.ServiceUser}}
+WorkingDirectory={{.ConfigDir}}
+EnvironmentFile={{.EnvPath}}
+ExecStart={{.ExecPath}} serve -env-file {{.EnvPath}}
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
