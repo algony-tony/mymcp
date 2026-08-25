@@ -118,11 +118,26 @@ func TestApplyDryRunWritesNothing(t *testing.T) {
 	if _, err := Apply(p, sys); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(p.EnvPath()); !os.IsNotExist(err) {
-		t.Errorf(".env must not exist after -dry-run (err=%v)", err)
+	for _, path := range []string{p.EnvPath(), p.TokenPath(), p.UnitPath()} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("%s must not exist after -dry-run (err=%v)", path, err)
+		}
 	}
 	if len(sys.Calls) != 0 {
 		t.Errorf("-dry-run must exec nothing, got %v", sys.Calls)
+	}
+}
+
+func TestApplyDryRunExecsNothingEvenForANonRootServiceUser(t *testing.T) {
+	// The DryRun check must sit before the `id -u` probe, not after it.
+	p, sys := tempPlan(t)
+	p.DryRun = true
+	p.ServiceUser = "mymcp"
+	if _, err := Apply(p, sys); err != nil {
+		t.Fatal(err)
+	}
+	if len(sys.Calls) != 0 {
+		t.Fatalf("-dry-run must exec nothing, got %v", sys.Calls)
 	}
 }
 

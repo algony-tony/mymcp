@@ -46,14 +46,13 @@ func Apply(p *Plan, sys System) (ApplyOutcome, error) {
 
 	// 1. Service user.
 	if p.ServiceUser != "root" && p.ServiceUser != "" {
-		if _, err := sys.Run("id", "-u", p.ServiceUser); err != nil {
-			if p.DryRun {
-				add("service user", StatusSkipped, "would useradd "+p.ServiceUser)
-			} else if _, err := sys.Run("useradd", "-r", "-s", "/usr/sbin/nologin", p.ServiceUser); err != nil {
+		if p.DryRun {
+			add("service user", StatusSkipped, "would ensure "+p.ServiceUser+" exists")
+		} else if _, err := sys.Run("id", "-u", p.ServiceUser); err != nil {
+			if _, err := sys.Run("useradd", "-r", "-s", "/usr/sbin/nologin", p.ServiceUser); err != nil {
 				return out, fmt.Errorf("useradd %s: %w", p.ServiceUser, err)
-			} else {
-				add("service user", StatusCreated, p.ServiceUser)
 			}
+			add("service user", StatusCreated, p.ServiceUser)
 		} else {
 			add("service user", StatusUnchanged, p.ServiceUser)
 		}
@@ -134,9 +133,10 @@ func Apply(p *Plan, sys System) (ApplyOutcome, error) {
 	}
 
 	// 5b. ripgrep. Optional: grep falls back to a native scan without it.
-	if p.InstallRipgrep && !p.DryRun {
-		st, detail, err := installRipgrep(p, sys)
-		if err != nil {
+	if p.InstallRipgrep {
+		if p.DryRun {
+			add("ripgrep", StatusSkipped, "would install (dry-run)")
+		} else if st, detail, err := installRipgrep(p, sys); err != nil {
 			// A missing rg degrades grep; it must never fail the install.
 			add("ripgrep", StatusSkipped, err.Error())
 		} else {
