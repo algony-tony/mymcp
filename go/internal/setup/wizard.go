@@ -2,6 +2,7 @@ package setup
 
 import (
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 
@@ -30,6 +31,11 @@ type Options struct {
 	RipgrepBinary    string
 	Start            bool
 	DryRun           bool
+
+	// Explicit names the flags the user actually typed. Seeding from an
+	// existing .env must never override those. Task 7 populates it via
+	// flag.FlagSet.Visit; a nil map means "nothing was typed".
+	Explicit map[string]bool
 }
 
 // envValue pulls one uncommented key out of an existing .env, else "".
@@ -44,8 +50,67 @@ func envValue(existing, key string) string {
 	return ""
 }
 
+// envHas reports whether an uncommented KEY= line exists, distinguishing an
+// intentionally empty value from an absent key.
+func envHas(existing, key string) bool {
+	for _, line := range strings.Split(existing, "\n") {
+		if keyOf(line) == key {
+			return true
+		}
+	}
+	return false
+}
+
+// seedFromExistingEnv makes a re-run non-destructive: values already on the
+// host beat flag defaults, but never beat a flag the user actually typed.
+func seedFromExistingEnv(o Options, existing string) Options {
+	if existing == "" {
+		return o
+	}
+	typed := func(name string) bool { return o.Explicit[name] }
+	if v := envValue(existing, "MYMCP_HOST"); v != "" && !typed("bind") {
+		o.Bind = v
+	}
+	if v := envValue(existing, "MYMCP_PORT"); v != "" && !typed("port") {
+		if n, err := strconv.Atoi(v); err == nil {
+			o.Port = n
+		}
+	}
+	if envHas(existing, "MYMCP_METRICS_TOKEN") && !typed("metrics-token") && !typed("no-metrics-token") {
+		if v := envValue(existing, "MYMCP_METRICS_TOKEN"); v == "" {
+			o.NoMetricsToken = true // deliberately unauthenticated; keep it that way
+		} else {
+			o.MetricsToken = v // reusing it keeps existing Prometheus scrapes working
+		}
+	}
+	if v := envValue(existing, "MYMCP_AUDIT_ENABLED"); v != "" && !typed("audit") {
+		o.Audit = v == "true"
+	}
+	if envValue(existing, "MYMCP_RECORDER_ENABLED") == "true" && !typed("recorder") {
+		o.Recorder = true
+		if v := envValue(existing, "MYMCP_RECORDER_LLM_PROVIDER"); v != "" && !typed("recorder-provider") {
+			o.RecorderProvider = v
+		}
+		if v := envValue(existing, "MYMCP_RECORDER_LLM_MODEL"); v != "" && !typed("recorder-model") {
+			o.RecorderModel = v
+		}
+		if v := envValue(existing, "MYMCP_RECORDER_LLM_API_KEY"); v != "" && !typed("recorder-api-key") {
+			o.RecorderAPIKey = v
+		}
+	}
+	return o
+}
+
 // PlanFromOptions is the non-interactive path (-yes, CI, Ansible).
 func PlanFromOptions(o Options, pf Preflight, sys System) (*Plan, error) {
+	return buildPlan(seedFromExistingEnv(o, pf.ExistingEnv), pf, sys)
+}
+
+// buildPlan turns fully-resolved Options into a Plan. It does no seeding of
+// its own: PlanFromOptions seeds once from any existing .env before calling
+// it, and PlanFromWizard seeds once up front and calls it directly after the
+// questionnaire so the user's own answers are never re-seeded over.
+func buildPlan(o Options, pf Preflight, sys System) (*Plan, error) {
 	p := DefaultPlan()
 	p.Bind, p.Port = o.Bind, o.Port
 	p.ServiceUser = o.ServiceUser
@@ -92,16 +157,9 @@ func PlanFromOptions(o Options, pf Preflight, sys System) (*Plan, error) {
 }
 
 // PlanFromWizard asks the seven questions, seeding defaults from any existing
-// .env (update mode), then hands off to PlanFromOptions for the rest.
+// .env (update mode), then builds the Plan from the answers directly.
 func PlanFromWizard(o Options, pf Preflight, pr *Prompter, sys System) (*Plan, error) {
-	if v := envValue(pf.ExistingEnv, "MYMCP_HOST"); v != "" {
-		o.Bind = v
-	}
-	if v := envValue(pf.ExistingEnv, "MYMCP_PORT"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			o.Port = n
-		}
-	}
+	o = seedFromExistingEnv(o, pf.ExistingEnv)
 
 	// 1. Bind + port.
 	o.Bind = pr.Ask("Bind address", o.Bind)
@@ -115,13 +173,11 @@ func PlanFromWizard(o Options, pf Preflight, pr *Prompter, sys System) (*Plan, e
 		}
 	}
 	const maxRetries = 5
-	for attempt := 0; ; attempt++ {
+	chosen := 0
+	for attempt := 0; attempt < maxRetries; attempt++ {
 		v := pr.Ask("Port", strconv.Itoa(o.Port))
 		if err := pr.Err(); err != nil {
 			return nil, fmt.Errorf("reading port: %w; re-run with -yes for a non-interactive install", err)
-		}
-		if attempt >= maxRetries {
-			return nil, fmt.Errorf("no usable port after %d attempts", maxRetries)
 		}
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 1 || n > 65535 {
@@ -132,9 +188,13 @@ func PlanFromWizard(o Options, pf Preflight, pr *Prompter, sys System) (*Plan, e
 			fmt.Fprintf(pr.out, "  port %d is already listening; choose another\n", n)
 			continue
 		}
-		o.Port = n
+		chosen = n
 		break
 	}
+	if chosen == 0 {
+		return nil, fmt.Errorf("no usable port after %d attempts", maxRetries)
+	}
+	o.Port = chosen
 
 	// 2. Service user.
 	fmt.Fprintln(pr.out, serviceUserWarning)
@@ -164,7 +224,7 @@ func PlanFromWizard(o Options, pf Preflight, pr *Prompter, sys System) (*Plan, e
 		o.InstallRipgrep = false
 	}
 
-	return PlanFromOptions(o, pf, sys)
+	return buildPlan(o, pf, sys)
 }
 
 const serviceUserWarning = `
@@ -194,19 +254,29 @@ func FirewallHint(sys System, port int) string {
 	return ""
 }
 
-// PortInUse reports whether anything is already listening on port.
+// PortInUse reports whether anything is already listening on bind:port.
+// A wildcard on either side conflicts with everything on that port; two
+// distinct concrete addresses on the same port do not conflict.
 func PortInUse(sys System, bind string, port int) bool {
 	out, err := sys.Run("ss", "-tlnH")
 	if err != nil {
 		return false // no ss: do not block the install on a missing tool
 	}
-	needle := ":" + strconv.Itoa(port)
+	want := strconv.Itoa(port)
 	for _, line := range strings.Split(out, "\n") {
 		for _, f := range strings.Fields(line) {
-			if strings.HasSuffix(f, needle) {
+			host, p, err := net.SplitHostPort(f)
+			if err != nil || p != want {
+				continue
+			}
+			if isWildcardHost(host) || isWildcardHost(bind) || host == bind {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+func isWildcardHost(h string) bool {
+	return h == "" || h == "0.0.0.0" || h == "::" || h == "*"
 }

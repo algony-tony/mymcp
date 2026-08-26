@@ -130,3 +130,88 @@ func TestWizardDoesNotSpinOnAnExhaustedReader(t *testing.T) {
 		t.Fatal("PlanFromWizard did not terminate on an exhausted reader")
 	}
 }
+
+func TestWizardAcceptsAValidPortOnTheLastAllowedAttempt(t *testing.T) {
+	// Four bad answers then a good one must be accepted, not discarded by the cap.
+	pf := Preflight{IsRoot: true, HasSystemd: true}
+	in := strings.NewReader("\n" + "bad\nbad\nbad\nbad\n9001\n" + strings.Repeat("\n", 20))
+	pr := NewPrompter(in, &bytes.Buffer{}, newFakeSystem())
+	p, err := PlanFromWizard(defaultOptions(), pf, pr, newFakeSystem())
+	if err != nil {
+		t.Fatalf("a valid answer within the cap must be accepted: %v", err)
+	}
+	if p.Port != 9001 {
+		t.Fatalf("Port = %d, want 9001", p.Port)
+	}
+}
+
+func TestPortInUseDistinguishesConcreteBinds(t *testing.T) {
+	sys := newFakeSystem()
+	sys.Outputs["ss -tlnH"] = "LISTEN 0 4096 127.0.0.1:8765 0.0.0.0:*\n"
+	if PortInUse(sys, "10.0.0.5", 8765) {
+		t.Error("127.0.0.1:8765 does not conflict with binding 10.0.0.5:8765")
+	}
+	if !PortInUse(sys, "127.0.0.1", 8765) {
+		t.Error("same concrete address must conflict")
+	}
+	if !PortInUse(sys, "0.0.0.0", 8765) {
+		t.Error("a wildcard bind conflicts with any listener on that port")
+	}
+	wild := newFakeSystem()
+	wild.Outputs["ss -tlnH"] = "LISTEN 0 4096 0.0.0.0:8765 0.0.0.0:*\n"
+	if !PortInUse(wild, "10.0.0.5", 8765) {
+		t.Error("a wildcard listener conflicts with any bind on that port")
+	}
+}
+
+func TestPlanFromOptionsSeedsFromExistingEnvOnTheYesPath(t *testing.T) {
+	// Automation uses -yes; a re-run there must not mint a new metrics token
+	// or silently turn the recorder off.
+	pf := Preflight{
+		IsRoot: true, HasSystemd: true, Recorder: RecorderReady,
+		ExistingEnv: "MYMCP_PORT=9000\nMYMCP_METRICS_TOKEN=tok_metrics_old\n" +
+			"MYMCP_AUDIT_ENABLED=false\nMYMCP_RECORDER_ENABLED=true\n" +
+			"MYMCP_RECORDER_LLM_PROVIDER=openai\n",
+	}
+	p, err := PlanFromOptions(defaultOptions(), pf, newFakeSystem())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Port != 9000 {
+		t.Errorf("Port = %d, want 9000", p.Port)
+	}
+	if p.MetricsToken != "tok_metrics_old" {
+		t.Errorf("MetricsToken = %q — a re-run must not rotate it and break Prometheus", p.MetricsToken)
+	}
+	if p.AuditEnabled {
+		t.Error("AuditEnabled must be seeded from the host's actual setting")
+	}
+	if !p.Recorder.Enabled || p.Recorder.Provider != "openai" {
+		t.Errorf("recorder settings not preserved: %+v", p.Recorder)
+	}
+}
+
+func TestSeedingNeverOverridesAnExplicitlyTypedFlag(t *testing.T) {
+	pf := Preflight{IsRoot: true, HasSystemd: true, ExistingEnv: "MYMCP_PORT=9000\n"}
+	o := defaultOptions()
+	o.Port = 7777
+	o.Explicit = map[string]bool{"port": true}
+	p, err := PlanFromOptions(o, pf, newFakeSystem())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Port != 7777 {
+		t.Fatalf("Port = %d, want the typed 7777 to win over the seeded 9000", p.Port)
+	}
+}
+
+func TestSeedingKeepsAnIntentionallyEmptyMetricsToken(t *testing.T) {
+	pf := Preflight{IsRoot: true, HasSystemd: true, ExistingEnv: "MYMCP_METRICS_TOKEN=\n"}
+	p, err := PlanFromOptions(defaultOptions(), pf, newFakeSystem())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.MetricsToken != "" {
+		t.Fatalf("MetricsToken = %q — an explicitly empty value means /metrics is deliberately unauthenticated", p.MetricsToken)
+	}
+}
