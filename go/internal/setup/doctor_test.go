@@ -137,3 +137,54 @@ func TestDoctorNeverCreatesFiles(t *testing.T) {
 		t.Fatalf("doctor created files: %v", names)
 	}
 }
+
+func TestChecksHaveNoDuplicateNames(t *testing.T) {
+	// Two checks sharing a Name make -json ambiguous for any consumer keyed
+	// on it, and RenderChecks prints a contradictory pair.
+	dir := t.TempDir()
+	writeEnv(t, dir, "MYMCP_ADMIN_TOKEN=tok_a\nMYMCP_RECORDER_ENABLED=true\n", 0o600)
+	seen := map[string]bool{}
+	for _, c := range Doctor(dir, newFakeSystem()) {
+		if seen[c.Name] {
+			t.Errorf("duplicate check name %q", c.Name)
+		}
+		seen[c.Name] = true
+	}
+}
+
+func TestRecorderChecksReportMissingSidecarOnce(t *testing.T) {
+	dir := t.TempDir()
+	writeEnv(t, dir, "MYMCP_ADMIN_TOKEN=tok_a\nMYMCP_RECORDER_ENABLED=true\n", 0o600)
+	checks := Doctor(dir, newFakeSystem()) // fake has no mymcp-recorder on PATH
+
+	var installed []Check
+	for _, c := range checks {
+		if c.Group == "RECORDER" && c.Name == "sidecar installed" {
+			installed = append(installed, c)
+		}
+	}
+	if len(installed) != 1 {
+		t.Fatalf("expected exactly one 'sidecar installed' check, got %d: %+v", len(installed), installed)
+	}
+	if installed[0].Severity != SevFail {
+		t.Errorf("severity = %v, want SevFail when mymcp-recorder is absent", installed[0].Severity)
+	}
+	if installed[0].Remedy == "" {
+		t.Error("a failing check must carry a remedy")
+	}
+	for _, c := range checks {
+		if c.Group == "RECORDER" && c.Name == "sidecar active" {
+			t.Error("must not check whether the sidecar is active when it is not installed")
+		}
+	}
+}
+
+func TestRecorderChecksSkippedWhenRecorderDisabled(t *testing.T) {
+	dir := t.TempDir()
+	writeEnv(t, dir, "MYMCP_ADMIN_TOKEN=tok_a\n", 0o600)
+	for _, c := range Doctor(dir, newFakeSystem()) {
+		if c.Group == "RECORDER" {
+			t.Errorf("recorder is disabled; no RECORDER checks expected, got %+v", c)
+		}
+	}
+}

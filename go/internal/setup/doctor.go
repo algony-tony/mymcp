@@ -76,6 +76,9 @@ func Doctor(configDir string, sys System) []Check {
 		} else {
 			add(Check{Group: "INSTALL", Name: "duplicate binaries", Severity: SevOK, Detail: "1 copy"})
 		}
+	} else {
+		add(Check{Group: "INSTALL", Name: "duplicate binaries", Severity: SevWarn,
+			Detail: "could not run `which -a mymcp` to check for multiple copies"})
 	}
 	if _, err := sys.LookPath("rg"); err != nil {
 		add(Check{Group: "INSTALL", Name: "ripgrep", Severity: SevWarn,
