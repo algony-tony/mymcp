@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/algony-tony/mymcp/go/internal/auth"
@@ -35,6 +36,20 @@ type ApplyOutcome struct {
 	ClientToken string
 }
 
+// runOut wraps a System.Run failure with the command's own output, which is
+// where the actionable message lives: mymcp-recorder prints a precise reason,
+// and systemctl points at journalctl. Wrapping only err yields "exit status 1".
+func runOut(sys System, what, name string, args ...string) error {
+	out, err := sys.Run(name, args...)
+	if err == nil {
+		return nil
+	}
+	if trimmed := strings.TrimSpace(out); trimmed != "" {
+		return fmt.Errorf("%s: %w: %s", what, err, trimmed)
+	}
+	return fmt.Errorf("%s: %w", what, err)
+}
+
 // Apply runs every step in order. Each step is idempotent, so a run that fails
 // halfway can simply be re-run: there is deliberately no rollback, because a
 // partial rollback is more dangerous than none.
@@ -49,8 +64,8 @@ func Apply(p *Plan, sys System) (ApplyOutcome, error) {
 		if p.DryRun {
 			add("service user", StatusSkipped, "would ensure "+p.ServiceUser+" exists")
 		} else if _, err := sys.Run("id", "-u", p.ServiceUser); err != nil {
-			if _, err := sys.Run("useradd", "-r", "-s", "/usr/sbin/nologin", p.ServiceUser); err != nil {
-				return out, fmt.Errorf("useradd %s: %w", p.ServiceUser, err)
+			if err := runOut(sys, "useradd "+p.ServiceUser, "useradd", "-r", "-s", "/usr/sbin/nologin", p.ServiceUser); err != nil {
+				return out, err
 			}
 			add("service user", StatusCreated, p.ServiceUser)
 		} else {
@@ -156,50 +171,58 @@ func Apply(p *Plan, sys System) (ApplyOutcome, error) {
 	}
 	add("systemd unit", st, p.UnitPath())
 	if !p.DryRun {
-		if _, err := sys.Run("systemctl", "daemon-reload"); err != nil {
-			return out, fmt.Errorf("systemctl daemon-reload: %w", err)
-		}
-	}
-
-	// 6b. Recorder sidecar. The unit template is owned by the Python package;
-	// we shell out to it rather than keeping a second copy of the template.
-	if p.Recorder.Enabled && !p.DryRun {
-		if p.Recorder.NeedsInject {
-			if _, err := sys.Run("pipx", "inject", "algony-mymcp", "algony-mymcp[recorder]"); err != nil {
-				return out, fmt.Errorf("pipx inject recorder extra: %w", err)
-			}
-			add("recorder deps", StatusCreated, "pipx inject")
-		}
-		if _, err := sys.Run("mymcp-recorder", "--install-unit",
-			"--service-user", p.ServiceUser,
-			"--env-file", p.EnvPath(),
-			"--output", p.RecorderUnitPath()); err != nil {
-			return out, fmt.Errorf("render recorder unit: %w", err)
-		}
-		add("recorder unit", StatusCreated, p.RecorderUnitPath())
-		if _, err := sys.Run("systemctl", "daemon-reload"); err != nil {
+		if err := runOut(sys, "systemctl daemon-reload", "systemctl", "daemon-reload"); err != nil {
 			return out, err
 		}
-		if p.Start {
-			if _, err := sys.Run("systemctl", "enable", "--now", "mymcp-recorder"); err != nil {
-				return out, fmt.Errorf("start mymcp-recorder: %w", err)
+	}
+
+	// 7. Start. The main service comes up before the optional recorder sidecar
+	// (below) is touched: the product must not be held hostage to the sidecar.
+	if !p.Start || p.DryRun {
+		add("service start", StatusSkipped, "-start=false or dry-run")
+	} else {
+		if err := runOut(sys, "systemctl enable --now mymcp", "systemctl", "enable", "--now", "mymcp"); err != nil {
+			return out, err
+		}
+		if err := runOut(sys, "systemctl restart mymcp", "systemctl", "restart", "mymcp"); err != nil {
+			return out, err
+		}
+		add("service start", StatusUpdated, "enabled and running")
+	}
+
+	// 8. Recorder sidecar. The unit template is owned by the Python package;
+	// we shell out to it rather than keeping a second copy of the template.
+	// This runs after the main service is already started (see step 7):
+	// it's optional, and its own unit declares After=/Wants=mymcp.service.
+	if p.Recorder.Enabled {
+		if p.DryRun {
+			add("recorder", StatusSkipped, "would install the sidecar unit (dry-run)")
+		} else {
+			if p.Recorder.NeedsInject {
+				if err := runOut(sys, "pipx inject recorder extra", "pipx", "inject", "algony-mymcp", "algony-mymcp[recorder]"); err != nil {
+					return out, err
+				}
+				add("recorder deps", StatusCreated, "pipx inject")
 			}
-			add("recorder service", StatusUpdated, "enabled and running")
+			if err := runOut(sys, "render recorder unit", "mymcp-recorder", "--install-unit",
+				"--service-user", p.ServiceUser,
+				"--env-file", p.EnvPath(),
+				"--output", p.RecorderUnitPath()); err != nil {
+				return out, err
+			}
+			add("recorder unit", StatusCreated, p.RecorderUnitPath())
+			if err := runOut(sys, "systemctl daemon-reload", "systemctl", "daemon-reload"); err != nil {
+				return out, err
+			}
+			if p.Start {
+				if err := runOut(sys, "start mymcp-recorder", "systemctl", "enable", "--now", "mymcp-recorder"); err != nil {
+					return out, err
+				}
+				add("recorder service", StatusUpdated, "enabled and running")
+			}
 		}
 	}
 
-	// 7. Start.
-	if !p.Start || p.DryRun {
-		add("service start", StatusSkipped, "-start=false or dry-run")
-		return out, nil
-	}
-	if _, err := sys.Run("systemctl", "enable", "--now", "mymcp"); err != nil {
-		return out, fmt.Errorf("systemctl enable --now mymcp: %w", err)
-	}
-	if _, err := sys.Run("systemctl", "restart", "mymcp"); err != nil {
-		return out, fmt.Errorf("systemctl restart mymcp: %w", err)
-	}
-	add("service start", StatusUpdated, "enabled and running")
 	return out, nil
 }
 

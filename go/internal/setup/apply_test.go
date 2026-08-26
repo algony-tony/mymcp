@@ -278,3 +278,80 @@ func TestApplySkipsRecorderEntirelyWhenDisabled(t *testing.T) {
 		}
 	}
 }
+
+func TestApplySurfacesSubprocessOutputInErrors(t *testing.T) {
+	// "exit status 1" alone is useless; the command's own message is the
+	// actionable part and must reach the operator.
+	p, sys := tempPlan(t)
+	p.Recorder = RecorderPlan{Enabled: true, NeedsInject: false}
+	line := "mymcp-recorder --install-unit --service-user root --env-file " +
+		p.EnvPath() + " --output " + p.RecorderUnitPath()
+	sys.Errors[line] = errNoSuchUser
+	sys.Outputs[line] = "mymcp-recorder: could not write unit to /etc/systemd/system: [Errno 13] Permission denied"
+	if _, err := Apply(p, sys); err == nil {
+		t.Fatal("expected an error")
+	} else if !strings.Contains(err.Error(), "Errno 13") {
+		t.Fatalf("error lost the subprocess message: %v", err)
+	}
+}
+
+func TestApplyStartsTheMainServiceBeforeTheRecorder(t *testing.T) {
+	// An optional sidecar must never block the product from starting.
+	p, sys := tempPlan(t)
+	p.Start = true
+	p.Recorder = RecorderPlan{Enabled: true, NeedsInject: true}
+	_, _ = Apply(p, sys)
+	mainIdx, recorderIdx := -1, -1
+	for i, c := range sys.Calls {
+		if c == "systemctl enable --now mymcp" && mainIdx < 0 {
+			mainIdx = i
+		}
+		if strings.HasPrefix(c, "pipx inject") && recorderIdx < 0 {
+			recorderIdx = i
+		}
+	}
+	if mainIdx < 0 || recorderIdx < 0 {
+		t.Fatalf("expected both steps to run; calls=%v", sys.Calls)
+	}
+	if mainIdx > recorderIdx {
+		t.Fatalf("main service must start before recorder work; calls=%v", sys.Calls)
+	}
+}
+
+func TestApplyRecorderFailureStillLeavesMainServiceStarted(t *testing.T) {
+	p, sys := tempPlan(t)
+	p.Start = true
+	p.Recorder = RecorderPlan{Enabled: true, NeedsInject: true}
+	sys.Errors["pipx inject algony-mymcp algony-mymcp[recorder]"] = errNoSuchUser
+	if _, err := Apply(p, sys); err == nil {
+		t.Fatal("a recorder failure must still be reported")
+	}
+	if !sys.ran("systemctl enable --now mymcp") {
+		t.Fatalf("main service must already be running when the recorder fails; calls=%v", sys.Calls)
+	}
+}
+
+func TestApplyDryRunReportsRecorderWouldRunButExecsNothing(t *testing.T) {
+	p, sys := tempPlan(t)
+	p.DryRun = true
+	p.Recorder = RecorderPlan{Enabled: true, NeedsInject: true}
+	out, err := Apply(p, sys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sys.Calls) != 0 {
+		t.Errorf("-dry-run must exec nothing, got %v", sys.Calls)
+	}
+	found := false
+	for _, r := range out.Results {
+		if r.Step == "recorder" {
+			found = true
+			if r.Status != StatusSkipped {
+				t.Errorf("recorder row status = %v, want %v", r.Status, StatusSkipped)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected a %q row in dry-run results, got %+v", "recorder", out.Results)
+	}
+}
