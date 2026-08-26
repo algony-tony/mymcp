@@ -1,6 +1,7 @@
 package setup
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -26,13 +27,21 @@ type Preflight struct {
 
 // RunPreflight gathers everything init must know BEFORE asking any question.
 // Failing a user after a questionnaire is hostile.
-func RunPreflight(configDir string, sys System) Preflight {
+//
+// A missing .env is a normal fresh install and returns no error. Any other
+// read failure IS returned: silently treating an unreadable root-owned .env as
+// "no existing install" would let the wizard regenerate a live host's config.
+func RunPreflight(configDir string, sys System) (Preflight, error) {
 	pf := Preflight{IsRoot: os.Geteuid() == 0}
 	if st, err := os.Stat("/run/systemd/system"); err == nil && st.IsDir() {
 		pf.HasSystemd = true
 	}
-	if raw, err := os.ReadFile(filepath.Join(configDir, ".env")); err == nil {
+	raw, err := os.ReadFile(filepath.Join(configDir, ".env"))
+	switch {
+	case err == nil:
 		pf.ExistingEnv = string(raw)
+	case !os.IsNotExist(err):
+		return pf, fmt.Errorf("cannot read %s: %w", filepath.Join(configDir, ".env"), err)
 	}
 	switch {
 	case lookOK(sys, "mymcp-recorder"):
@@ -42,7 +51,7 @@ func RunPreflight(configDir string, sys System) Preflight {
 	default:
 		pf.Recorder = RecorderUnavailable
 	}
-	return pf
+	return pf, nil
 }
 
 func lookOK(sys System, name string) bool {

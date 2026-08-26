@@ -43,3 +43,20 @@ func TestAskSecretDisablesAndRestoresEcho(t *testing.T) {
 		t.Fatalf("echo must be disabled then restored; calls=%v", sys.Calls)
 	}
 }
+
+func TestPrompterReportsAnExhaustedReader(t *testing.T) {
+	p := NewPrompter(strings.NewReader(""), &bytes.Buffer{}, newFakeSystem())
+	if got := p.Ask("Port", "8765"); got != "8765" {
+		t.Fatalf("Ask = %q, want the default", got)
+	}
+	if p.Err() == nil {
+		t.Fatal("an exhausted reader must be reported via Err(), or retry loops spin forever")
+	}
+}
+
+func TestPrompterHonoursAFinalLineWithoutNewline(t *testing.T) {
+	p := NewPrompter(strings.NewReader("9000"), &bytes.Buffer{}, newFakeSystem())
+	if got := p.Ask("Port", "8765"); got != "9000" {
+		t.Fatalf("Ask = %q, want 9000 — ReadString returns the partial line with io.EOF", got)
+	}
+}

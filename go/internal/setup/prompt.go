@@ -15,6 +15,7 @@ type Prompter struct {
 	out io.Writer
 	sys System
 	tty *os.File
+	err error
 }
 
 func NewPrompter(r io.Reader, w io.Writer, sys System) *Prompter {
@@ -38,8 +39,18 @@ func (p *Prompter) Close() {
 	}
 }
 
+// Err returns the first read error, if any. A retry loop MUST check it:
+// after the reader is exhausted every Ask returns its default instantly.
+func (p *Prompter) Err() error { return p.err }
+
 func (p *Prompter) readLine() string {
-	line, _ := p.in.ReadString('\n')
+	line, err := p.in.ReadString('\n')
+	if err != nil && p.err == nil {
+		// Record the first failure so retry loops can tell "user pressed
+		// Enter" (default) apart from "the reader is exhausted" (never
+		// recoverable). Without this an input-validation loop spins forever.
+		p.err = err
+	}
 	return strings.TrimSpace(line)
 }
 
@@ -76,8 +87,8 @@ func (p *Prompter) Confirm(question string, def bool) bool {
 func (p *Prompter) AskSecret(question string) string {
 	fmt.Fprintf(p.out, "%s: ", question)
 	_, _ = p.sys.Run("stty", "-echo")
+	defer func() { _, _ = p.sys.Run("stty", "echo") }()
 	v := p.readLine()
-	_, _ = p.sys.Run("stty", "echo")
 	fmt.Fprintln(p.out)
 	return v
 }
