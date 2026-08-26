@@ -48,3 +48,36 @@ func TestInitMarksOnlyTypedFlagsExplicit(t *testing.T) {
 		t.Error("Explicit[\"bind\"] must be false: -bind was not typed")
 	}
 }
+
+func TestInitTreatsAnEnvSourcedRecorderKeyAsExplicit(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("MYMCP_RECORDER_LLM_API_KEY", "sk-rotated")
+	code := run([]string{
+		"init", "-yes", "-dry-run",
+		"-config-dir", dir,
+		"-log-dir", dir + "/log",
+		"-recorder-data-dir", dir + "/rec",
+		"-start=false",
+	})
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+}
+
+func TestParseInitFlagsMarksEnvSourcedRecorderKeyExplicit(t *testing.T) {
+	// flag.Visit only reports flags typed on the command line; a rotated
+	// MYMCP_RECORDER_LLM_API_KEY must still win over a stale .env value, so
+	// parseInitFlags must mark it Explicit even though -recorder-api-key was
+	// never typed.
+	t.Setenv("MYMCP_RECORDER_LLM_API_KEY", "sk-rotated")
+	o, err := parseInitFlags([]string{"-yes", "-dry-run", "-config-dir", t.TempDir()})
+	if err != nil {
+		t.Fatalf("parseInitFlags: %v", err)
+	}
+	if !o.Explicit["recorder-api-key"] {
+		t.Error("Explicit[\"recorder-api-key\"] must be true when MYMCP_RECORDER_LLM_API_KEY is set")
+	}
+	if o.RecorderAPIKey != "sk-rotated" {
+		t.Errorf("RecorderAPIKey = %q, want the env-sourced value", o.RecorderAPIKey)
+	}
+}

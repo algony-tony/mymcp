@@ -168,6 +168,12 @@ func parseInitFlags(args []string) (setup.Options, error) {
 	}
 	o.Explicit = map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { o.Explicit[f.Name] = true })
+	// flag.Visit reports only flags typed on the command line, so an
+	// env-sourced key would otherwise lose to the stale value already in
+	// .env. Exporting the variable is deliberate; treat it as typed.
+	if os.Getenv("MYMCP_RECORDER_LLM_API_KEY") != "" {
+		o.Explicit["recorder-api-key"] = true
+	}
 	return o, nil
 }
 

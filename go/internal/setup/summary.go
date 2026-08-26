@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
 )
 
 // PrimaryAddress turns a wildcard bind into an address a client can actually
@@ -21,8 +22,19 @@ func PrimaryAddress(bind string) string {
 			return host
 		}
 	}
-	if host, err := net.LookupHost("localhost"); err == nil && len(host) > 0 {
-		return host[0]
+	// No default route (air-gapped host, or a container with only loopback):
+	// prefer an IPv4 localhost result since it needs no bracketing and is the
+	// more universally usable address; fall back to whatever localhost
+	// resolves to (may be IPv6, which Summary brackets via JoinHostPort).
+	if hosts, err := net.LookupHost("localhost"); err == nil {
+		for _, h := range hosts {
+			if ip := net.ParseIP(h); ip != nil && ip.To4() != nil {
+				return h
+			}
+		}
+		if len(hosts) > 0 {
+			return hosts[0]
+		}
 	}
 	return "127.0.0.1"
 }
@@ -31,7 +43,11 @@ func PrimaryAddress(bind string) string {
 // actually reach, the tokens (admin shown exactly once), a pasteable
 // `claude mcp add` command and JSON snippet, and the next step.
 func Summary(p *Plan, out ApplyOutcome, w io.Writer) {
-	url := fmt.Sprintf("http://%s:%d/mcp", PrimaryAddress(p.Bind), p.Port)
+	// net.JoinHostPort brackets an IPv6 host correctly ("[::1]:8765") and
+	// leaves an IPv4 or hostname host unchanged — a bare Sprintf("%s:%d", ...)
+	// would emit an unparseable "http://::1:8765/mcp" for an IPv6 primary
+	// address.
+	url := "http://" + net.JoinHostPort(PrimaryAddress(p.Bind), strconv.Itoa(p.Port)) + "/mcp"
 	fmt.Fprintf(w, "\n✓ mymcp is configured on %s:%d\n\n", p.Bind, p.Port)
 	fmt.Fprintf(w, "  URL     %s\n", url)
 	fmt.Fprintf(w, "  Token   %s   (%s, name=%s)\n\n", out.ClientToken, p.ClientRole, p.ClientName)
