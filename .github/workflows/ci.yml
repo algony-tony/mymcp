@@ -157,7 +157,24 @@ jobs:
           MYMCP_COMPAT_METRICS_TOKEN=compat-metrics \
           MYMCP_COMPAT_AUDIT_DIR=/tmp/mymcp-compat-audit \
           MYMCP_COMPAT_ADMIN_TOKEN=compat-admin \
-            pytest tests/compat/ -v --benchmark-disable
+            pytest tests/compat/ -v --benchmark-disable --ignore=tests/compat/test_init_doctor_e2e.py
+
+      # Separate from the black-box suite above: this drives the mymcp binary
+      # itself (init -> serve -> doctor -> tools/list) rather than talking to
+      # the already-running compat server, so it gets its own binary and its
+      # own step for clear pass/fail visibility. --ignore above keeps it from
+      # also being picked up (and run a second time) by the broad `tests/compat/`
+      # glob in "run compat suite".
+      - name: build e2e binary
+        run: cd go && go build -o /tmp/mymcp ./cmd/mymcp
+      - name: End-to-end init/doctor smoke
+        env:
+          MYMCP_BINARY: /tmp/mymcp
+          # pytest tests/compat/conftest.py skips the entire directory unless
+          # this is set, even though this test does not use the rw/ro/etc.
+          # fixtures that read it.
+          MYMCP_COMPAT_URL: http://127.0.0.1:18770
+        run: pytest tests/compat/test_init_doctor_e2e.py -v
 
   security-audit:
     runs-on: ubuntu-latest

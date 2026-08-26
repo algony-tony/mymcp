@@ -58,3 +58,32 @@ func lookOK(sys System, name string) bool {
 	_, err := sys.LookPath(name)
 	return err == nil
 }
+
+// FirstUnwritable returns the first path init would have to write that the
+// current user cannot, or "". It probes the nearest existing ancestor, since
+// init creates missing directories itself. Being root is the usual way to
+// satisfy this, but checking write access directly names the actual blocker
+// and lets tests run unprivileged against temporary directories.
+func FirstUnwritable(paths ...string) string {
+	for _, p := range paths {
+		dir := p
+		for {
+			if st, err := os.Stat(dir); err == nil && st.IsDir() {
+				break
+			}
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				return p // walked to the root without finding a directory
+			}
+			dir = parent
+		}
+		f, err := os.CreateTemp(dir, ".mymcp-write-probe-*")
+		if err != nil {
+			return p
+		}
+		name := f.Name()
+		_ = f.Close()
+		_ = os.Remove(name)
+	}
+	return ""
+}

@@ -234,6 +234,7 @@ func parseInitFlags(args []string) (setup.Options, error) {
 	fs.StringVar(&o.RipgrepBinary, "ripgrep-binary", "", "use this ripgrep binary instead of a package manager")
 	fs.BoolVar(&o.Start, "start", true, "enable and start the service")
 	fs.BoolVar(&o.DryRun, "dry-run", false, "print what would change and write nothing")
+	fs.StringVar(&o.UnitDir, "unit-dir", "/etc/systemd/system", "directory for systemd units (advanced; for testing against a temp dir)")
 	if err := fs.Parse(args); err != nil {
 		return o, err
 	}
@@ -260,12 +261,31 @@ func runInit(args []string) int {
 		fmt.Fprintln(os.Stderr, "mymcp init:", err)
 		return 1
 	}
-	if !pf.IsRoot && !o.DryRun {
-		fmt.Fprintln(os.Stderr, "mymcp init must run as root: sudo mymcp init")
-		return 1
-	}
-	if !pf.HasSystemd {
+	// systemctl itself requires root regardless of directory writability
+	// (daemon-reload/enable/restart all refuse an unprivileged caller even
+	// when the unit file is writable), so an unprivileged, non-dry-run
+	// invocation degrades to files-only rather than failing partway through
+	// Apply. -dry-run is exempted so a non-root preview still shows what
+	// root would do.
+	switch {
+	case !pf.HasSystemd:
 		fmt.Fprintln(os.Stderr, "[mymcp] systemd not detected — configuring files only (degraded mode)")
+	case !pf.IsRoot && !o.DryRun:
+		fmt.Fprintln(os.Stderr, "[mymcp] not running as root — skipping systemd unit management (degraded mode)")
+		pf.HasSystemd = false
+	}
+	if !o.DryRun {
+		writeTargets := []string{o.ConfigDir, o.LogDir, o.RecorderDataDir}
+		if pf.HasSystemd {
+			writeTargets = append(writeTargets, o.UnitDir)
+		}
+		if blocked := setup.FirstUnwritable(writeTargets...); blocked != "" {
+			fmt.Fprintf(os.Stderr, "mymcp init: cannot write %s\n", blocked)
+			if !pf.IsRoot {
+				fmt.Fprintln(os.Stderr, "  most installs need root: sudo mymcp init")
+			}
+			return 1
+		}
 	}
 
 	var plan *setup.Plan

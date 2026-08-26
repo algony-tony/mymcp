@@ -69,3 +69,32 @@ func TestRunPreflightDistinguishesUnreadableFromAbsent(t *testing.T) {
 		t.Fatalf("a missing .env is a normal fresh install, got %v", err)
 	}
 }
+
+func TestFirstUnwritableWritableDirReturnsEmpty(t *testing.T) {
+	if got := FirstUnwritable(t.TempDir()); got != "" {
+		t.Fatalf("FirstUnwritable(writable dir) = %q, want \"\"", got)
+	}
+}
+
+func TestFirstUnwritableReportsA0500Dir(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses file permissions")
+	}
+	dir := t.TempDir()
+	locked := filepath.Join(dir, "locked")
+	if err := os.Mkdir(locked, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) }) // let t.TempDir() clean up
+	if got := FirstUnwritable(locked); got != locked {
+		t.Fatalf("FirstUnwritable(0o500 dir) = %q, want %q", got, locked)
+	}
+}
+
+func TestFirstUnwritableMissingDirWithWritableAncestorReturnsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "does", "not", "exist", "yet")
+	if got := FirstUnwritable(missing); got != "" {
+		t.Fatalf("FirstUnwritable(missing dir under writable ancestor) = %q, want \"\"", got)
+	}
+}

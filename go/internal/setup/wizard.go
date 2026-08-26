@@ -31,6 +31,7 @@ type Options struct {
 	RipgrepBinary    string
 	Start            bool
 	DryRun           bool
+	UnitDir          string
 
 	// Explicit names the flags the user actually typed. Seeding from an
 	// existing .env must never override those. Task 7 populates it via
@@ -120,6 +121,9 @@ func buildPlan(o Options, pf Preflight, sys System) (*Plan, error) {
 	p.InstallRipgrep, p.RipgrepBinary = o.InstallRipgrep, o.RipgrepBinary
 	p.Start, p.DryRun = o.Start, o.DryRun
 	p.HasSystemd = pf.HasSystemd
+	if o.UnitDir != "" {
+		p.UnitDir = o.UnitDir
+	}
 
 	switch {
 	case o.NoMetricsToken:
