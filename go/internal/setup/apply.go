@@ -296,7 +296,13 @@ func installRipgrep(p *Plan, sys System) (Status, string, error) {
 		if err != nil {
 			return StatusSkipped, "", err
 		}
-		dest := "/usr/local/bin/rg"
+		dest := p.RipgrepDest
+		if dest == "" {
+			dest = "/usr/local/bin/rg"
+		}
+		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+			return StatusSkipped, "", err
+		}
 		if err := os.WriteFile(dest, raw, 0o755); err != nil {
 			return StatusSkipped, "", err
 		}

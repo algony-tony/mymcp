@@ -188,6 +188,10 @@ func TestApplyPrefersSuppliedRipgrepBinaryOverPackageManager(t *testing.T) {
 		t.Fatal(err)
 	}
 	p.RipgrepBinary = src
+	// Never write into a real system path from a test: a stub `rg` on PATH
+	// breaks TestGrepRgPathIfInstalled in the same `go test ./...` run and
+	// leaves the machine with a no-op ripgrep.
+	p.RipgrepDest = filepath.Join(t.TempDir(), "bin", "rg")
 	sys.Paths["apt-get"] = "/usr/bin/apt-get"
 	if _, err := Apply(p, sys); err != nil {
 		t.Fatal(err)
@@ -197,8 +201,8 @@ func TestApplyPrefersSuppliedRipgrepBinaryOverPackageManager(t *testing.T) {
 			t.Fatalf("air-gapped host must not shell out to a package manager: %v", sys.Calls)
 		}
 	}
-	if _, err := os.Stat("/usr/local/bin/rg"); err != nil {
-		t.Skip("cannot write /usr/local/bin unprivileged; covered by the e2e smoke instead")
+	if _, err := os.Stat(p.RipgrepDest); err != nil {
+		t.Fatalf("the supplied binary must be installed at RipgrepDest: %v", err)
 	}
 }
 

@@ -41,6 +41,11 @@ type Plan struct {
 	ExecPath string
 	// UnitDir is overridable so tests can write units into t.TempDir().
 	UnitDir string
+	// RipgrepDest is where a supplied ripgrep binary is installed. It is
+	// overridable so tests never write into a real system path: a test that
+	// dropped a stub `rg` into /usr/local/bin broke an unrelated test in the
+	// same `go test ./...` run and left the machine with a no-op ripgrep.
+	RipgrepDest string
 }
 
 func DefaultPlan() *Plan {
@@ -57,6 +62,7 @@ func DefaultPlan() *Plan {
 		Start:           true,
 		HasSystemd:      true,
 		UnitDir:         "/etc/systemd/system",
+		RipgrepDest:     "/usr/local/bin/rg",
 	}
 }
 
