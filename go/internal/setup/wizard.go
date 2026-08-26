@@ -3,6 +3,7 @@ package setup
 import (
 	"fmt"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 
@@ -65,11 +66,20 @@ func envHas(existing, key string) bool {
 
 // seedFromExistingEnv makes a re-run non-destructive: values already on the
 // host beat flag defaults, but never beat a flag the user actually typed.
-func seedFromExistingEnv(o Options, existing string) Options {
+// unit is the text of any existing systemd unit (or "" if none), used only
+// to recover the service user — it is not persisted anywhere else.
+func seedFromExistingEnv(o Options, existing, unit string) Options {
+	typed := func(name string) bool { return o.Explicit[name] }
+	if v := existingServiceUser(unit); v != "" && !typed("service-user") {
+		// A re-run must not silently re-render User=root over a host that
+		// was deliberately installed with a non-root -service-user — that
+		// would be a privilege escalation on a command documented as safe
+		// to re-run.
+		o.ServiceUser = v
+	}
 	if existing == "" {
 		return o
 	}
-	typed := func(name string) bool { return o.Explicit[name] }
 	if v := envValue(existing, "MYMCP_HOST"); v != "" && !typed("bind") {
 		o.Bind = v
 	}
@@ -88,6 +98,12 @@ func seedFromExistingEnv(o Options, existing string) Options {
 	if v := envValue(existing, "MYMCP_AUDIT_ENABLED"); v != "" && !typed("audit") {
 		o.Audit = v == "true"
 	}
+	if v := envValue(existing, "MYMCP_AUDIT_LOG_DIR"); v != "" && !typed("log-dir") {
+		o.LogDir = v
+	}
+	if v := envValue(existing, "MYMCP_RECORDER_DATA_DIR"); v != "" && !typed("recorder-data-dir") {
+		o.RecorderDataDir = v
+	}
 	if envValue(existing, "MYMCP_RECORDER_ENABLED") == "true" && !typed("recorder") {
 		o.Recorder = true
 		if v := envValue(existing, "MYMCP_RECORDER_LLM_PROVIDER"); v != "" && !typed("recorder-provider") {
@@ -103,9 +119,31 @@ func seedFromExistingEnv(o Options, existing string) Options {
 	return o
 }
 
+// existingServiceUser pulls User= out of a rendered systemd unit, mirroring
+// execStartCheck's ExecStart= parsing in doctor.go.
+func existingServiceUser(unit string) string {
+	for _, line := range strings.Split(unit, "\n") {
+		if after, ok := strings.CutPrefix(strings.TrimSpace(line), "User="); ok {
+			return strings.TrimSpace(after)
+		}
+	}
+	return ""
+}
+
+// existingUnitText reads any systemd unit already on disk at o.UnitDir, or
+// "" if none — a read error means "no existing unit", not a fatal error,
+// since a fresh install has nothing there yet.
+func existingUnitText(o Options) string {
+	raw, err := os.ReadFile(o.UnitDir + "/mymcp.service")
+	if err != nil {
+		return ""
+	}
+	return string(raw)
+}
+
 // PlanFromOptions is the non-interactive path (-yes, CI, Ansible).
 func PlanFromOptions(o Options, pf Preflight, sys System) (*Plan, error) {
-	return buildPlan(seedFromExistingEnv(o, pf.ExistingEnv), pf, sys)
+	return buildPlan(seedFromExistingEnv(o, pf.ExistingEnv, existingUnitText(o)), pf, sys)
 }
 
 // buildPlan turns fully-resolved Options into a Plan. It does no seeding of
@@ -164,7 +202,7 @@ func buildPlan(o Options, pf Preflight, sys System) (*Plan, error) {
 // PlanFromWizard asks the seven questions, seeding defaults from any existing
 // .env (update mode), then builds the Plan from the answers directly.
 func PlanFromWizard(o Options, pf Preflight, pr *Prompter, sys System) (*Plan, error) {
-	o = seedFromExistingEnv(o, pf.ExistingEnv)
+	o = seedFromExistingEnv(o, pf.ExistingEnv, existingUnitText(o))
 
 	// 1. Bind + port.
 	o.Bind = pr.Ask("Bind address", o.Bind)

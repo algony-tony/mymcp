@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,6 +36,13 @@ type ApplyOutcome struct {
 	Results     []Result
 	AdminToken  string
 	ClientToken string
+	// ClientRole is the ROLE ACTUALLY STORED for ClientToken — from the
+	// existing token when one is reused, or from the plan when one is
+	// created. It is never just p.ClientRole: a re-run with a different
+	// -client-role keeps the existing token (and its existing role)
+	// untouched, and Summary must report what is really enforced, not what
+	// was requested.
+	ClientRole string
 }
 
 // runOut wraps a System.Run failure with the command's own output, which is
@@ -48,6 +57,33 @@ func runOut(sys System, what, name string, args ...string) error {
 		return fmt.Errorf("%s: %w: %s", what, err, trimmed)
 	}
 	return fmt.Errorf("%s: %w", what, err)
+}
+
+// chownToServiceUser gives the service account ownership of the paths it must
+// read and write. Without this a non-root -service-user yields root-owned
+// dirs and a 0600 .env the service cannot read, and the unit crash-loops.
+func chownToServiceUser(p *Plan, paths ...string) error {
+	if p.ServiceUser == "" || p.ServiceUser == "root" || p.DryRun {
+		return nil
+	}
+	u, err := user.Lookup(p.ServiceUser)
+	if err != nil {
+		return fmt.Errorf("lookup %s: %w", p.ServiceUser, err)
+	}
+	uid, err := strconv.Atoi(u.Uid)
+	if err != nil {
+		return fmt.Errorf("uid %q: %w", u.Uid, err)
+	}
+	gid, err := strconv.Atoi(u.Gid)
+	if err != nil {
+		return fmt.Errorf("gid %q: %w", u.Gid, err)
+	}
+	for _, path := range paths {
+		if err := os.Chown(path, uid, gid); err != nil {
+			return fmt.Errorf("chown %s: %w", path, err)
+		}
+	}
+	return nil
 }
 
 // Apply runs every step in order. Each step is idempotent, so a run that fails
@@ -80,6 +116,11 @@ func Apply(p *Plan, sys System) (ApplyOutcome, error) {
 			return out, err
 		}
 		add("dir "+dir, st, "")
+	}
+	// Chown the directories now so the service account owns them from the
+	// start; .env and tokens.json get a second pass below once they exist.
+	if err := chownToServiceUser(p, p.ConfigDir, p.LogDir, p.RecorderDataDir); err != nil {
+		return out, err
 	}
 
 	// 3. .env — line-merged, never overwritten; admin token preserved.
@@ -125,6 +166,7 @@ func Apply(p *Plan, sys System) (ApplyOutcome, error) {
 	// 4+5. Token store and the first client token, deduplicated by name.
 	if p.DryRun {
 		add("client token", StatusSkipped, "would create "+p.ClientName)
+		out.ClientRole = p.ClientRole
 	} else {
 		store, err := auth.NewTokenStore(p.TokenPath(), admin)
 		if err != nil {
@@ -133,6 +175,7 @@ func Apply(p *Plan, sys System) (ApplyOutcome, error) {
 		for tok, info := range store.ListTokens() {
 			if info.Name == p.ClientName {
 				out.ClientToken = tok
+				out.ClientRole = info.Role // the STORED role, not p.ClientRole
 			}
 		}
 		if out.ClientToken == "" {
@@ -141,10 +184,26 @@ func Apply(p *Plan, sys System) (ApplyOutcome, error) {
 				return out, err
 			}
 			out.ClientToken = tok
+			out.ClientRole = p.ClientRole
 			add("client token", StatusCreated, p.ClientName+" ("+p.ClientRole+")")
 		} else {
 			add("client token", StatusUnchanged, p.ClientName)
 		}
+	}
+
+	// .env and tokens.json now exist (unless -dry-run); re-chown everything
+	// the service account must read and write. A non-root -service-user with
+	// no chown yields a 0600 .env root owns and the unit crash-loops.
+	if err := chownToServiceUser(p, p.ConfigDir, p.LogDir, p.RecorderDataDir, p.EnvPath(), p.TokenPath()); err != nil {
+		return out, err
+	}
+	switch {
+	case p.ServiceUser == "" || p.ServiceUser == "root":
+		add("chown", StatusSkipped, "root service user; no chown needed")
+	case p.DryRun:
+		add("chown", StatusSkipped, "would chown to "+p.ServiceUser+" (dry-run)")
+	default:
+		add("chown", StatusUpdated, p.ServiceUser)
 	}
 
 	// 5b. ripgrep. Optional: grep falls back to a native scan without it.

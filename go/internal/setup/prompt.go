@@ -82,12 +82,19 @@ func (p *Prompter) Confirm(question string, def bool) bool {
 	}
 }
 
-// AskSecret suppresses echo via stty so an API key never lands on screen.
-// stdlib has no termios helper and the project forbids new dependencies.
+// AskSecret suppresses echo so an API key never lands on screen. stty must be
+// pointed at the terminal with -F: System.Run uses exec.Command, whose child
+// stdin is /dev/null, so a bare `stty -echo` fails with "Inappropriate ioctl
+// for device" and silently leaves echo on.
 func (p *Prompter) AskSecret(question string) string {
 	fmt.Fprintf(p.out, "%s: ", question)
-	_, _ = p.sys.Run("stty", "-echo")
-	defer func() { _, _ = p.sys.Run("stty", "echo") }()
+	if _, err := p.sys.Run("stty", "-F", "/dev/tty", "-echo"); err != nil {
+		fmt.Fprintf(p.out, "\n  WARNING: cannot disable terminal echo (%v);\n"+
+			"  what you type next WILL be visible. Ctrl-C and pass the key via\n"+
+			"  -recorder-api-key or MYMCP_RECORDER_LLM_API_KEY to avoid this.\n%s: ", err, question)
+	} else {
+		defer func() { _, _ = p.sys.Run("stty", "-F", "/dev/tty", "echo") }()
+	}
 	v := p.readLine()
 	fmt.Fprintln(p.out)
 	return v

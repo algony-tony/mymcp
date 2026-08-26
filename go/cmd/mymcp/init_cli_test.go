@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -102,6 +104,29 @@ func TestInitRefusesSilentDegradeWhenNotRoot(t *testing.T) {
 	})
 	if code == 0 {
 		t.Fatal("a forgotten sudo must fail loudly, not degrade to a files-only success")
+	}
+}
+
+func TestInitDryRunDoesNotPrintTheAdminToken(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(dir+"/.env",
+		[]byte("MYMCP_ADMIN_TOKEN=tok_secret_should_not_leak\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	code := run([]string{"init", "-yes", "-dry-run", "-config-dir", dir,
+		"-log-dir", dir + "/log", "-recorder-data-dir", dir + "/rec", "-start=false"})
+	_ = w.Close()
+	os.Stdout = stdout
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(r)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	if strings.Contains(buf.String(), "tok_secret_should_not_leak") {
+		t.Fatalf("-dry-run leaked the admin token into stdout:\n%s", buf.String())
 	}
 }
 

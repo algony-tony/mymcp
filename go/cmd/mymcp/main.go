@@ -321,8 +321,13 @@ func runInit(args []string) int {
 		fmt.Fprintln(os.Stderr, "every step is idempotent — fix the cause and re-run `mymcp init` to resume")
 		return 1
 	}
+	if plan.DryRun {
+		fmt.Fprintf(os.Stdout, "\nDry run — nothing was written and no tokens were created.\n"+
+			"  Re-run without -dry-run to apply the steps above.\n")
+		return 0
+	}
 	setup.Summary(plan, outcome, os.Stdout)
-	if plan.Start && !plan.DryRun {
+	if plan.Start {
 		fmt.Fprintln(os.Stdout, "\nRunning mymcp doctor…")
 		setup.RenderChecks(setup.Doctor(plan.ConfigDir, sys), os.Stdout)
 	}

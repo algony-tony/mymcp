@@ -11,7 +11,7 @@ func TestSummaryNeverPrintsWildcardAsClientURL(t *testing.T) {
 	p := DefaultPlan()
 	p.Bind = "0.0.0.0"
 	var buf bytes.Buffer
-	Summary(p, ApplyOutcome{AdminToken: "tok_admin", ClientToken: "tok_client"}, &buf)
+	Summary(p, ApplyOutcome{AdminToken: "tok_admin", ClientToken: "tok_client", ClientRole: p.ClientRole}, &buf)
 	s := buf.String()
 	if strings.Contains(s, "http://0.0.0.0:") {
 		t.Fatalf("0.0.0.0 is not usable in a client config:\n%s", s)
@@ -34,7 +34,7 @@ func TestSummaryKeepsExplicitBind(t *testing.T) {
 	p := DefaultPlan()
 	p.Bind = "127.0.0.1"
 	var buf bytes.Buffer
-	Summary(p, ApplyOutcome{AdminToken: "a", ClientToken: "c"}, &buf)
+	Summary(p, ApplyOutcome{AdminToken: "a", ClientToken: "c", ClientRole: p.ClientRole}, &buf)
 	if !strings.Contains(buf.String(), "http://127.0.0.1:8765/mcp") {
 		t.Fatalf("explicit bind must be used verbatim:\n%s", buf.String())
 	}
@@ -53,7 +53,7 @@ func TestSummaryBracketsAnIPv6Address(t *testing.T) {
 	p := DefaultPlan()
 	p.Bind = "::1"
 	var buf bytes.Buffer
-	Summary(p, ApplyOutcome{AdminToken: "a", ClientToken: "c"}, &buf)
+	Summary(p, ApplyOutcome{AdminToken: "a", ClientToken: "c", ClientRole: p.ClientRole}, &buf)
 	s := buf.String()
 	if !strings.Contains(s, "http://[::1]:8765/mcp") {
 		t.Fatalf("IPv6 host must be bracketed:\n%s", s)
@@ -63,12 +63,26 @@ func TestSummaryBracketsAnIPv6Address(t *testing.T) {
 	}
 }
 
+func TestSummaryPrintsTheStoredRoleAndFlagsAMismatch(t *testing.T) {
+	p := DefaultPlan()
+	p.ClientRole = "ro" // requested on this run
+	var buf bytes.Buffer
+	Summary(p, ApplyOutcome{AdminToken: "a", ClientToken: "c", ClientRole: "rw"}, &buf)
+	s := buf.String()
+	if !strings.Contains(s, "(rw, name=default)") {
+		t.Fatalf("summary must print the STORED role (rw), not the requested one (ro):\n%s", s)
+	}
+	if !strings.Contains(s, "role is rw, not ro") {
+		t.Fatalf("summary must call out the role mismatch:\n%s", s)
+	}
+}
+
 func TestSummaryURLAlwaysParses(t *testing.T) {
 	for _, bind := range []string{"127.0.0.1", "::1", "10.0.0.5"} {
 		p := DefaultPlan()
 		p.Bind = bind
 		var buf bytes.Buffer
-		Summary(p, ApplyOutcome{AdminToken: "a", ClientToken: "c"}, &buf)
+		Summary(p, ApplyOutcome{AdminToken: "a", ClientToken: "c", ClientRole: p.ClientRole}, &buf)
 		for _, line := range strings.Split(buf.String(), "\n") {
 			i := strings.Index(line, "http://")
 			if i < 0 {

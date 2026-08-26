@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -133,13 +134,26 @@ func Doctor(configDir string, sys System) []Check {
 	if port == "" {
 		port = "8765"
 	}
-	checks = append(checks, functionalChecks(tokenPath, port)...)
+	host := doctorDialHost(envValue(string(raw), "MYMCP_HOST"))
+	checks = append(checks, functionalChecks(tokenPath, host, port)...)
 
 	// --- RECORDER ---
 	if envValue(string(raw), "MYMCP_RECORDER_ENABLED") == "true" {
-		checks = append(checks, recorderChecks(sys, string(raw), port)...)
+		checks = append(checks, recorderChecks(sys, string(raw), host, port)...)
 	}
 	return checks
+}
+
+// doctorDialHost picks the address the functional checks dial. A server
+// bound to a concrete address (-bind 192.168.1.12) only answers there; a
+// wildcard bind (0.0.0.0, ::, *, or unset) answers on loopback. Dialing a
+// bare wildcard address is either unroutable or means "everywhere", so map
+// it to 127.0.0.1 and otherwise dial exactly what was bound.
+func doctorDialHost(bind string) string {
+	if isWildcardHost(bind) {
+		return "127.0.0.1"
+	}
+	return bind
 }
 
 func nonEmptyLines(s string) []string {
@@ -249,7 +263,7 @@ func execStartCheck(sys System) Check {
 	}
 }
 
-func functionalChecks(tokenPath, port string) []Check {
+func functionalChecks(tokenPath, host, port string) []Check {
 	// Same trap as tokenStoreChecks: auth.NewTokenStore creates the file
 	// (and its parent directory) when missing. Doctor must never do that, so
 	// confirm the store exists before touching auth at all.
@@ -285,7 +299,7 @@ func functionalChecks(tokenPath, port string) []Check {
 	}
 
 	start := time.Now()
-	code, body, err := httpJSON("http://127.0.0.1:"+port+"/mcp", token,
+	code, body, err := httpJSON("http://"+net.JoinHostPort(host, port)+"/mcp", token,
 		`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
 	elapsed := time.Since(start).Round(time.Millisecond)
 	if err != nil {
@@ -332,7 +346,7 @@ func metricValue(scrape, name string) (float64, bool) {
 	return 0, false
 }
 
-func recorderChecks(sys System, env, port string) []Check {
+func recorderChecks(sys System, env, host, port string) []Check {
 	out := []Check{}
 	if _, err := sys.LookPath("mymcp-recorder"); err != nil {
 		return append(out, Check{Group: "RECORDER", Name: "sidecar installed", Severity: SevFail,
@@ -349,7 +363,7 @@ func recorderChecks(sys System, env, port string) []Check {
 	}
 	out = append(out, Check{Group: "RECORDER", Name: "sidecar active", Severity: SevOK})
 
-	code, scrape, err := httpJSON("http://127.0.0.1:"+port+"/metrics", envValue(env, "MYMCP_METRICS_TOKEN"), "")
+	code, scrape, err := httpJSON("http://"+net.JoinHostPort(host, port)+"/metrics", envValue(env, "MYMCP_METRICS_TOKEN"), "")
 	if err != nil || code != http.StatusOK {
 		out = append(out, Check{Group: "RECORDER", Name: "backlog", Severity: SevWarn,
 			Detail: "could not scrape /metrics to judge the backlog"})

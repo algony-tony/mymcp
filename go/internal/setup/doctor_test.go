@@ -188,3 +188,14 @@ func TestRecorderChecksSkippedWhenRecorderDisabled(t *testing.T) {
 		}
 	}
 }
+
+func TestDoctorDialHost(t *testing.T) {
+	for _, tc := range []struct{ bind, want string }{
+		{"", "127.0.0.1"}, {"0.0.0.0", "127.0.0.1"}, {"::", "127.0.0.1"}, {"*", "127.0.0.1"},
+		{"192.168.1.12", "192.168.1.12"}, {"::1", "::1"},
+	} {
+		if got := doctorDialHost(tc.bind); got != tc.want {
+			t.Errorf("doctorDialHost(%q) = %q, want %q", tc.bind, got, tc.want)
+		}
+	}
+}

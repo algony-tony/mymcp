@@ -50,7 +50,12 @@ func Summary(p *Plan, out ApplyOutcome, w io.Writer) {
 	url := "http://" + net.JoinHostPort(PrimaryAddress(p.Bind), strconv.Itoa(p.Port)) + "/mcp"
 	fmt.Fprintf(w, "\n✓ mymcp is configured on %s:%d\n\n", p.Bind, p.Port)
 	fmt.Fprintf(w, "  URL     %s\n", url)
-	fmt.Fprintf(w, "  Token   %s   (%s, name=%s)\n\n", out.ClientToken, p.ClientRole, p.ClientName)
+	fmt.Fprintf(w, "  Token   %s   (%s, name=%s)\n", out.ClientToken, out.ClientRole, p.ClientName)
+	if out.ClientRole != p.ClientRole {
+		fmt.Fprintf(w, "  (existing token kept; role is %s, not %s — revoke and re-create to change it)\n",
+			out.ClientRole, p.ClientRole)
+	}
+	fmt.Fprintln(w)
 	fmt.Fprintf(w, "  claude mcp add --transport http mymcp %s \\\n", url)
 	fmt.Fprintf(w, "      --header \"Authorization: Bearer %s\"\n\n", out.ClientToken)
 	fmt.Fprintf(w, "  {\"mcpServers\":{\"mymcp\":{\"type\":\"http\",\"url\":%q,"+

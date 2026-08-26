@@ -220,8 +220,14 @@ func TestApplyCreatesServiceUserOnlyWhenNotRoot(t *testing.T) {
 	p.ServiceUser = "mymcp"
 	sys.Paths["useradd"] = "/usr/sbin/useradd"
 	sys.Errors["id -u mymcp"] = errNoSuchUser
-	if _, err := Apply(p, sys); err != nil {
-		t.Fatal(err)
+	_, err := Apply(p, sys)
+	// The fake System reports `useradd` succeeding, but no such command
+	// actually ran on this host, so "mymcp" is not a real account; the real
+	// os/user.Lookup inside chownToServiceUser correctly fails on it.
+	// TestChownToServiceUserLookupFailureIsAClearError covers that step in
+	// isolation — here the point is only that useradd was invoked first.
+	if err == nil || !strings.Contains(err.Error(), "lookup mymcp") {
+		t.Fatalf("Apply err = %v, want a chown lookup failure for the (not really created) service user", err)
 	}
 	if !sys.ran("useradd -r -s /usr/sbin/nologin mymcp") {
 		t.Fatalf("service user not created; calls=%v", sys.Calls)
@@ -235,6 +241,57 @@ func TestApplyCreatesServiceUserOnlyWhenNotRoot(t *testing.T) {
 		if strings.HasPrefix(c, "useradd") {
 			t.Fatalf("must not useradd for the root service user: %v", sys2.Calls)
 		}
+	}
+}
+
+func TestChownToServiceUserNoopForRootEmptyOrDryRun(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "does-not-exist")
+	for _, p := range []*Plan{
+		{ServiceUser: "root"},
+		{ServiceUser: ""},
+		{ServiceUser: "mymcp", DryRun: true},
+	} {
+		if err := chownToServiceUser(p, missing); err != nil {
+			t.Errorf("chownToServiceUser(%+v) = %v, want nil (no-op, must not even stat the path)", p, err)
+		}
+	}
+}
+
+func TestChownToServiceUserLookupFailureIsAClearError(t *testing.T) {
+	p := &Plan{ServiceUser: "no-such-mymcp-test-user"}
+	err := chownToServiceUser(p, t.TempDir())
+	if err == nil {
+		t.Fatal("expected an error for a service user that does not exist")
+	}
+	if !strings.Contains(err.Error(), "lookup no-such-mymcp-test-user") {
+		t.Errorf("error = %v, want it to name the lookup step and the user", err)
+	}
+}
+
+func TestApplyReportsTheStoredClientRoleNotTheRequestedOne(t *testing.T) {
+	// A re-run with a different -client-role must not relabel a root-
+	// equivalent rw token as ro in the printed summary: tokens.json still
+	// says rw, and the outcome must say so too.
+	p, sys := tempPlan(t)
+	p.ClientRole = "rw"
+	first, err := Apply(p, sys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ClientRole != "rw" {
+		t.Fatalf("ClientRole on creation = %q, want rw", first.ClientRole)
+	}
+
+	p.ClientRole = "ro"
+	second, err := Apply(p, newFakeSystem())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.ClientToken != first.ClientToken {
+		t.Fatalf("client token changed on re-run: %q -> %q", first.ClientToken, second.ClientToken)
+	}
+	if second.ClientRole != "rw" {
+		t.Fatalf("ClientRole after re-run = %q, want the STORED rw (requested was ro)", second.ClientRole)
 	}
 }
 

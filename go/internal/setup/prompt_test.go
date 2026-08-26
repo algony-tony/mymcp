@@ -39,8 +39,24 @@ func TestAskSecretDisablesAndRestoresEcho(t *testing.T) {
 	if got := p.AskSecret("API key"); got != "sk-secret" {
 		t.Fatalf("AskSecret = %q", got)
 	}
-	if !sys.ran("stty -echo") || !sys.ran("stty echo") {
-		t.Fatalf("echo must be disabled then restored; calls=%v", sys.Calls)
+	if !sys.ran("stty -F /dev/tty -echo") || !sys.ran("stty -F /dev/tty echo") {
+		t.Fatalf("echo must be disabled then restored on /dev/tty; calls=%v", sys.Calls)
+	}
+}
+
+func TestAskSecretWarnsWhenEchoCannotBeDisabled(t *testing.T) {
+	sys := newFakeSystem()
+	sys.Errors["stty -F /dev/tty -echo"] = errNoSuchUser
+	var out bytes.Buffer
+	p := NewPrompter(strings.NewReader("sk-secret\n"), &out, sys)
+	if got := p.AskSecret("API key"); got != "sk-secret" {
+		t.Fatalf("AskSecret = %q", got)
+	}
+	if !strings.Contains(out.String(), "WILL be visible") {
+		t.Fatalf("the user must be warned that echo is on:\n%s", out.String())
+	}
+	if sys.ran("stty -F /dev/tty echo") {
+		t.Error("must not restore echo it never disabled")
 	}
 }
 

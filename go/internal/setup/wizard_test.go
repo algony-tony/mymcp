@@ -2,6 +2,8 @@ package setup
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -171,7 +173,9 @@ func TestPlanFromOptionsSeedsFromExistingEnvOnTheYesPath(t *testing.T) {
 		IsRoot: true, HasSystemd: true, Recorder: RecorderReady,
 		ExistingEnv: "MYMCP_PORT=9000\nMYMCP_METRICS_TOKEN=tok_metrics_old\n" +
 			"MYMCP_AUDIT_ENABLED=false\nMYMCP_RECORDER_ENABLED=true\n" +
-			"MYMCP_RECORDER_LLM_PROVIDER=openai\n",
+			"MYMCP_RECORDER_LLM_PROVIDER=openai\n" +
+			"MYMCP_AUDIT_LOG_DIR=/data/mymcp/log\n" +
+			"MYMCP_RECORDER_DATA_DIR=/data/mymcp/recorder\n",
 	}
 	p, err := PlanFromOptions(defaultOptions(), pf, newFakeSystem())
 	if err != nil {
@@ -188,6 +192,70 @@ func TestPlanFromOptionsSeedsFromExistingEnvOnTheYesPath(t *testing.T) {
 	}
 	if !p.Recorder.Enabled || p.Recorder.Provider != "openai" {
 		t.Errorf("recorder settings not preserved: %+v", p.Recorder)
+	}
+	if p.LogDir != "/data/mymcp/log" {
+		t.Errorf("LogDir = %q — a re-run must not silently move the (protected-path) audit log back to the default", p.LogDir)
+	}
+	if p.RecorderDataDir != "/data/mymcp/recorder" {
+		t.Errorf("RecorderDataDir = %q — a re-run must not silently move it back to the default", p.RecorderDataDir)
+	}
+}
+
+func TestSeedingNeverOverridesExplicitlyTypedLogAndRecorderDataDirs(t *testing.T) {
+	pf := Preflight{IsRoot: true, HasSystemd: true,
+		ExistingEnv: "MYMCP_AUDIT_LOG_DIR=/data/mymcp/log\nMYMCP_RECORDER_DATA_DIR=/data/mymcp/recorder\n"}
+	o := defaultOptions()
+	o.LogDir = "/typed/log"
+	o.RecorderDataDir = "/typed/recorder"
+	o.Explicit = map[string]bool{"log-dir": true, "recorder-data-dir": true}
+	p, err := PlanFromOptions(o, pf, newFakeSystem())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.LogDir != "/typed/log" || p.RecorderDataDir != "/typed/recorder" {
+		t.Fatalf("typed -log-dir/-recorder-data-dir must win over seeded values: LogDir=%q RecorderDataDir=%q",
+			p.LogDir, p.RecorderDataDir)
+	}
+}
+
+func TestPlanFromOptionsSeedsServiceUserFromAnExistingUnit(t *testing.T) {
+	// A re-run of `sudo mymcp init` for an unrelated reason must not
+	// silently re-render User=root over a host installed with a non-root
+	// -service-user — that would be a privilege escalation.
+	dir := t.TempDir()
+	unit := "[Unit]\nDescription=x\n\n[Service]\nUser=mymcp\nExecStart=/usr/local/bin/mymcp serve\n"
+	if err := os.WriteFile(filepath.Join(dir, "mymcp.service"), []byte(unit), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	o := defaultOptions()
+	o.UnitDir = dir
+	pf := Preflight{IsRoot: true, HasSystemd: true}
+	p, err := PlanFromOptions(o, pf, newFakeSystem())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.ServiceUser != "mymcp" {
+		t.Fatalf("ServiceUser = %q, want the mymcp seeded from the existing unit's User=", p.ServiceUser)
+	}
+}
+
+func TestSeedingNeverOverridesAnExplicitlyTypedServiceUser(t *testing.T) {
+	dir := t.TempDir()
+	unit := "[Service]\nUser=mymcp\n"
+	if err := os.WriteFile(filepath.Join(dir, "mymcp.service"), []byte(unit), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	o := defaultOptions()
+	o.UnitDir = dir
+	o.ServiceUser = "root"
+	o.Explicit = map[string]bool{"service-user": true}
+	pf := Preflight{IsRoot: true, HasSystemd: true}
+	p, err := PlanFromOptions(o, pf, newFakeSystem())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.ServiceUser != "root" {
+		t.Fatalf("ServiceUser = %q, want the typed root to win over the unit's mymcp", p.ServiceUser)
 	}
 }
 
