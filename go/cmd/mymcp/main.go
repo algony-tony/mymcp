@@ -4,12 +4,15 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/algony-tony/mymcp/go/internal/auth"
 	"github.com/algony-tony/mymcp/go/internal/config"
 	"github.com/algony-tony/mymcp/go/internal/httpserver"
+	"github.com/algony-tony/mymcp/go/internal/setup"
 	"github.com/algony-tony/mymcp/go/internal/version"
 )
 
@@ -19,15 +22,24 @@ func main() {
 
 func run(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: mymcp {serve|version|token}")
-		return 2
+		statusHint("/etc/mymcp", setup.RealSystem(), os.Stdout)
+		return 0
 	}
 	switch args[0] {
+	case "-h", "--help", "help":
+		printHelp(os.Stdout)
+		return 0
 	case "version":
 		fmt.Println("mymcp " + version.Version)
 		return 0
 	case "token":
 		return runToken(args[1:])
+	case "init":
+		return runInit(args[1:])
+	case "doctor":
+		return runDoctor(args[1:])
+	case "config":
+		return runConfig(args[1:])
 	case "serve":
 		fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 		envFile := fs.String("env-file", "", "path to .env file")
@@ -48,6 +60,68 @@ func run(args []string) int {
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
 		return 2
 	}
+}
+
+// statusHint replaces the old bare-usage line. pipx has no post-install hook,
+// so the binary itself has to say what the next step is.
+func statusHint(configDir string, sys setup.System, w io.Writer) {
+	fmt.Fprintf(w, "mymcp %s\n\n", version.Version)
+	pf, err := setup.RunPreflight(configDir, sys)
+	if err != nil {
+		fmt.Fprintf(w, "  ✗ %v\n\n", err)
+		fmt.Fprintln(w, "  Next: check permissions, then run: mymcp doctor")
+		return
+	}
+	switch {
+	case pf.ExistingEnv == "":
+		fmt.Fprintf(w, "  ✗ not initialised (%s/.env does not exist)\n\n", configDir)
+		fmt.Fprintln(w, "  Next:")
+		fmt.Fprintln(w, "    sudo mymcp init      install as a systemd service (recommended)")
+		fmt.Fprintln(w, "    mymcp serve          foreground trial run; tokens vanish on exit")
+	default:
+		active := false
+		if out, err := sys.Run("systemctl", "is-active", "mymcp"); err == nil &&
+			strings.TrimSpace(out) == "active" {
+			active = true
+		}
+		if active {
+			fmt.Fprintf(w, "  ✓ configured and running (%s/.env)\n\n", configDir)
+			fmt.Fprintln(w, "  Next: mymcp doctor  |  mymcp token list")
+		} else {
+			fmt.Fprintf(w, "  ⚠ configured but not running (%s/.env)\n\n", configDir)
+			fmt.Fprintln(w, "  Next:")
+			fmt.Fprintln(w, "    sudo systemctl start mymcp")
+			fmt.Fprintln(w, "    mymcp doctor")
+		}
+	}
+	fmt.Fprintln(w, "\n  Commands: serve | init | doctor | token | config | version")
+}
+
+// printHelp is `-h`/`--help`/`help`'s output — falling through to
+// "unknown command" here was a poor first impression for a new user.
+func printHelp(w io.Writer) {
+	fmt.Fprintf(w, "mymcp %s — Linux system tools over MCP\n\n", version.Version)
+	fmt.Fprintln(w, "Usage: mymcp <command> [flags]")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Commands:")
+	fmt.Fprintln(w, "  serve             run the server (foreground)")
+	fmt.Fprintln(w, "  init              configure and install mymcp as a systemd service")
+	fmt.Fprintln(w, "  doctor            diagnose an existing install")
+	fmt.Fprintln(w, "  token             manage API tokens: list | add | revoke")
+	fmt.Fprintln(w, "  config example    print an example .env")
+	fmt.Fprintln(w, "  version           print the version")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Run mymcp with no arguments for a status check.")
+}
+
+// runConfig handles `mymcp config example`, the only subcommand today.
+func runConfig(args []string) int {
+	if len(args) == 1 && args[0] == "example" {
+		fmt.Print(setup.RenderEnv(setup.DefaultPlan(), "<generate-with-mymcp-init>"))
+		return 0
+	}
+	fmt.Fprintln(os.Stderr, "usage: mymcp config example")
+	return 2
 }
 
 func loadTokenStore() (*auth.TokenStore, error) {
@@ -130,4 +204,152 @@ func runToken(args []string) int {
 		fmt.Fprintf(os.Stderr, "unknown token subcommand: %s\n", args[0])
 		return 2
 	}
+}
+
+// parseInitFlags parses `init`'s flags into setup.Options and records, in
+// Explicit, exactly which flags the user typed (via flag.FlagSet.Visit,
+// which visits only flags actually set). A re-run of `mymcp init` seeds
+// values from an existing .env, and Explicit is what stops that seeding from
+// overriding a flag the user really passed on this invocation.
+func parseInitFlags(args []string) (setup.Options, error) {
+	o := setup.Options{}
+	fs := flag.NewFlagSet("init", flag.ContinueOnError)
+	fs.BoolVar(&o.Yes, "yes", false, "non-interactive; accept every default")
+	fs.StringVar(&o.Bind, "bind", "0.0.0.0", "bind address")
+	fs.IntVar(&o.Port, "port", 8765, "bind port")
+	fs.StringVar(&o.ServiceUser, "service-user", "root", "systemd User=")
+	fs.StringVar(&o.ConfigDir, "config-dir", "/etc/mymcp", "config directory")
+	fs.StringVar(&o.LogDir, "log-dir", "/var/log/mymcp", "audit log directory")
+	fs.StringVar(&o.RecorderDataDir, "recorder-data-dir", "/var/lib/mymcp/recorder", "recorder data directory")
+	fs.BoolVar(&o.Audit, "audit", true, "enable the audit log")
+	fs.StringVar(&o.MetricsToken, "metrics-token", "", "explicit /metrics token")
+	fs.BoolVar(&o.NoMetricsToken, "no-metrics-token", false, "leave /metrics unauthenticated")
+	fs.StringVar(&o.ClientName, "client-name", "default", "name of the first client token")
+	fs.StringVar(&o.ClientRole, "client-role", "rw", "role of the first client token: ro or rw")
+	fs.BoolVar(&o.Recorder, "recorder", false, "enable the overview recorder sidecar")
+	fs.StringVar(&o.RecorderProvider, "recorder-provider", "anthropic", "anthropic or openai")
+	fs.StringVar(&o.RecorderModel, "recorder-model", "", "recorder LLM model")
+	fs.StringVar(&o.RecorderAPIKey, "recorder-api-key", os.Getenv("MYMCP_RECORDER_LLM_API_KEY"), "recorder LLM API key")
+	fs.BoolVar(&o.InstallRipgrep, "install-ripgrep", true, "install ripgrep when missing")
+	fs.StringVar(&o.RipgrepBinary, "ripgrep-binary", "", "use this ripgrep binary instead of a package manager")
+	fs.BoolVar(&o.Start, "start", true, "enable and start the service")
+	fs.BoolVar(&o.DryRun, "dry-run", false, "print what would change and write nothing")
+	fs.StringVar(&o.UnitDir, "unit-dir", "/etc/systemd/system", "directory for systemd units (advanced; for testing against a temp dir)")
+	fs.BoolVar(&o.FilesOnly, "files-only", false,
+		"write config and tokens but do not install or manage the systemd unit")
+	if err := fs.Parse(args); err != nil {
+		return o, err
+	}
+	o.Explicit = map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { o.Explicit[f.Name] = true })
+	// flag.Visit reports only flags typed on the command line, so an
+	// env-sourced key would otherwise lose to the stale value already in
+	// .env. Exporting the variable is deliberate; treat it as typed.
+	if os.Getenv("MYMCP_RECORDER_LLM_API_KEY") != "" {
+		o.Explicit["recorder-api-key"] = true
+	}
+	return o, nil
+}
+
+func runInit(args []string) int {
+	o, err := parseInitFlags(args)
+	if err != nil {
+		return 2
+	}
+
+	sys := setup.RealSystem()
+	pf, err := setup.RunPreflight(o.ConfigDir, sys)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "mymcp init:", err)
+		return 1
+	}
+	// systemd management needs privilege even when the unit path is writable:
+	// `systemctl daemon-reload` fails with "Interactive authentication
+	// required" for a non-root caller. Degrading is legitimate (containers,
+	// WSL, an intentional files-only install) but it must be asked for —
+	// inferring it from uid would turn a forgotten `sudo` into a silent
+	// partial install that still exits 0.
+	switch {
+	case !pf.HasSystemd:
+		fmt.Fprintln(os.Stderr, "[mymcp] systemd not detected — configuring files only (degraded mode)")
+	case o.FilesOnly:
+		fmt.Fprintln(os.Stderr, "[mymcp] -files-only — skipping systemd unit management")
+		pf.HasSystemd = false
+	case !pf.IsRoot && !o.DryRun:
+		fmt.Fprintln(os.Stderr, "mymcp init: systemd is present but managing it needs root")
+		fmt.Fprintln(os.Stderr, "  sudo mymcp init            install and start the service")
+		fmt.Fprintln(os.Stderr, "  mymcp init -files-only     write config and tokens only")
+		return 1
+	}
+	if !o.DryRun {
+		writeTargets := []string{o.ConfigDir, o.LogDir, o.RecorderDataDir}
+		if pf.HasSystemd {
+			writeTargets = append(writeTargets, o.UnitDir)
+		}
+		if blocked := setup.FirstUnwritable(writeTargets...); blocked != "" {
+			fmt.Fprintf(os.Stderr, "mymcp init: cannot write %s\n", blocked)
+			if !pf.IsRoot {
+				fmt.Fprintln(os.Stderr, "  most installs need root: sudo mymcp init")
+			}
+			return 1
+		}
+	}
+
+	var plan *setup.Plan
+	if o.Yes {
+		plan, err = setup.PlanFromOptions(o, pf, sys)
+	} else {
+		pr, terr := setup.OpenTTYPrompter(sys)
+		if terr != nil {
+			fmt.Fprintf(os.Stderr, "mymcp init: %v\n  re-run with -yes for a non-interactive install\n", terr)
+			return 1
+		}
+		defer pr.Close()
+		plan, err = setup.PlanFromWizard(o, pf, pr, sys)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "mymcp init:", err)
+		return 1
+	}
+
+	outcome, err := setup.Apply(plan, sys)
+	for _, r := range outcome.Results {
+		fmt.Fprintf(os.Stderr, "  %-9s %s %s\n", r.Status, r.Step, r.Detail)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "mymcp init failed:", err)
+		fmt.Fprintln(os.Stderr, "every step is idempotent — fix the cause and re-run `mymcp init` to resume")
+		return 1
+	}
+	if plan.DryRun {
+		fmt.Fprintf(os.Stdout, "\nDry run — nothing was written and no tokens were created.\n"+
+			"  Re-run without -dry-run to apply the steps above.\n")
+		return 0
+	}
+	setup.Summary(plan, outcome, os.Stdout)
+	if plan.Start {
+		fmt.Fprintln(os.Stdout, "\nRunning mymcp doctor…")
+		setup.RenderChecks(setup.Doctor(plan.ConfigDir, sys), os.Stdout)
+	}
+	return 0
+}
+
+func runDoctor(args []string) int {
+	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
+	configDir := fs.String("config-dir", "/etc/mymcp", "config directory")
+	strict := fs.Bool("strict", false, "treat warnings as failures")
+	asJSON := fs.Bool("json", false, "emit machine-readable JSON")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	checks := setup.Doctor(*configDir, setup.RealSystem())
+	if *asJSON {
+		if err := setup.RenderChecksJSON(checks, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "doctor:", err)
+			return 1
+		}
+	} else {
+		setup.RenderChecks(checks, os.Stdout)
+	}
+	return setup.DoctorExitCode(checks, *strict)
 }

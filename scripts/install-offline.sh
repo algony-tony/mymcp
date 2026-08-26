@@ -40,5 +40,5 @@ fi
 
 echo
 echo "Done. Next steps:"
-echo "  sudo mymcp install-service --yes        # production"
+echo "  sudo mymcp init                         # configure + install the service"
 echo "  mymcp serve                             # dev / quick try"

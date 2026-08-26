@@ -143,3 +143,29 @@ def test_install_unit_output_error_is_reported_not_raised(tmp_path, monkeypatch,
     err = capsys.readouterr().err
     assert "Traceback" not in err
     assert str(dest) in err
+
+
+def test_render_unit_accepts_service_user_and_env_file():
+    """mymcp init must be able to match the main service's User= and .env."""
+    from mymcp.recorder.__main__ import render_unit
+
+    unit = render_unit(service_user="root", env_file="/opt/mymcp/.env")
+    assert "User=root" in unit
+    assert "EnvironmentFile=/opt/mymcp/.env" in unit
+
+
+def test_render_unit_defaults_are_unchanged():
+    from mymcp.recorder.__main__ import render_unit
+
+    unit = render_unit()
+    assert "User=mymcp" in unit
+    assert "NoNewPrivileges=true" in unit
+
+
+def test_install_unit_cli_passes_through_service_user(tmp_path, capsys):
+    from mymcp.recorder.__main__ import main
+
+    dest = tmp_path / "mymcp-recorder.service"
+    rc = main(["--install-unit", "--service-user", "root", "--output", str(dest)])
+    assert rc == 0
+    assert "User=root" in dest.read_text()

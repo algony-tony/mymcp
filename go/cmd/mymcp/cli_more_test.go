@@ -80,3 +80,9 @@ func TestServeBadFlag(t *testing.T) {
 		t.Fatalf("serve bad-flag exit=%d, want 2", code)
 	}
 }
+
+func TestUnknownCommandStillExitsTwo(t *testing.T) {
+	if code := run([]string{"frobnicate"}); code != 2 {
+		t.Fatalf("exit = %d, want 2", code)
+	}
+}

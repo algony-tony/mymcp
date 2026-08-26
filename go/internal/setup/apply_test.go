@@ -1,0 +1,434 @@
+package setup
+
+import (
+	"os"
+	"os/user"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// tempPlan returns a Plan whose every path lives under t.TempDir(), so Apply
+// can run unprivileged in CI.
+func tempPlan(t *testing.T) (*Plan, *fakeSystem) {
+	t.Helper()
+	root := t.TempDir()
+	p := DefaultPlan()
+	p.ConfigDir = filepath.Join(root, "etc")
+	p.LogDir = filepath.Join(root, "log")
+	p.RecorderDataDir = filepath.Join(root, "lib", "recorder")
+	p.UnitDir = filepath.Join(root, "units")
+	p.ExecPath = "/usr/local/bin/mymcp"
+	p.Start = false
+	if err := os.MkdirAll(p.UnitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return p, newFakeSystem()
+}
+
+func TestApplyCreatesEverythingOnFreshHost(t *testing.T) {
+	p, sys := tempPlan(t)
+	out, err := Apply(p, sys)
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	for _, path := range []string{p.EnvPath(), p.TokenPath(), p.UnitPath()} {
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("expected %s to exist: %v", path, err)
+		}
+	}
+	if out.AdminToken == "" || out.ClientToken == "" {
+		t.Fatalf("both tokens must be reported: %+v", out)
+	}
+	st, err := os.Stat(p.EnvPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Mode().Perm() != 0o600 {
+		t.Errorf(".env mode = %o, want 600 (it holds the admin token)", st.Mode().Perm())
+	}
+	if !sys.ran("systemctl daemon-reload") {
+		t.Errorf("daemon-reload not issued; calls=%v", sys.Calls)
+	}
+}
+
+func TestApplyIsIdempotentAndKeepsAdminToken(t *testing.T) {
+	p, sys := tempPlan(t)
+	first, err := Apply(p, sys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := Apply(p, newFakeSystem())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.AdminToken != first.AdminToken {
+		t.Fatalf("admin token changed on re-run (%s -> %s); every existing admin client would break",
+			first.AdminToken, second.AdminToken)
+	}
+	if second.ClientToken != first.ClientToken {
+		t.Fatalf("client token %q duplicated on re-run (was %q)", second.ClientToken, first.ClientToken)
+	}
+	for _, r := range second.Results {
+		if r.Status == StatusCreated {
+			t.Errorf("step %q reported created on an unchanged re-run", r.Step)
+		}
+	}
+	_ = sys
+}
+
+func TestApplyPreservesHandEditedEnvKeysAndBacksUp(t *testing.T) {
+	p, sys := tempPlan(t)
+	if _, err := Apply(p, sys); err != nil {
+		t.Fatal(err)
+	}
+	// Operator hand-edits the file afterwards.
+	raw, err := os.ReadFile(p.EnvPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	edited := string(raw) + "\nMYMCP_PROTECTED_PATHS=/root/.ssh\n# keep me\n"
+	if err := os.WriteFile(p.EnvPath(), []byte(edited), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	p.Port = 9000
+	if _, err := Apply(p, newFakeSystem()); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(p.EnvPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(got)
+	if !strings.Contains(s, "MYMCP_PORT=9000") {
+		t.Errorf("owned key not updated:\n%s", s)
+	}
+	if !strings.Contains(s, "MYMCP_PROTECTED_PATHS=/root/.ssh") || !strings.Contains(s, "# keep me") {
+		t.Errorf("hand-edited content was lost:\n%s", s)
+	}
+	matches, _ := filepath.Glob(filepath.Join(p.ConfigDir, ".env.bak-*"))
+	if len(matches) == 0 {
+		t.Error("no .env.bak-<timestamp> written before the merge")
+	}
+}
+
+func TestApplyDryRunWritesNothing(t *testing.T) {
+	p, sys := tempPlan(t)
+	p.DryRun = true
+	if _, err := Apply(p, sys); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{p.EnvPath(), p.TokenPath(), p.UnitPath()} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("%s must not exist after -dry-run (err=%v)", path, err)
+		}
+	}
+	if len(sys.Calls) != 0 {
+		t.Errorf("-dry-run must exec nothing, got %v", sys.Calls)
+	}
+}
+
+func TestApplyDryRunExecsNothingEvenForANonRootServiceUser(t *testing.T) {
+	// The DryRun check must sit before the `id -u` probe, not after it.
+	p, sys := tempPlan(t)
+	p.DryRun = true
+	p.ServiceUser = "mymcp"
+	if _, err := Apply(p, sys); err != nil {
+		t.Fatal(err)
+	}
+	if len(sys.Calls) != 0 {
+		t.Fatalf("-dry-run must exec nothing, got %v", sys.Calls)
+	}
+}
+
+func TestApplyDegradedModeSkipsUnitAndSystemctl(t *testing.T) {
+	p, sys := tempPlan(t)
+	p.HasSystemd = false
+	out, err := Apply(p, sys)
+	if err != nil {
+		t.Fatalf("degraded mode must not fail: %v", err)
+	}
+	if _, err := os.Stat(p.UnitPath()); !os.IsNotExist(err) {
+		t.Error("no unit may be written without systemd")
+	}
+	if len(sys.Calls) != 0 {
+		t.Errorf("no systemctl calls without systemd, got %v", sys.Calls)
+	}
+	if _, err := os.Stat(p.EnvPath()); err != nil {
+		t.Error(".env must still be written in degraded mode")
+	}
+	var skipped bool
+	for _, r := range out.Results {
+		if r.Status == StatusSkipped {
+			skipped = true
+		}
+	}
+	if !skipped {
+		t.Error("degraded mode must report skipped steps, not silently omit them")
+	}
+}
+
+func TestApplyInstallsRipgrepViaDetectedPackageManager(t *testing.T) {
+	p, sys := tempPlan(t)
+	p.InstallRipgrep = true
+	sys.Paths["apt-get"] = "/usr/bin/apt-get"
+	if _, err := Apply(p, sys); err != nil {
+		t.Fatal(err)
+	}
+	if !sys.ran("apt-get install -y ripgrep") {
+		t.Fatalf("ripgrep not installed; calls=%v", sys.Calls)
+	}
+}
+
+func TestApplyPrefersSuppliedRipgrepBinaryOverPackageManager(t *testing.T) {
+	p, sys := tempPlan(t)
+	p.InstallRipgrep = true
+	src := filepath.Join(t.TempDir(), "rg")
+	if err := os.WriteFile(src, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p.RipgrepBinary = src
+	// Never write into a real system path from a test: a stub `rg` on PATH
+	// breaks TestGrepRgPathIfInstalled in the same `go test ./...` run and
+	// leaves the machine with a no-op ripgrep.
+	p.RipgrepDest = filepath.Join(t.TempDir(), "bin", "rg")
+	sys.Paths["apt-get"] = "/usr/bin/apt-get"
+	if _, err := Apply(p, sys); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range sys.Calls {
+		if strings.Contains(c, "install") {
+			t.Fatalf("air-gapped host must not shell out to a package manager: %v", sys.Calls)
+		}
+	}
+	if _, err := os.Stat(p.RipgrepDest); err != nil {
+		t.Fatalf("the supplied binary must be installed at RipgrepDest: %v", err)
+	}
+}
+
+func TestApplySkipsRipgrepWhenNotRequested(t *testing.T) {
+	p, sys := tempPlan(t)
+	sys.Paths["apt-get"] = "/usr/bin/apt-get"
+	if _, err := Apply(p, sys); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range sys.Calls {
+		if strings.Contains(c, "ripgrep") {
+			t.Fatalf("ripgrep install not requested but ran %q", c)
+		}
+	}
+}
+
+func TestApplyCreatesServiceUserOnlyWhenNotRoot(t *testing.T) {
+	p, sys := tempPlan(t)
+	p.ServiceUser = "mymcp"
+	sys.Paths["useradd"] = "/usr/sbin/useradd"
+	sys.Errors["id -u mymcp"] = errNoSuchUser
+	_, err := Apply(p, sys)
+	// The fake System reports `useradd` succeeding, but no such command
+	// actually ran on this host, so "mymcp" is not a real account; the real
+	// os/user.Lookup inside chownToServiceUser correctly fails on it.
+	// TestChownToServiceUserLookupFailureIsAClearError covers that step in
+	// isolation — here the point is only that useradd was invoked first.
+	if err == nil || !strings.Contains(err.Error(), "lookup mymcp") {
+		t.Fatalf("Apply err = %v, want a chown lookup failure for the (not really created) service user", err)
+	}
+	if !sys.ran("useradd -r -s /usr/sbin/nologin mymcp") {
+		t.Fatalf("service user not created; calls=%v", sys.Calls)
+	}
+
+	p2, sys2 := tempPlan(t)
+	if _, err := Apply(p2, sys2); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range sys2.Calls {
+		if strings.HasPrefix(c, "useradd") {
+			t.Fatalf("must not useradd for the root service user: %v", sys2.Calls)
+		}
+	}
+}
+
+func TestChownToServiceUserNoopForRootEmptyOrDryRun(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "does-not-exist")
+	for _, p := range []*Plan{
+		{ServiceUser: "root"},
+		{ServiceUser: ""},
+		{ServiceUser: "mymcp", DryRun: true},
+	} {
+		if err := chownToServiceUser(p, missing); err != nil {
+			t.Errorf("chownToServiceUser(%+v) = %v, want nil (no-op, must not even stat the path)", p, err)
+		}
+	}
+}
+
+func TestChownToServiceUserLookupFailureIsAClearError(t *testing.T) {
+	p := &Plan{ServiceUser: "no-such-mymcp-test-user"}
+	err := chownToServiceUser(p, t.TempDir())
+	if err == nil {
+		t.Fatal("expected an error for a service user that does not exist")
+	}
+	if !strings.Contains(err.Error(), "lookup no-such-mymcp-test-user") {
+		t.Errorf("error = %v, want it to name the lookup step and the user", err)
+	}
+}
+
+func TestChownToServiceUserSucceedsForARealUser(t *testing.T) {
+	// Exercise the real user.Lookup + strconv.Atoi + os.Chown path with the
+	// account running the test itself, so this needs no privilege: chowning
+	// a path to its own current owner is always permitted, root or not.
+	me, err := user.Current()
+	if err != nil {
+		t.Skipf("user.Current unavailable: %v", err)
+	}
+	dir := t.TempDir()
+	p := &Plan{ServiceUser: me.Username}
+	if err := chownToServiceUser(p, dir); err != nil {
+		t.Fatalf("chownToServiceUser(%+v, %s) = %v, want nil", p, dir, err)
+	}
+}
+
+func TestApplyReportsTheStoredClientRoleNotTheRequestedOne(t *testing.T) {
+	// A re-run with a different -client-role must not relabel a root-
+	// equivalent rw token as ro in the printed summary: tokens.json still
+	// says rw, and the outcome must say so too.
+	p, sys := tempPlan(t)
+	p.ClientRole = "rw"
+	first, err := Apply(p, sys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ClientRole != "rw" {
+		t.Fatalf("ClientRole on creation = %q, want rw", first.ClientRole)
+	}
+
+	p.ClientRole = "ro"
+	second, err := Apply(p, newFakeSystem())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.ClientToken != first.ClientToken {
+		t.Fatalf("client token changed on re-run: %q -> %q", first.ClientToken, second.ClientToken)
+	}
+	if second.ClientRole != "rw" {
+		t.Fatalf("ClientRole after re-run = %q, want the STORED rw (requested was ro)", second.ClientRole)
+	}
+}
+
+func TestApplyRecorderInjectsThenRendersUnit(t *testing.T) {
+	p, sys := tempPlan(t)
+	p.Recorder = RecorderPlan{Enabled: true, Provider: "anthropic", APIKey: "sk-x", NeedsInject: true}
+	if _, err := Apply(p, sys); err != nil {
+		t.Fatal(err)
+	}
+	if !sys.ran(`pipx inject algony-mymcp algony-mymcp[recorder]`) {
+		t.Errorf("missing pipx inject; calls=%v", sys.Calls)
+	}
+	want := "mymcp-recorder --install-unit --service-user root --env-file " +
+		p.EnvPath() + " --output " + p.RecorderUnitPath()
+	if !sys.ran(want) {
+		t.Errorf("recorder unit must be rendered by the Python owner of the template.\nwant: %s\ngot:  %v", want, sys.Calls)
+	}
+}
+
+func TestApplyRecorderSkipsInjectWhenAlreadyInstalled(t *testing.T) {
+	p, sys := tempPlan(t)
+	p.Recorder = RecorderPlan{Enabled: true, Provider: "anthropic", NeedsInject: false}
+	if _, err := Apply(p, sys); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range sys.Calls {
+		if strings.HasPrefix(c, "pipx inject") {
+			t.Fatalf("must not re-inject an installed recorder: %v", sys.Calls)
+		}
+	}
+}
+
+func TestApplySkipsRecorderEntirelyWhenDisabled(t *testing.T) {
+	p, sys := tempPlan(t)
+	if _, err := Apply(p, sys); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range sys.Calls {
+		if strings.Contains(c, "recorder") {
+			t.Fatalf("recorder disabled but ran %q", c)
+		}
+	}
+}
+
+func TestApplySurfacesSubprocessOutputInErrors(t *testing.T) {
+	// "exit status 1" alone is useless; the command's own message is the
+	// actionable part and must reach the operator.
+	p, sys := tempPlan(t)
+	p.Recorder = RecorderPlan{Enabled: true, NeedsInject: false}
+	line := "mymcp-recorder --install-unit --service-user root --env-file " +
+		p.EnvPath() + " --output " + p.RecorderUnitPath()
+	sys.Errors[line] = errNoSuchUser
+	sys.Outputs[line] = "mymcp-recorder: could not write unit to /etc/systemd/system: [Errno 13] Permission denied"
+	if _, err := Apply(p, sys); err == nil {
+		t.Fatal("expected an error")
+	} else if !strings.Contains(err.Error(), "Errno 13") {
+		t.Fatalf("error lost the subprocess message: %v", err)
+	}
+}
+
+func TestApplyStartsTheMainServiceBeforeTheRecorder(t *testing.T) {
+	// An optional sidecar must never block the product from starting.
+	p, sys := tempPlan(t)
+	p.Start = true
+	p.Recorder = RecorderPlan{Enabled: true, NeedsInject: true}
+	_, _ = Apply(p, sys)
+	mainIdx, recorderIdx := -1, -1
+	for i, c := range sys.Calls {
+		if c == "systemctl enable --now mymcp" && mainIdx < 0 {
+			mainIdx = i
+		}
+		if strings.HasPrefix(c, "pipx inject") && recorderIdx < 0 {
+			recorderIdx = i
+		}
+	}
+	if mainIdx < 0 || recorderIdx < 0 {
+		t.Fatalf("expected both steps to run; calls=%v", sys.Calls)
+	}
+	if mainIdx > recorderIdx {
+		t.Fatalf("main service must start before recorder work; calls=%v", sys.Calls)
+	}
+}
+
+func TestApplyRecorderFailureStillLeavesMainServiceStarted(t *testing.T) {
+	p, sys := tempPlan(t)
+	p.Start = true
+	p.Recorder = RecorderPlan{Enabled: true, NeedsInject: true}
+	sys.Errors["pipx inject algony-mymcp algony-mymcp[recorder]"] = errNoSuchUser
+	if _, err := Apply(p, sys); err == nil {
+		t.Fatal("a recorder failure must still be reported")
+	}
+	if !sys.ran("systemctl enable --now mymcp") {
+		t.Fatalf("main service must already be running when the recorder fails; calls=%v", sys.Calls)
+	}
+}
+
+func TestApplyDryRunReportsRecorderWouldRunButExecsNothing(t *testing.T) {
+	p, sys := tempPlan(t)
+	p.DryRun = true
+	p.Recorder = RecorderPlan{Enabled: true, NeedsInject: true}
+	out, err := Apply(p, sys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sys.Calls) != 0 {
+		t.Errorf("-dry-run must exec nothing, got %v", sys.Calls)
+	}
+	found := false
+	for _, r := range out.Results {
+		if r.Step == "recorder" {
+			found = true
+			if r.Status != StatusSkipped {
+				t.Errorf("recorder row status = %v, want %v", r.Status, StatusSkipped)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected a %q row in dry-run results, got %+v", "recorder", out.Results)
+	}
+}
