@@ -161,6 +161,33 @@ func Apply(p *Plan, sys System) (ApplyOutcome, error) {
 		}
 	}
 
+	// 6b. Recorder sidecar. The unit template is owned by the Python package;
+	// we shell out to it rather than keeping a second copy of the template.
+	if p.Recorder.Enabled && !p.DryRun {
+		if p.Recorder.NeedsInject {
+			if _, err := sys.Run("pipx", "inject", "algony-mymcp", "algony-mymcp[recorder]"); err != nil {
+				return out, fmt.Errorf("pipx inject recorder extra: %w", err)
+			}
+			add("recorder deps", StatusCreated, "pipx inject")
+		}
+		if _, err := sys.Run("mymcp-recorder", "--install-unit",
+			"--service-user", p.ServiceUser,
+			"--env-file", p.EnvPath(),
+			"--output", p.RecorderUnitPath()); err != nil {
+			return out, fmt.Errorf("render recorder unit: %w", err)
+		}
+		add("recorder unit", StatusCreated, p.RecorderUnitPath())
+		if _, err := sys.Run("systemctl", "daemon-reload"); err != nil {
+			return out, err
+		}
+		if p.Start {
+			if _, err := sys.Run("systemctl", "enable", "--now", "mymcp-recorder"); err != nil {
+				return out, fmt.Errorf("start mymcp-recorder: %w", err)
+			}
+			add("recorder service", StatusUpdated, "enabled and running")
+		}
+	}
+
 	// 7. Start.
 	if !p.Start || p.DryRun {
 		add("service start", StatusSkipped, "-start=false or dry-run")

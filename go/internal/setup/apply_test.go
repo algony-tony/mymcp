@@ -237,3 +237,44 @@ func TestApplyCreatesServiceUserOnlyWhenNotRoot(t *testing.T) {
 		}
 	}
 }
+
+func TestApplyRecorderInjectsThenRendersUnit(t *testing.T) {
+	p, sys := tempPlan(t)
+	p.Recorder = RecorderPlan{Enabled: true, Provider: "anthropic", APIKey: "sk-x", NeedsInject: true}
+	if _, err := Apply(p, sys); err != nil {
+		t.Fatal(err)
+	}
+	if !sys.ran(`pipx inject algony-mymcp algony-mymcp[recorder]`) {
+		t.Errorf("missing pipx inject; calls=%v", sys.Calls)
+	}
+	want := "mymcp-recorder --install-unit --service-user root --env-file " +
+		p.EnvPath() + " --output " + p.RecorderUnitPath()
+	if !sys.ran(want) {
+		t.Errorf("recorder unit must be rendered by the Python owner of the template.\nwant: %s\ngot:  %v", want, sys.Calls)
+	}
+}
+
+func TestApplyRecorderSkipsInjectWhenAlreadyInstalled(t *testing.T) {
+	p, sys := tempPlan(t)
+	p.Recorder = RecorderPlan{Enabled: true, Provider: "anthropic", NeedsInject: false}
+	if _, err := Apply(p, sys); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range sys.Calls {
+		if strings.HasPrefix(c, "pipx inject") {
+			t.Fatalf("must not re-inject an installed recorder: %v", sys.Calls)
+		}
+	}
+}
+
+func TestApplySkipsRecorderEntirelyWhenDisabled(t *testing.T) {
+	p, sys := tempPlan(t)
+	if _, err := Apply(p, sys); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range sys.Calls {
+		if strings.Contains(c, "recorder") {
+			t.Fatalf("recorder disabled but ran %q", c)
+		}
+	}
+}

@@ -41,11 +41,15 @@ async def _amain(supervisor) -> None:
     await _run(supervisor, stop)
 
 
-def render_unit() -> str:
+def render_unit(service_user: str = "mymcp", env_file: str | None = None) -> str:
     """Render the packaged systemd unit template with this install's values.
 
     v3 dropped `install-service` (Python-CLI machinery), which left the
     template shipped but unrenderable — issue #92. This is the renderer.
+
+    `mymcp init` passes service_user/env_file so the sidecar matches the main
+    service's User= and .env; called with no arguments the behaviour is
+    unchanged from v3.
     """
     template = (
         resources.files("mymcp.recorder.templates")
@@ -61,10 +65,13 @@ def render_unit() -> str:
     # path-discovery helper only — never get_settings()/Settings() — so
     # render_unit keeps working even when the discovered .env fails
     # validation (finding 2).
-    discovered = _discover_env_file()
-    env_file = discovered if discovered and Path(discovered).is_absolute() else "/etc/mymcp/.env"
+    if env_file is None:
+        discovered = _discover_env_file()
+        env_file = (
+            discovered if discovered and Path(discovered).is_absolute() else "/etc/mymcp/.env"
+        )
     return template.format(
-        service_user="mymcp",
+        service_user=service_user,
         working_directory="/etc/mymcp",
         env_file=env_file,
         exec_start=exec_start,
@@ -83,6 +90,17 @@ def main(argv: list[str] | None = None) -> int:
         metavar="PATH",
         help="with --install-unit, write the unit to PATH instead of stdout",
     )
+    parser.add_argument(
+        "--service-user",
+        default="mymcp",
+        metavar="NAME",
+        help="with --install-unit, the systemd User= (mymcp init passes root)",
+    )
+    parser.add_argument(
+        "--env-file",
+        metavar="PATH",
+        help="with --install-unit, the EnvironmentFile= path",
+    )
     args = parser.parse_args(argv)
 
     if args.install_unit:
@@ -92,7 +110,7 @@ def main(argv: list[str] | None = None) -> int:
         # a non-numeric int field) would otherwise raise an uncaught
         # pydantic.ValidationError here and crash with a raw traceback (issue #92
         # finding 2).
-        unit = render_unit()
+        unit = render_unit(service_user=args.service_user, env_file=args.env_file)
         if args.output:
             try:
                 Path(args.output).write_text(unit, encoding="utf-8")
