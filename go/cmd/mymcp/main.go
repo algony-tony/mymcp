@@ -20,7 +20,7 @@ func main() {
 
 func run(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: mymcp {serve|init|version|token}")
+		fmt.Fprintln(os.Stderr, "usage: mymcp {serve|init|doctor|version|token}")
 		return 2
 	}
 	switch args[0] {
@@ -31,6 +31,8 @@ func run(args []string) int {
 		return runToken(args[1:])
 	case "init":
 		return runInit(args[1:])
+	case "doctor":
+		return runDoctor(args[1:])
 	case "serve":
 		fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 		envFile := fs.String("env-file", "", "path to .env file")
@@ -224,5 +226,29 @@ func runInit(args []string) int {
 		return 1
 	}
 	setup.Summary(plan, outcome, os.Stdout)
+	if plan.Start && !plan.DryRun {
+		fmt.Fprintln(os.Stdout, "\nRunning mymcp doctor…")
+		setup.RenderChecks(setup.Doctor(plan.ConfigDir, sys), os.Stdout)
+	}
 	return 0
+}
+
+func runDoctor(args []string) int {
+	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
+	configDir := fs.String("config-dir", "/etc/mymcp", "config directory")
+	strict := fs.Bool("strict", false, "treat warnings as failures")
+	asJSON := fs.Bool("json", false, "emit machine-readable JSON")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	checks := setup.Doctor(*configDir, setup.RealSystem())
+	if *asJSON {
+		if err := setup.RenderChecksJSON(checks, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "doctor:", err)
+			return 1
+		}
+	} else {
+		setup.RenderChecks(checks, os.Stdout)
+	}
+	return setup.DoctorExitCode(checks, *strict)
 }
