@@ -18,10 +18,10 @@ have() { command -v "$1" >/dev/null 2>&1; }
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --method)  METHOD="$2"; shift 2 ;;
-        --version) VERSION="$2"; shift 2 ;;
-        --bin-dir) BIN_DIR="$2"; shift 2 ;;
-        --help)
+        --method)  [ $# -ge 2 ] || die "--method needs a value"; METHOD="$2"; shift 2 ;;
+        --version) [ $# -ge 2 ] || die "--version needs a value"; VERSION="$2"; shift 2 ;;
+        --bin-dir) [ $# -ge 2 ] || die "--bin-dir needs a value"; BIN_DIR="$2"; shift 2 ;;
+        -h|--help)
             echo "usage: install.sh [--method auto|pipx|binary] [--version X.Y.Z] [--bin-dir DIR] [mymcp init flags…]"
             exit 0 ;;
         *) INIT_ARGS+=("$1"); shift ;;   # everything else is for `mymcp init`
@@ -50,8 +50,22 @@ fetch() {  # fetch <url> <dest>
     fi
 }
 
+writable() {  # writable <dir> — true if we can create files in it (or in the nearest existing ancestor)
+    local d="$1"
+    while [ ! -d "$d" ]; do
+        local parent; parent="$(dirname "$d")"
+        [ "$parent" != "$d" ] || return 1
+        d="$parent"
+    done
+    local probe; probe="$(mktemp "$d/.mymcp-write-probe-XXXXXX" 2>/dev/null)" || return 1
+    rm -f "$probe"
+}
+
 install_binary() {
     local tmp asset sums want got
+    writable "$BIN_DIR" || die "cannot write $BIN_DIR
+  re-run with sudo, or choose a writable location: --bin-dir \$HOME/.local/bin"
+
     tmp="$(mktemp -d)"
     # shellcheck disable=SC2064  # expand tmp now, not at trap time
     trap "rm -rf '$tmp'" EXIT
@@ -63,6 +77,8 @@ install_binary() {
 
     sums="$(grep " $asset\$" "$tmp/SHA256SUMS" || true)"
     [ -n "$sums" ] || die "no checksum entry for $asset in SHA256SUMS"
+    [ "$(printf '%s\n' "$sums" | wc -l)" -eq 1 ] \
+        || die "ambiguous SHA256SUMS: $asset has more than one entry"
     want="${sums%% *}"
     got="$(sha256sum "$tmp/$asset" | cut -d' ' -f1)"
     [ "$want" = "$got" ] || die "checksum mismatch for $asset (want $want, got $got)"
@@ -72,14 +88,19 @@ install_binary() {
     install -m 0755 "$tmp/$asset" "$BIN_DIR/mymcp"
     echo "==> installed $BIN_DIR/mymcp"
     export PATH="$BIN_DIR:$PATH"
+    # exec replaces this process and never runs EXIT traps, so the success
+    # path must clean up for itself.
+    rm -rf "$tmp"
+    trap - EXIT
 }
 
 install_pipx() {
     echo "==> installing via pipx"
-    if pipx list 2>/dev/null | grep -q algony-mymcp; then
+    if [ -n "$VERSION" ]; then
+        # `pipx upgrade` cannot pin, so an explicit version always reinstalls.
+        pipx install --force "algony-mymcp==$VERSION"
+    elif pipx list 2>/dev/null | grep -q algony-mymcp; then
         pipx upgrade algony-mymcp
-    elif [ -n "$VERSION" ]; then
-        pipx install "algony-mymcp==$VERSION"
     else
         pipx install algony-mymcp
     fi
@@ -95,4 +116,4 @@ esac
 have mymcp || die "mymcp is not on PATH after install; check $BIN_DIR"
 
 echo "==> handing off to mymcp init"
-exec mymcp init "${INIT_ARGS[@]}"
+exec mymcp init ${INIT_ARGS[@]+"${INIT_ARGS[@]}"}

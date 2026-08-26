@@ -71,6 +71,17 @@ def test_installs_verified_binary_and_execs_init(release_mirror, tmp_path):
     assert "fake-mymcp" in r.stdout
 
 
+def test_no_extra_args_reaches_handoff(release_mirror, tmp_path):
+    # Regression test: `${INIT_ARGS[@]}` with `set -u` and no elements raises
+    # "unbound variable" on bash < 4.4 (RHEL/CentOS 7, Amazon Linux 2). The
+    # README headline command passes no extra args at all, so this is the
+    # path that must never crash on old bash.
+    base_url, _ = release_mirror
+    r = run_install(base_url, tmp_path, "--method", "binary")
+    assert r.returncode == 0, r.stderr
+    assert "fake-mymcp" in r.stdout
+
+
 def test_aborts_on_checksum_mismatch(release_mirror, tmp_path):
     base_url, root = release_mirror
     (root / "mymcp-linux-amd64").write_bytes(b"tampered\n")
