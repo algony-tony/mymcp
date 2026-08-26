@@ -4,8 +4,10 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/algony-tony/mymcp/go/internal/auth"
 	"github.com/algony-tony/mymcp/go/internal/config"
@@ -20,10 +22,13 @@ func main() {
 
 func run(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: mymcp {serve|init|doctor|version|token}")
-		return 2
+		statusHint("/etc/mymcp", setup.RealSystem(), os.Stdout)
+		return 0
 	}
 	switch args[0] {
+	case "-h", "--help", "help":
+		printHelp(os.Stdout)
+		return 0
 	case "version":
 		fmt.Println("mymcp " + version.Version)
 		return 0
@@ -33,6 +38,8 @@ func run(args []string) int {
 		return runInit(args[1:])
 	case "doctor":
 		return runDoctor(args[1:])
+	case "config":
+		return runConfig(args[1:])
 	case "serve":
 		fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 		envFile := fs.String("env-file", "", "path to .env file")
@@ -53,6 +60,68 @@ func run(args []string) int {
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
 		return 2
 	}
+}
+
+// statusHint replaces the old bare-usage line. pipx has no post-install hook,
+// so the binary itself has to say what the next step is.
+func statusHint(configDir string, sys setup.System, w io.Writer) {
+	fmt.Fprintf(w, "mymcp %s\n\n", version.Version)
+	pf, err := setup.RunPreflight(configDir, sys)
+	if err != nil {
+		fmt.Fprintf(w, "  ✗ %v\n\n", err)
+		fmt.Fprintln(w, "  Next: check permissions, then run: mymcp doctor")
+		return
+	}
+	switch {
+	case pf.ExistingEnv == "":
+		fmt.Fprintf(w, "  ✗ not initialised (%s/.env does not exist)\n\n", configDir)
+		fmt.Fprintln(w, "  Next:")
+		fmt.Fprintln(w, "    sudo mymcp init      install as a systemd service (recommended)")
+		fmt.Fprintln(w, "    mymcp serve          foreground trial run; tokens vanish on exit")
+	default:
+		active := false
+		if out, err := sys.Run("systemctl", "is-active", "mymcp"); err == nil &&
+			strings.TrimSpace(out) == "active" {
+			active = true
+		}
+		if active {
+			fmt.Fprintf(w, "  ✓ configured and running (%s/.env)\n\n", configDir)
+			fmt.Fprintln(w, "  Next: mymcp doctor  |  mymcp token list")
+		} else {
+			fmt.Fprintf(w, "  ⚠ configured but not running (%s/.env)\n\n", configDir)
+			fmt.Fprintln(w, "  Next:")
+			fmt.Fprintln(w, "    sudo systemctl start mymcp")
+			fmt.Fprintln(w, "    mymcp doctor")
+		}
+	}
+	fmt.Fprintln(w, "\n  Commands: serve | init | doctor | token | config | version")
+}
+
+// printHelp is `-h`/`--help`/`help`'s output — falling through to
+// "unknown command" here was a poor first impression for a new user.
+func printHelp(w io.Writer) {
+	fmt.Fprintf(w, "mymcp %s — Linux system tools over MCP\n\n", version.Version)
+	fmt.Fprintln(w, "Usage: mymcp <command> [flags]")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Commands:")
+	fmt.Fprintln(w, "  serve             run the server (foreground)")
+	fmt.Fprintln(w, "  init              configure and install mymcp as a systemd service")
+	fmt.Fprintln(w, "  doctor            diagnose an existing install")
+	fmt.Fprintln(w, "  token             manage API tokens: list | add | revoke")
+	fmt.Fprintln(w, "  config example    print an example .env")
+	fmt.Fprintln(w, "  version           print the version")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Run mymcp with no arguments for a status check.")
+}
+
+// runConfig handles `mymcp config example`, the only subcommand today.
+func runConfig(args []string) int {
+	if len(args) == 1 && args[0] == "example" {
+		fmt.Print(setup.RenderEnv(setup.DefaultPlan(), "<generate-with-mymcp-init>"))
+		return 0
+	}
+	fmt.Fprintln(os.Stderr, "usage: mymcp config example")
+	return 2
 }
 
 func loadTokenStore() (*auth.TokenStore, error) {

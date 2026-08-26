@@ -251,6 +251,7 @@ func Serve(hostFlag string, portFlag int, version string) error {
 		fmt.Fprintf(os.Stderr, "[mymcp] temp admin token: %s\n", adminTok)
 		fmt.Fprintf(os.Stderr, "[mymcp] temp rw token:    %s\n", rwTok)
 		fmt.Fprintln(os.Stderr, "[mymcp] tokens are in-memory; they vanish on exit.")
+		fmt.Fprintln(os.Stderr, "[mymcp] to install as a persistent service: sudo mymcp init")
 		tempRW = rwTok
 	}
 
@@ -259,7 +260,7 @@ func Serve(hostFlag string, portFlag int, version string) error {
 		return err
 	}
 	if cfg.AdminToken == "" {
-		return fmt.Errorf("MYMCP_ADMIN_TOKEN environment variable is required")
+		return fmt.Errorf("MYMCP_ADMIN_TOKEN is not set in %s — run `sudo mymcp init` to configure this host, or `mymcp doctor` to diagnose", config.DiscoveredEnvFile())
 	}
 	store, err := auth.NewTokenStore(cfg.TokenFile, cfg.AdminToken)
 	if err != nil {

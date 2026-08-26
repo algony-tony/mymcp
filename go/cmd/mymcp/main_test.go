@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/algony-tony/mymcp/go/internal/setup"
 )
 
 func TestTokenAddThenList(t *testing.T) {
@@ -46,8 +49,10 @@ func TestRunVersion(t *testing.T) {
 }
 
 func TestRunNoArgs(t *testing.T) {
-	if code := run(nil); code != 2 {
-		t.Fatalf("exit %d, want 2", code)
+	// Task 10: bare invocation is a status check, not a usage error — see
+	// TestBareInvocationExitsZeroNotUsageError and TestBareInvocationTellsUserWhatToDoNext.
+	if code := run(nil); code != 0 {
+		t.Fatalf("exit %d, want 0", code)
 	}
 }
 
@@ -58,5 +63,41 @@ func TestRunNoArgs(t *testing.T) {
 func TestRunUnknown(t *testing.T) {
 	if code := run([]string{"bogus"}); code != 2 {
 		t.Fatalf("exit %d, want 2", code)
+	}
+}
+
+func TestBareInvocationTellsUserWhatToDoNext(t *testing.T) {
+	var buf bytes.Buffer
+	statusHint(t.TempDir(), setup.RealSystem(), &buf)
+	s := buf.String()
+	if !strings.Contains(s, "not initialised") {
+		t.Errorf("an uninitialised host must be told so:\n%s", s)
+	}
+	if !strings.Contains(s, "mymcp init") {
+		t.Errorf("the next step must be named:\n%s", s)
+	}
+	if !strings.Contains(s, "mymcp serve") {
+		t.Errorf("the trial-run option must be offered:\n%s", s)
+	}
+}
+
+func TestBareInvocationExitsZeroNotUsageError(t *testing.T) {
+	// Running `mymcp` with no args is a question, not a mistake.
+	if code := run(nil); code != 0 {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+}
+
+func TestHelpFlagIsRecognised(t *testing.T) {
+	for _, arg := range []string{"-h", "--help", "help"} {
+		if code := run([]string{arg}); code != 0 {
+			t.Errorf("run(%q) = %d, want 0", arg, code)
+		}
+	}
+}
+
+func TestConfigExamplePrintsTemplate(t *testing.T) {
+	if code := run([]string{"config", "example"}); code != 0 {
+		t.Fatalf("exit = %d, want 0", code)
 	}
 }
