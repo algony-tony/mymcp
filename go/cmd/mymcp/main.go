@@ -10,6 +10,7 @@ import (
 	"github.com/algony-tony/mymcp/go/internal/auth"
 	"github.com/algony-tony/mymcp/go/internal/config"
 	"github.com/algony-tony/mymcp/go/internal/httpserver"
+	"github.com/algony-tony/mymcp/go/internal/setup"
 	"github.com/algony-tony/mymcp/go/internal/version"
 )
 
@@ -19,7 +20,7 @@ func main() {
 
 func run(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: mymcp {serve|version|token}")
+		fmt.Fprintln(os.Stderr, "usage: mymcp {serve|init|version|token}")
 		return 2
 	}
 	switch args[0] {
@@ -28,6 +29,8 @@ func run(args []string) int {
 		return 0
 	case "token":
 		return runToken(args[1:])
+	case "init":
+		return runInit(args[1:])
 	case "serve":
 		fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 		envFile := fs.String("env-file", "", "path to .env file")
@@ -130,4 +133,90 @@ func runToken(args []string) int {
 		fmt.Fprintf(os.Stderr, "unknown token subcommand: %s\n", args[0])
 		return 2
 	}
+}
+
+// parseInitFlags parses `init`'s flags into setup.Options and records, in
+// Explicit, exactly which flags the user typed (via flag.FlagSet.Visit,
+// which visits only flags actually set). A re-run of `mymcp init` seeds
+// values from an existing .env, and Explicit is what stops that seeding from
+// overriding a flag the user really passed on this invocation.
+func parseInitFlags(args []string) (setup.Options, error) {
+	o := setup.Options{}
+	fs := flag.NewFlagSet("init", flag.ContinueOnError)
+	fs.BoolVar(&o.Yes, "yes", false, "non-interactive; accept every default")
+	fs.StringVar(&o.Bind, "bind", "0.0.0.0", "bind address")
+	fs.IntVar(&o.Port, "port", 8765, "bind port")
+	fs.StringVar(&o.ServiceUser, "service-user", "root", "systemd User=")
+	fs.StringVar(&o.ConfigDir, "config-dir", "/etc/mymcp", "config directory")
+	fs.StringVar(&o.LogDir, "log-dir", "/var/log/mymcp", "audit log directory")
+	fs.StringVar(&o.RecorderDataDir, "recorder-data-dir", "/var/lib/mymcp/recorder", "recorder data directory")
+	fs.BoolVar(&o.Audit, "audit", true, "enable the audit log")
+	fs.StringVar(&o.MetricsToken, "metrics-token", "", "explicit /metrics token")
+	fs.BoolVar(&o.NoMetricsToken, "no-metrics-token", false, "leave /metrics unauthenticated")
+	fs.StringVar(&o.ClientName, "client-name", "default", "name of the first client token")
+	fs.StringVar(&o.ClientRole, "client-role", "rw", "role of the first client token: ro or rw")
+	fs.BoolVar(&o.Recorder, "recorder", false, "enable the overview recorder sidecar")
+	fs.StringVar(&o.RecorderProvider, "recorder-provider", "anthropic", "anthropic or openai")
+	fs.StringVar(&o.RecorderModel, "recorder-model", "", "recorder LLM model")
+	fs.StringVar(&o.RecorderAPIKey, "recorder-api-key", os.Getenv("MYMCP_RECORDER_LLM_API_KEY"), "recorder LLM API key")
+	fs.BoolVar(&o.InstallRipgrep, "install-ripgrep", true, "install ripgrep when missing")
+	fs.StringVar(&o.RipgrepBinary, "ripgrep-binary", "", "use this ripgrep binary instead of a package manager")
+	fs.BoolVar(&o.Start, "start", true, "enable and start the service")
+	fs.BoolVar(&o.DryRun, "dry-run", false, "print what would change and write nothing")
+	if err := fs.Parse(args); err != nil {
+		return o, err
+	}
+	o.Explicit = map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { o.Explicit[f.Name] = true })
+	return o, nil
+}
+
+func runInit(args []string) int {
+	o, err := parseInitFlags(args)
+	if err != nil {
+		return 2
+	}
+
+	sys := setup.RealSystem()
+	pf, err := setup.RunPreflight(o.ConfigDir, sys)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "mymcp init:", err)
+		return 1
+	}
+	if !pf.IsRoot && !o.DryRun {
+		fmt.Fprintln(os.Stderr, "mymcp init must run as root: sudo mymcp init")
+		return 1
+	}
+	if !pf.HasSystemd {
+		fmt.Fprintln(os.Stderr, "[mymcp] systemd not detected — configuring files only (degraded mode)")
+	}
+
+	var plan *setup.Plan
+	if o.Yes {
+		plan, err = setup.PlanFromOptions(o, pf, sys)
+	} else {
+		pr, terr := setup.OpenTTYPrompter(sys)
+		if terr != nil {
+			fmt.Fprintf(os.Stderr, "mymcp init: %v\n  re-run with -yes for a non-interactive install\n", terr)
+			return 1
+		}
+		defer pr.Close()
+		plan, err = setup.PlanFromWizard(o, pf, pr, sys)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "mymcp init:", err)
+		return 1
+	}
+
+	outcome, err := setup.Apply(plan, sys)
+	for _, r := range outcome.Results {
+		fmt.Fprintf(os.Stderr, "  %-9s %s %s\n", r.Status, r.Step, r.Detail)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "mymcp init failed:", err)
+		fmt.Fprintln(os.Stderr, "every step is idempotent — fix the cause and re-run `mymcp init` to resume")
+		return 1
+	}
+	setup.Summary(plan, outcome, os.Stdout)
+	return 0
 }
