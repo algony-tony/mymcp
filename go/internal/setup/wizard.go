@@ -32,6 +32,7 @@ type Options struct {
 	Start            bool
 	DryRun           bool
 	UnitDir          string
+	FilesOnly        bool
 
 	// Explicit names the flags the user actually typed. Seeding from an
 	// existing .env must never override those. Task 7 populates it via

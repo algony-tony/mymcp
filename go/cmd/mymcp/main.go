@@ -235,6 +235,8 @@ func parseInitFlags(args []string) (setup.Options, error) {
 	fs.BoolVar(&o.Start, "start", true, "enable and start the service")
 	fs.BoolVar(&o.DryRun, "dry-run", false, "print what would change and write nothing")
 	fs.StringVar(&o.UnitDir, "unit-dir", "/etc/systemd/system", "directory for systemd units (advanced; for testing against a temp dir)")
+	fs.BoolVar(&o.FilesOnly, "files-only", false,
+		"write config and tokens but do not install or manage the systemd unit")
 	if err := fs.Parse(args); err != nil {
 		return o, err
 	}
@@ -261,18 +263,23 @@ func runInit(args []string) int {
 		fmt.Fprintln(os.Stderr, "mymcp init:", err)
 		return 1
 	}
-	// systemctl itself requires root regardless of directory writability
-	// (daemon-reload/enable/restart all refuse an unprivileged caller even
-	// when the unit file is writable), so an unprivileged, non-dry-run
-	// invocation degrades to files-only rather than failing partway through
-	// Apply. -dry-run is exempted so a non-root preview still shows what
-	// root would do.
+	// systemd management needs privilege even when the unit path is writable:
+	// `systemctl daemon-reload` fails with "Interactive authentication
+	// required" for a non-root caller. Degrading is legitimate (containers,
+	// WSL, an intentional files-only install) but it must be asked for —
+	// inferring it from uid would turn a forgotten `sudo` into a silent
+	// partial install that still exits 0.
 	switch {
 	case !pf.HasSystemd:
 		fmt.Fprintln(os.Stderr, "[mymcp] systemd not detected — configuring files only (degraded mode)")
-	case !pf.IsRoot && !o.DryRun:
-		fmt.Fprintln(os.Stderr, "[mymcp] not running as root — skipping systemd unit management (degraded mode)")
+	case o.FilesOnly:
+		fmt.Fprintln(os.Stderr, "[mymcp] -files-only — skipping systemd unit management")
 		pf.HasSystemd = false
+	case !pf.IsRoot && !o.DryRun:
+		fmt.Fprintln(os.Stderr, "mymcp init: systemd is present but managing it needs root")
+		fmt.Fprintln(os.Stderr, "  sudo mymcp init            install and start the service")
+		fmt.Fprintln(os.Stderr, "  mymcp init -files-only     write config and tokens only")
+		return 1
 	}
 	if !o.DryRun {
 		writeTargets := []string{o.ConfigDir, o.LogDir, o.RecorderDataDir}

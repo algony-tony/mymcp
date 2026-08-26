@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 func TestInitRejectsNonInteractiveWithoutYes(t *testing.T) {
 	// No TTY in `go test`, so init must refuse rather than hang or take
@@ -79,5 +82,42 @@ func TestParseInitFlagsMarksEnvSourcedRecorderKeyExplicit(t *testing.T) {
 	}
 	if o.RecorderAPIKey != "sk-rotated" {
 		t.Errorf("RecorderAPIKey = %q, want the env-sourced value", o.RecorderAPIKey)
+	}
+}
+
+func TestInitRefusesSilentDegradeWhenNotRoot(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("this test is about the non-root path")
+	}
+	if _, err := os.Stat("/run/systemd/system"); err != nil {
+		t.Skip("no systemd on this host; the degrade is legitimate here")
+	}
+	dir := t.TempDir()
+	code := run([]string{
+		"init", "-yes",
+		"-config-dir", dir,
+		"-log-dir", dir + "/log",
+		"-recorder-data-dir", dir + "/rec",
+		"-start=false",
+	})
+	if code == 0 {
+		t.Fatal("a forgotten sudo must fail loudly, not degrade to a files-only success")
+	}
+}
+
+func TestInitFilesOnlyRunsUnprivileged(t *testing.T) {
+	dir := t.TempDir()
+	code := run([]string{
+		"init", "-yes", "-files-only",
+		"-config-dir", dir,
+		"-log-dir", dir + "/log",
+		"-recorder-data-dir", dir + "/rec",
+		"-start=false",
+	})
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 — -files-only is the supported unprivileged path", code)
+	}
+	if _, err := os.Stat(dir + "/.env"); err != nil {
+		t.Errorf("-files-only must still write the config: %v", err)
 	}
 }

@@ -1,11 +1,13 @@
 """End-to-end: init -> serve -> doctor -> tools/list, against the real binary.
 
-Runs unprivileged with every path (including the systemd unit dir) redirected
-into tmp_path, and with -start=false since a non-root caller cannot manage a
-live systemd unit anyway. `mymcp init` itself degrades to files-only mode for
-an unprivileged, non-dry-run caller (see runInit in go/cmd/mymcp/main.go) —
-that degraded mode is exactly the shape this exercises, which is also what a
-container install gets.
+Runs unprivileged with every path redirected into tmp_path, using -files-only
+because managing a live systemd unit needs root: `systemctl daemon-reload`
+fails with "Interactive authentication required" for a non-root caller. That
+degrade must be asked for explicitly — inferring it from uid would turn a
+forgotten `sudo` into a silent partial install — so this test asks for it, and
+exercises the same shape a container install gets. Unit *writing* is covered by
+the Go unit tests; what this proves is that init -> serve -> doctor ->
+tools/list actually connects.
 """
 
 import json
@@ -35,8 +37,7 @@ def test_init_then_serve_then_doctor(tmp_path):
             str(tmp_path / "log"),
             "-recorder-data-dir",
             str(tmp_path / "rec"),
-            "-unit-dir",
-            str(tmp_path / "units"),
+            "-files-only",
             "-port",
             str(port),
             "-bind",
@@ -118,8 +119,7 @@ def test_init_is_idempotent_and_keeps_tokens(tmp_path):
         str(tmp_path / "log"),
         "-recorder-data-dir",
         str(tmp_path / "rec"),
-        "-unit-dir",
-        str(tmp_path / "units"),
+        "-files-only",
         "-start=false",
     ]
     assert subprocess.run(args, capture_output=True).returncode == 0
