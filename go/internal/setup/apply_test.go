@@ -2,6 +2,7 @@ package setup
 
 import (
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -269,6 +270,21 @@ func TestChownToServiceUserLookupFailureIsAClearError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "lookup no-such-mymcp-test-user") {
 		t.Errorf("error = %v, want it to name the lookup step and the user", err)
+	}
+}
+
+func TestChownToServiceUserSucceedsForARealUser(t *testing.T) {
+	// Exercise the real user.Lookup + strconv.Atoi + os.Chown path with the
+	// account running the test itself, so this needs no privilege: chowning
+	// a path to its own current owner is always permitted, root or not.
+	me, err := user.Current()
+	if err != nil {
+		t.Skipf("user.Current unavailable: %v", err)
+	}
+	dir := t.TempDir()
+	p := &Plan{ServiceUser: me.Username}
+	if err := chownToServiceUser(p, dir); err != nil {
+		t.Fatalf("chownToServiceUser(%+v, %s) = %v, want nil", p, dir, err)
 	}
 }
 

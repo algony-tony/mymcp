@@ -76,3 +76,12 @@ func TestPrompterHonoursAFinalLineWithoutNewline(t *testing.T) {
 		t.Fatalf("Ask = %q, want 9000 — ReadString returns the partial line with io.EOF", got)
 	}
 }
+
+func TestPrompterCloseIsSafeWithoutATTY(t *testing.T) {
+	// NewPrompter (used by every non-interactive test, and the compat-suite
+	// wizard tests) never sets tty; Close must be a no-op rather than nil-
+	// deref, since callers defer it unconditionally right after construction.
+	p := NewPrompter(strings.NewReader(""), &bytes.Buffer{}, newFakeSystem())
+	p.Close()
+	p.Close() // idempotent: safe to call more than once too
+}

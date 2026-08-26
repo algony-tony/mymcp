@@ -227,19 +227,24 @@ func runtimeChecks(sys System) []Check {
 	} else {
 		out = append(out, Check{Group: "RUNTIME", Name: "unit active", Severity: SevOK})
 	}
-	out = append(out, execStartCheck(sys))
+	out = append(out, execStartCheck(sys, systemdUnitPath))
 	return out
 }
+
+// systemdUnitPath is where `mymcp init` installs the unit file; execStartCheck
+// reads it from here in production. Tests pass their own path so this stays
+// a read-only diagnostic against a file under t.TempDir(), never the real one.
+const systemdUnitPath = "/etc/systemd/system/mymcp.service"
 
 // execStartCheck pins down WHICH copy of the binary systemd actually runs.
 // With two install channels (pipx and the raw binary) an upgrade can land on
 // the copy the unit does not use, which presents as "I upgraded but nothing
 // changed".
-func execStartCheck(sys System) Check {
-	raw, err := os.ReadFile("/etc/systemd/system/mymcp.service")
+func execStartCheck(sys System, unitPath string) Check {
+	raw, err := os.ReadFile(unitPath)
 	if err != nil {
 		return Check{Group: "RUNTIME", Name: "unit ExecStart", Severity: SevWarn,
-			Detail: "no unit file at /etc/systemd/system/mymcp.service",
+			Detail: "no unit file at " + unitPath,
 			Remedy: "sudo mymcp init"}
 	}
 	var unitBin string
