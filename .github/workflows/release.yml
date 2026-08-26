@@ -86,6 +86,7 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
           pattern: platform-wheel-*
@@ -95,11 +96,27 @@ jobs:
         with:
           name: offline-bundle
           path: .
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: raw-binary-*
+          path: raw
+          merge-multiple: true
+      - name: Generate SHA256SUMS
+        run: |
+          cd raw
+          sha256sum mymcp-linux-* > SHA256SUMS
+          cat SHA256SUMS
+      - name: Stage the installer
+        run: cp scripts/install.sh raw/install.sh
       - uses: softprops/action-gh-release@v3
         with:
           files: |
             platform-dist/*.whl
             mymcp-*-offline-bundle.tar.gz
+            raw/mymcp-linux-amd64
+            raw/mymcp-linux-arm64
+            raw/SHA256SUMS
+            raw/install.sh
           generate_release_notes: true
 
   # Cross-compile the Go core into static linux/amd64 + linux/arm64 binaries and
@@ -141,6 +158,12 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: mymcp-linux-${{ matrix.goarch }}
+          path: go/mymcp-linux-${{ matrix.goarch }}
+          if-no-files-found: error
+      - name: Upload raw binary artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: raw-binary-${{ matrix.goarch }}
           path: go/mymcp-linux-${{ matrix.goarch }}
           if-no-files-found: error
 
