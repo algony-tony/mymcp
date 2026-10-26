@@ -12,10 +12,32 @@ EventTailer (which the sidecar package still ships).
 
 import json
 import os
+from contextlib import asynccontextmanager
 
 import pytest
 from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+
+try:
+    from mcp.client.streamable_http import create_mcp_http_client, streamable_http_client
+
+    @asynccontextmanager
+    async def _connect_mcp(url: str, token: str):
+        async with create_mcp_http_client(
+            headers={"Authorization": f"Bearer {token}"}
+        ) as http_client:
+            async with streamable_http_client(url, http_client=http_client) as streams:
+                yield streams[0], streams[1]
+
+except ImportError:
+    from mcp.client.streamable_http import streamablehttp_client
+
+    @asynccontextmanager
+    async def _connect_mcp(url: str, token: str):
+        async with streamablehttp_client(
+            url, headers={"Authorization": f"Bearer {token}"}
+        ) as streams:
+            yield streams[0], streams[1]
+
 
 BASE_URL = os.environ.get("MYMCP_COMPAT_URL", "http://127.0.0.1:8765")
 RW_TOKEN = os.environ.get("MYMCP_COMPAT_RW_TOKEN", "")
@@ -50,17 +72,13 @@ class Client:
         self.token = token
 
     async def list_tools(self):
-        async with streamablehttp_client(
-            f"{BASE_URL}/mcp", headers={"Authorization": f"Bearer {self.token}"}
-        ) as (read, write, _):
+        async with _connect_mcp(f"{BASE_URL}/mcp", self.token) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 return (await session.list_tools()).tools
 
     async def call(self, name: str, args: dict) -> dict:
-        async with streamablehttp_client(
-            f"{BASE_URL}/mcp", headers={"Authorization": f"Bearer {self.token}"}
-        ) as (read, write, _):
+        async with _connect_mcp(f"{BASE_URL}/mcp", self.token) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 result = await session.call_tool(name, args)
