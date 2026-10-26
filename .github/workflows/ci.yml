@@ -37,7 +37,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.25"
+          go-version-file: go/go.mod
           cache-dependency-path: go/go.sum
       - name: gofmt
         run: test -z "$(gofmt -l go/)"
@@ -139,7 +139,7 @@ jobs:
           python-version: "3.12"
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.25"
+          go-version-file: go/go.mod
           cache-dependency-path: go/go.sum
       - run: pip install -e ".[dev]" -c requirements-dev.txt
       - name: build and boot go server
