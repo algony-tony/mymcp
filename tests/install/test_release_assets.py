@@ -12,6 +12,14 @@ import yaml
 REPO = Path(__file__).resolve().parents[2]
 WORKFLOW = REPO / ".github" / "workflows" / "release.yml"
 SCRIPT = REPO / "scripts" / "install.sh"
+if not WORKFLOW.exists():
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / ".github" / "workflows" / "release.yml"
+        if candidate.exists():
+            REPO = parent
+            WORKFLOW = candidate
+            SCRIPT = parent / "scripts" / "install.sh"
+            break
 
 
 def _release_files() -> str:
