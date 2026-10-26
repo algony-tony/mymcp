@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-10-27
+
+### Added
+- `mymcp init`: interactive initialization command for single-step setup and configuration.
+- `mymcp doctor`: post-install diagnostic command to verify host health, paths, and permissions.
+- One-liner installer `scripts/install.sh`: single-command `curl | sudo bash` distribution.
+- CI release assets: raw static Linux binaries (`mymcp-linux-amd64`, `mymcp-linux-arm64`), `SHA256SUMS`, and `install.sh`.
+- Stalled recorder detection: surface a stalled recorder instead of serving stale state.
+
+### Changed
+- Upgraded Python dev dependencies to latest releases, including MCP SDK v2.3.0, OpenTelemetry 1.45.1, websockets 17.0.1, FastAPI, and Pydantic.
+- Adapted black-box compatibility test suite to support MCP SDK v2 while retaining v1 compatibility.
+- Resolved dependency security vulnerabilities across dev dependencies (filelock, opentelemetry).
+
 ## [3.0.1] - 2026-07-13
 
 ### Fixed
@@ -372,7 +386,11 @@ now a **recorder-only sidecar**. This is the v3 lightweighting milestone — the
 
 Initial tagged release. See git history for details.
 
-[Unreleased]: https://github.com/algony-tony/mymcp/compare/v2.4.0...HEAD
+[Unreleased]: https://github.com/algony-tony/mymcp/compare/v3.1.0...HEAD
+[3.1.0]: https://github.com/algony-tony/mymcp/compare/v3.0.1...v3.1.0
+[3.0.1]: https://github.com/algony-tony/mymcp/compare/v3.0.0...v3.0.1
+[3.0.0]: https://github.com/algony-tony/mymcp/compare/v2.5.0...v3.0.0
+[2.5.0]: https://github.com/algony-tony/mymcp/compare/v2.4.0...v2.5.0
 [2.4.0]: https://github.com/algony-tony/mymcp/compare/v2.3.0...v2.4.0
 [2.3.0]: https://github.com/algony-tony/mymcp/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/algony-tony/mymcp/compare/v2.1.1...v2.2.0
