@@ -31,7 +31,8 @@ async def test_tool_present_with_exact_schema(rw, name):
     golden = TOOL_DEFS[name]
     got = tools[name]
     assert got.description == golden["description"]
-    assert got.inputSchema == golden["inputSchema"]
+    schema = getattr(got, "input_schema", getattr(got, "inputSchema", None))
+    assert schema == golden["inputSchema"]
 
 
 @pytest.mark.anyio

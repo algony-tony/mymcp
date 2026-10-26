@@ -4,20 +4,17 @@
 #
 #    pip-compile --extra=dev --output-file=requirements-dev.txt --strip-extras --unsafe-package=algony-mymcp --unsafe-package=pip --unsafe-package=setuptools pyproject.toml
 #
-annotated-doc==0.0.5
-    # via fastapi
 annotated-types==0.8.0
     # via pydantic
 anyio==4.15.1
     # via
     #   algony-mymcp
-    #   algony-mymcp (pyproject.toml)
     #   httpx
+    #   httpx2
     #   mcp
     #   pytest-anyio
     #   sse-starlette
     #   starlette
-    #   watchfiles
 asgiref==3.12.1
     # via opentelemetry-instrumentation-asgi
 ast-serialize==0.13.1
@@ -34,13 +31,10 @@ certifi==2026.10.19
     # via
     #   httpcore
     #   httpx
-    #   requests
 cffi==2.1.1
     # via cryptography
 cfgv==3.5.0
     # via pre-commit
-charset-normalizer==3.5.2
-    # via requests
 click==8.5.0
     # via
     #   mutmut
@@ -54,10 +48,6 @@ cryptography==50.0.2
     # via pyjwt
 distlib==0.4.4
     # via virtualenv
-fastapi==0.161.1
-    # via
-    #   algony-mymcp
-    #   algony-mymcp (pyproject.toml)
 filelock==3.32.2
     # via
     #   python-discovery
@@ -67,17 +57,15 @@ googleapis-common-protos==1.76.0
 h11==0.16.0
     # via
     #   httpcore
+    #   httpcore2
     #   uvicorn
 httpcore==1.0.9
     # via httpx
-httptools==0.9.0
-    # via uvicorn
+httpcore2==2.16.0
+    # via httpx2
 httpx==0.28.1
-    # via
-    #   algony-mymcp
-    #   algony-mymcp (pyproject.toml)
-    #   mcp
-httpx-sse==0.4.3
+    # via algony-mymcp
+httpx2==2.16.0
     # via mcp
 hypothesis==6.170.8
     # via algony-mymcp (pyproject.toml)
@@ -87,7 +75,7 @@ idna==3.20
     # via
     #   anyio
     #   httpx
-    #   requests
+    #   httpx2
 iniconfig==2.3.1
     # via pytest
 jsonschema==4.26.0
@@ -105,10 +93,10 @@ markdown-it-py==4.2.0
     #   mdit-py-plugins
     #   rich
     #   textual
-mcp==1.28.1
-    # via
-    #   algony-mymcp
-    #   algony-mymcp (pyproject.toml)
+mcp==2.3.0
+    # via algony-mymcp (pyproject.toml)
+mcp-types==2.3.0
+    # via mcp
 mdit-py-plugins==0.6.1
     # via textual
 mdurl==0.1.2
@@ -124,7 +112,8 @@ nodeenv==1.11.0
 opentelemetry-api==1.45.0
     # via
     #   algony-mymcp
-    #   algony-mymcp (pyproject.toml)
+    #   mcp
+    #   opentelemetry-exporter-http-transport
     #   opentelemetry-exporter-otlp-proto-http
     #   opentelemetry-exporter-prometheus
     #   opentelemetry-instrumentation
@@ -133,14 +122,16 @@ opentelemetry-api==1.45.0
     #   opentelemetry-instrumentation-logging
     #   opentelemetry-sdk
     #   opentelemetry-semantic-conventions
+opentelemetry-exporter-http-transport==0.66b0
+    # via opentelemetry-exporter-otlp-proto-http
+opentelemetry-exporter-otlp-common==0.66b0
+    # via opentelemetry-exporter-otlp-proto-http
 opentelemetry-exporter-otlp-proto-common==1.45.0
     # via opentelemetry-exporter-otlp-proto-http
 opentelemetry-exporter-otlp-proto-http==1.45.0
     # via algony-mymcp
 opentelemetry-exporter-prometheus==0.66b0
-    # via
-    #   algony-mymcp
-    #   algony-mymcp (pyproject.toml)
+    # via algony-mymcp
 opentelemetry-instrumentation==0.66b0
     # via
     #   opentelemetry-instrumentation-asgi
@@ -161,7 +152,7 @@ opentelemetry-proto==1.45.0
 opentelemetry-sdk==1.45.0
     # via
     #   algony-mymcp
-    #   algony-mymcp (pyproject.toml)
+    #   opentelemetry-exporter-otlp-common
     #   opentelemetry-exporter-otlp-proto-http
     #   opentelemetry-exporter-prometheus
 opentelemetry-semantic-conventions==0.66b0
@@ -180,6 +171,7 @@ packaging==26.3
     #   build
     #   opentelemetry-instrumentation
     #   pytest
+    #   virtualenv
     #   wheel
 pathspec==1.1.1
     # via mypy
@@ -187,7 +179,6 @@ pip-tools==7.6.2
     # via algony-mymcp (pyproject.toml)
 platformdirs==4.13.5
     # via
-    #   python-discovery
     #   textual
     #   virtualenv
 pluggy==1.7.0
@@ -202,22 +193,19 @@ protobuf==6.33.6
     # via
     #   googleapis-common-protos
     #   opentelemetry-proto
-py-cpuinfo==9.0.0
+py-cpuinfo2==10.1.1
     # via pytest-benchmark
 pycparser==3.12
     # via cffi
 pydantic==2.14.1
     # via
-    #   fastapi
     #   mcp
+    #   mcp-types
     #   pydantic-settings
 pydantic-core==2.50.1
     # via pydantic
 pydantic-settings==2.16.1
-    # via
-    #   algony-mymcp
-    #   algony-mymcp (pyproject.toml)
-    #   mcp
+    # via algony-mymcp
 pygments==2.21.0
     # via
     #   pytest
@@ -251,29 +239,19 @@ pytest-timeout==2.4.0
 python-discovery==1.6.4
     # via virtualenv
 python-dotenv==1.2.4
-    # via
-    #   pydantic-settings
-    #   uvicorn
+    # via pydantic-settings
 python-json-logger==4.2.0
-    # via
-    #   algony-mymcp
-    #   algony-mymcp (pyproject.toml)
+    # via algony-mymcp
 python-multipart==0.0.32
-    # via
-    #   algony-mymcp
-    #   algony-mymcp (pyproject.toml)
-    #   mcp
+    # via mcp
 pyyaml==6.0.3
     # via
     #   libcst
     #   pre-commit
-    #   uvicorn
 referencing==0.37.0
     # via
     #   jsonschema
     #   jsonschema-specifications
-requests==2.34.2
-    # via opentelemetry-exporter-otlp-proto-http
 rich==15.0.0
     # via textual
 rpds-py==2026.9.1
@@ -290,16 +268,20 @@ sse-starlette==3.5.0
     # via mcp
 starlette==1.9.0
     # via
-    #   fastapi
     #   mcp
     #   sse-starlette
 textual==8.2.8
     # via mutmut
+truststore==0.10.5
+    # via
+    #   httpcore2
+    #   httpx2
 typing-extensions==4.16.0
     # via
     #   anyio
-    #   fastapi
+    #   httpx2
     #   mcp
+    #   mcp-types
     #   mypy
     #   opentelemetry-api
     #   opentelemetry-exporter-otlp-proto-http
@@ -307,33 +289,22 @@ typing-extensions==4.16.0
     #   opentelemetry-semantic-conventions
     #   pydantic
     #   pydantic-core
+    #   pydantic-settings
     #   referencing
     #   starlette
     #   textual
     #   typing-inspection
 typing-inspection==0.4.4
     # via
-    #   fastapi
     #   mcp
     #   pydantic
     #   pydantic-settings
-uc-micro-py==2.0.0
-    # via linkify-it-py
 urllib3==2.8.0
-    # via requests
+    # via opentelemetry-exporter-http-transport
 uvicorn==0.54.0
-    # via
-    #   algony-mymcp
-    #   algony-mymcp (pyproject.toml)
-    #   mcp
-uvloop==0.23.0
-    # via uvicorn
+    # via mcp
 virtualenv==21.14.13
     # via pre-commit
-watchfiles==1.3.0
-    # via uvicorn
-websockets==17.0.1
-    # via uvicorn
 wheel==0.48.0
     # via pip-tools
 wrapt==2.5.1
