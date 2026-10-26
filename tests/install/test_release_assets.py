@@ -12,13 +12,13 @@ import yaml
 REPO = Path(__file__).resolve().parents[2]
 WORKFLOW = REPO / ".github" / "workflows" / "release.yml"
 SCRIPT = REPO / "scripts" / "install.sh"
-if not SCRIPT.exists():
+if not WORKFLOW.exists():
     for parent in Path(__file__).resolve().parents:
-        candidate = parent / "scripts" / "install.sh"
+        candidate = parent / ".github" / "workflows" / "release.yml"
         if candidate.exists():
             REPO = parent
-            WORKFLOW = REPO / ".github" / "workflows" / "release.yml"
-            SCRIPT = candidate
+            WORKFLOW = candidate
+            SCRIPT = parent / "scripts" / "install.sh"
             break
 
 
