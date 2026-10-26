@@ -195,6 +195,12 @@ jobs:
           pip install pip-audit
       - name: Scan locked dev dependencies
         run: pip-audit --strict --requirement requirements-dev.txt
+      - name: Scan Go dependencies (govulncheck)
+        uses: golang/govulncheck-action@v1
+        with:
+          go-version-file: go/go.mod
+          work-dir: go
+          cache-dependency-path: go/go.sum
 
   build:
     runs-on: ubuntu-latest
