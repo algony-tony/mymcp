@@ -17,6 +17,13 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[2]
 SCRIPT = REPO / "scripts" / "install.sh"
+if not SCRIPT.exists():
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / "scripts" / "install.sh"
+        if candidate.exists():
+            REPO = parent
+            SCRIPT = candidate
+            break
 
 
 @pytest.fixture

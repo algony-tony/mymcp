@@ -262,7 +262,7 @@ jobs:
               + "paths_to_mutate = [\n"
               + rendered_paths
               + "\n]\n"
-              + 'also_copy = ["src/"]\n'
+              + 'also_copy = ["src/", "scripts/"]\n'
               + 'tests_dir = ["tests/"]\n'
               + 'pytest_add_cli_args = ["--benchmark-disable"]\n'
           )
@@ -332,7 +332,7 @@ jobs:
               + "paths_to_mutate = [\n"
               + rendered_paths
               + "\n]\n"
-              + 'also_copy = ["src/"]\n'
+              + 'also_copy = ["src/", "scripts/"]\n'
               + 'tests_dir = ["tests/"]\n'
               + 'pytest_add_cli_args = ["--benchmark-disable"]\n'
           )

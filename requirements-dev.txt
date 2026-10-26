@@ -48,7 +48,7 @@ cryptography==50.0.2
     # via pyjwt
 distlib==0.4.4
     # via virtualenv
-filelock==3.32.2
+filelock==4.2.1
     # via
     #   python-discovery
     #   virtualenv
@@ -109,7 +109,7 @@ mypy-extensions==1.1.0
     # via mypy
 nodeenv==1.11.0
     # via pre-commit
-opentelemetry-api==1.45.0
+opentelemetry-api==1.45.1
     # via
     #   algony-mymcp
     #   mcp
@@ -122,47 +122,47 @@ opentelemetry-api==1.45.0
     #   opentelemetry-instrumentation-logging
     #   opentelemetry-sdk
     #   opentelemetry-semantic-conventions
-opentelemetry-exporter-http-transport==0.66b0
+opentelemetry-exporter-http-transport==0.66b1
     # via opentelemetry-exporter-otlp-proto-http
-opentelemetry-exporter-otlp-common==0.66b0
+opentelemetry-exporter-otlp-common==0.66b1
     # via opentelemetry-exporter-otlp-proto-http
-opentelemetry-exporter-otlp-proto-common==1.45.0
+opentelemetry-exporter-otlp-proto-common==1.45.1
     # via opentelemetry-exporter-otlp-proto-http
-opentelemetry-exporter-otlp-proto-http==1.45.0
+opentelemetry-exporter-otlp-proto-http==1.45.1
     # via algony-mymcp
-opentelemetry-exporter-prometheus==0.66b0
+opentelemetry-exporter-prometheus==0.66b1
     # via algony-mymcp
-opentelemetry-instrumentation==0.66b0
+opentelemetry-instrumentation==0.66b1
     # via
     #   opentelemetry-instrumentation-asgi
     #   opentelemetry-instrumentation-fastapi
     #   opentelemetry-instrumentation-logging
-opentelemetry-instrumentation-asgi==0.66b0
+opentelemetry-instrumentation-asgi==0.66b1
     # via
     #   algony-mymcp
     #   opentelemetry-instrumentation-fastapi
-opentelemetry-instrumentation-fastapi==0.66b0
+opentelemetry-instrumentation-fastapi==0.66b1
     # via algony-mymcp
-opentelemetry-instrumentation-logging==0.66b0
+opentelemetry-instrumentation-logging==0.66b1
     # via algony-mymcp
-opentelemetry-proto==1.45.0
+opentelemetry-proto==1.45.1
     # via
     #   opentelemetry-exporter-otlp-proto-common
     #   opentelemetry-exporter-otlp-proto-http
-opentelemetry-sdk==1.45.0
+opentelemetry-sdk==1.45.1
     # via
     #   algony-mymcp
     #   opentelemetry-exporter-otlp-common
     #   opentelemetry-exporter-otlp-proto-http
     #   opentelemetry-exporter-prometheus
-opentelemetry-semantic-conventions==0.66b0
+opentelemetry-semantic-conventions==0.66b1
     # via
     #   opentelemetry-instrumentation
     #   opentelemetry-instrumentation-asgi
     #   opentelemetry-instrumentation-fastapi
     #   opentelemetry-instrumentation-logging
     #   opentelemetry-sdk
-opentelemetry-util-http==0.66b0
+opentelemetry-util-http==0.66b1
     # via
     #   opentelemetry-instrumentation-asgi
     #   opentelemetry-instrumentation-fastapi
