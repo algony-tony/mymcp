@@ -15,7 +15,7 @@ anyio==4.15.1
     #   pytest-anyio
     #   sse-starlette
     #   starlette
-asgiref==3.12.1
+asgiref==3.13.0
     # via opentelemetry-instrumentation-asgi
 ast-serialize==0.13.1
     # via mypy
@@ -27,7 +27,7 @@ build==1.6.1
     # via
     #   algony-mymcp (pyproject.toml)
     #   pip-tools
-certifi==2026.10.19
+certifi==2026.10.23
     # via
     #   httpcore
     #   httpx
@@ -48,7 +48,7 @@ cryptography==50.0.2
     # via pyjwt
 distlib==0.4.4
     # via virtualenv
-filelock==4.2.1
+filelock==4.2.4
     # via
     #   python-discovery
     #   virtualenv
