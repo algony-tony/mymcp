@@ -29,42 +29,22 @@ A Go MCP server that exposes full Linux system control to AI clients (Claude Des
 
 ## Install
 
+### Quick Install (recommended)
+
+Downloads the binary, runs interactive setup, and configures the systemd service:
+
+```bash
+curl -fsSL https://github.com/algony-tony/mymcp/releases/latest/download/install.sh | sudo bash
+```
+
+### Via pipx
+
 ```bash
 pipx install algony-mymcp
+sudo mymcp init
 ```
 
-The PyPI distribution name is `algony-mymcp` (the bare name `mymcp` is reserved
-on PyPI). The installed command is plain `mymcp` (the Go binary).
-
-Plain `pip` works too (a venv is recommended):
-
-```bash
-python3 -m venv ~/.local/share/mymcp-env
-~/.local/share/mymcp-env/bin/pip install algony-mymcp
-ln -s ~/.local/share/mymcp-env/bin/mymcp ~/.local/bin/mymcp
-```
-
-### Quick try (foreground, no system service)
-
-```bash
-mymcp serve
-```
-
-`mymcp` prints a temporary admin and rw token to stderr, listens on
-`0.0.0.0:8765` by default, and discards both tokens on exit.
-
-### Production install (systemd)
-
-v3 removed the `install-service` helper (it was Python-CLI machinery). Install
-the unit manually: create `/etc/mymcp/.env` (see [Configuration](#configuration)),
-generate an admin token (`mymcp token add --role rw` writes to the token store),
-and drop a unit at `/etc/systemd/system/mymcp.service` whose `ExecStart` is
-`mymcp serve --env-file /etc/mymcp/.env`. Then:
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now mymcp
-```
+`mymcp init` configures `/etc/mymcp/.env`, generates initial tokens, and sets up the systemd service (use `--yes` to accept all defaults).
 
 ### Upgrade
 
@@ -73,52 +53,15 @@ pipx upgrade algony-mymcp
 sudo systemctl restart mymcp
 ```
 
-### Backup and disaster recovery
-
-See [docs/operations/backup-and-disaster-recovery.md](docs/operations/backup-and-disaster-recovery.md)
-for what to back up (token store, audit log, recorder data, `.env`),
-restore procedures, and a failure-mode → response table.
-
 ### Air-gapped install
 
-Each GitHub Release ships a `mymcp-X.Y.Z-offline-bundle.tar.gz` containing
-all wheels and ripgrep binaries:
+Download `mymcp-<version>-offline-bundle.tar.gz` from GitHub Releases:
 
 ```bash
-tar xzf mymcp-3.0.0-offline-bundle.tar.gz
-cd mymcp-3.0.0-offline-bundle
-sudo ./install-offline.sh   # installs the platform wheel (Go binary) + ripgrep
+tar xzf mymcp-*-offline-bundle.tar.gz
+cd mymcp-*-offline-bundle
+sudo ./install-offline.sh
 ```
-
-Then install the systemd unit manually (see Production install) and start it.
-
-### Why we don't ship a Dockerfile
-
-mymcp's purpose is to let an LLM operate the host Linux system: install
-packages, edit config under `/etc`, manage processes, read/write files
-under `/home`. Running mymcp inside a container defeats this — by default
-the container sees only its own filesystem and PID namespace, so the LLM
-can only operate the container itself.
-
-To make a containerised mymcp actually control the host you'd need at
-minimum `--privileged --pid=host --net=host -v /:/host` and a convention
-that the LLM works against `/host`. At that point the container provides
-no isolation; it's an awkward installer.
-
-If you really want a container (e.g. as a sidecar that manages another
-containerised service), it is ~10 lines:
-
-```dockerfile
-FROM python:3.13-slim
-RUN pip install algony-mymcp
-EXPOSE 8080
-ENV MYMCP_HOST=0.0.0.0 MYMCP_PORT=8080
-CMD ["mymcp", "serve"]
-```
-
-The recommended deployment is `pipx install algony-mymcp` + a systemd unit
-running `mymcp serve`, which gives the service direct host access matching the
-product's purpose.
 
 ## Optional: server overview recorder
 
@@ -136,11 +79,13 @@ overview document via LLM (calls go through httpx). Install with
 
 | Command | Purpose |
 |---------|---------|
+| `mymcp init` | Interactive setup wizard (creates config, tokens, systemd service) |
+| `mymcp doctor` | Run preflight and system health diagnostics |
 | `mymcp serve` | Run the MCP server in the foreground |
-| `mymcp version` | Print the version |
 | `mymcp token list` | Show admin/metrics state and ro/rw tokens |
 | `mymcp token add [--role ro\|rw] <name>` | Create a token (printed once) |
 | `mymcp token revoke <token>` | Delete a token |
+| `mymcp version` | Print the server version |
 
 ### `mymcp serve`
 
