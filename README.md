@@ -22,14 +22,6 @@ A Go MCP server that exposes full Linux system control to AI clients (Claude Des
 - **Admin API**: create/revoke tokens without restarting the server
 - **Streamable HTTP transport**: stateless mode, each request is independent (no session issues on reconnect)
 
-> **v3.0.0:** the server is now a single static **Go binary** shipped inside
-> linux amd64/arm64 platform wheels — `pipx install algony-mymcp` still gives you
-> the `mymcp` command, now with **zero Python dependencies**. The optional
-> overview recorder is a separate `mymcp-recorder` sidecar (`pip install
-> "algony-mymcp[recorder]"`). The `install-service`/`uninstall-service`/`doctor`
-> CLI subcommands were removed; the systemd unit still runs `mymcp serve`. See
-> [CHANGELOG](CHANGELOG.md) for the full breaking-change list.
-
 ## Requirements
 
 - Linux x86_64 or arm64 (the wheel bundles a static binary; no Python runtime deps)
@@ -74,55 +66,12 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now mymcp
 ```
 
-Existing v2 deployments already have this unit — a `pipx upgrade` + restart
-keeps it (the `ExecStart=mymcp serve` line is unchanged; it now runs the Go
-binary). That covers the main service only. A v2 deployment that ran the
-overview recorder needs a **second** unit as well — see [From v2.x](#from-v2x)
-below; without it the recorder silently stops and `server_overview` keeps
-serving a frozen overview. Install `ripgrep` separately for fast file search.
-
 ### Upgrade
 
 ```bash
 pipx upgrade algony-mymcp
 sudo systemctl restart mymcp
 ```
-
-#### From v2.x
-
-v3 split the overview recorder into a separate `mymcp-recorder` process. A
-`pipx upgrade` does **not** create its unit, so a v2 deployment that had the
-recorder enabled loses it silently. If `MYMCP_RECORDER_ENABLED=true` in your
-`.env`, do this as well:
-
-```bash
-# 1. Recorder dependencies (v2 had them as base deps; v3 does not)
-pipx inject algony-mymcp "algony-mymcp[recorder]"
-
-# 2. Sidecar unit (rendered for this install)
-mymcp-recorder --install-unit | sudo tee /etc/systemd/system/mymcp-recorder.service
-
-# 3. Start it
-sudo systemctl daemon-reload
-sudo systemctl enable --now mymcp-recorder
-```
-
-Review the rendered `User`, `EnvironmentFile`, and `ExecStart` before starting
-it: match `User=` to whatever the main service uses (check with
-`systemctl cat mymcp.service`), or omit it to run as root.
-
-**Verify it is actually consuming events** — do not skip this; the failure mode
-this guards against went unnoticed for four weeks on a production host:
-
-```bash
-systemctl is-active mymcp-recorder                      # -> active
-# offset must advance within one merge interval (default 300s):
-cat /var/lib/mymcp/recorder/cursor.json; sleep 310; cat /var/lib/mymcp/recorder/cursor.json
-stat -c '%y %n' /var/lib/mymcp/recorder/overview/overview.md
-```
-
-If `offset` does not move while `/var/log/mymcp/audit.log` is growing, check
-`journalctl -u mymcp-recorder -n 50`.
 
 ### Backup and disaster recovery
 
@@ -192,10 +141,6 @@ overview document via LLM (calls go through httpx). Install with
 | `mymcp token list` | Show admin/metrics state and ro/rw tokens |
 | `mymcp token add [--role ro\|rw] <name>` | Create a token (printed once) |
 | `mymcp token revoke <token>` | Delete a token |
-
-The v2 `install-service` / `uninstall-service` / `doctor` subcommands were
-removed in v3 (see the note at the top). `mymcp-recorder` is a separate command
-provided by the `[recorder]` extra.
 
 ### `mymcp serve`
 
