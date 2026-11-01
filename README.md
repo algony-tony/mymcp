@@ -68,8 +68,7 @@ sudo ./install-offline.sh
 A standalone `mymcp-recorder` sidecar that maintains a self-updating server
 overview document via LLM (calls go through httpx). Install with
 `pip install "algony-mymcp[recorder]"`; disabled by default, enable with
-`MYMCP_RECORDER_ENABLED=true`. See
-`docs/superpowers/specs/2026-05-29-llm-recorder-design.md` for full details.
+`MYMCP_RECORDER_ENABLED=true`.
 
 ## CLI Reference
 
@@ -498,8 +497,7 @@ reading only the prose still sees that the document is not current.
 The recorder periodically folds successful mutating audit events into an
 overview of what's installed and recently changed on the host. The
 companion `changelog.md` in the same directory can be read with `read_file`.
-See the "Optional: server overview recorder" section above for setup; full
-design details are in `docs/superpowers/specs/2026-05-29-llm-recorder-design.md`.
+See the "Optional: server overview recorder" section above for setup.
 
 ### Tool behavior notes
 
