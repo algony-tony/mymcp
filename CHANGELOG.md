@@ -72,7 +72,7 @@ now a **recorder-only sidecar**. This is the v3 lightweighting milestone — the
   HTTP with token auth and `read_file` / `glob` / `grep`, behavior-compatible
   with the Python core; black-box compat suite (`tests/compat/`) runs against
   both implementations in CI. Part of the v3 Go rewrite
-  (`docs/superpowers/specs/2026-07-04-go-core-rewrite-design.md`).
+  (`docs/design/architecture.md`).
 - Go core M2: `bash_execute` (process-group cleanup, timeout, output truncation),
   `write_file`, and `edit_file` with protected-path enforcement.
 - Go core audit writer: JSON-lines with `RotatingFileHandler`-compatible size
@@ -165,8 +165,7 @@ now a **recorder-only sidecar**. This is the v3 lightweighting milestone — the
   transfer-ticket single-consume + TTL invariants, plus a real-uvicorn
   end-to-end suite. New `docs/runbooks/backup-and-dr.md` runbook documents
   the backup and disaster-recovery procedure.
-- (#49) Project assessment plus five themed implementation plans under
-  `docs/superpowers/plans/2026-06-06-*`.
+- (#49) Project assessment plus five themed implementation plans.
 
 ### Changed
 - (#53) Tool config defaults are now resolved at call time instead of being
@@ -273,8 +272,7 @@ now a **recorder-only sidecar**. This is the v3 lightweighting milestone — the
   default TTL; configurable via `MYMCP_TRANSFER_*` env vars
   (`MYMCP_TRANSFER_ENABLED`, `MYMCP_TRANSFER_MAX_BYTES`,
   `MYMCP_TRANSFER_DEFAULT_TTL_SEC`, `MYMCP_TRANSFER_MAX_TTL_SEC`,
-  `MYMCP_PUBLIC_BASE_URL`). See
-  `docs/superpowers/specs/2026-05-04-file-transfer-design.md`.
+  `MYMCP_PUBLIC_BASE_URL`). See `docs/design/file-transfer.md`.
 
 ## [2.0.2] - 2026-05-02
 

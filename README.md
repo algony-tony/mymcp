@@ -68,7 +68,8 @@ sudo ./install-offline.sh
 A standalone `mymcp-recorder` sidecar that maintains a self-updating server
 overview document via LLM (calls go through httpx). Install with
 `pip install "algony-mymcp[recorder]"`; disabled by default, enable with
-`MYMCP_RECORDER_ENABLED=true`.
+`MYMCP_RECORDER_ENABLED=true`. See [docs/design/overview-recorder.md](docs/design/overview-recorder.md)
+for design details.
 
 ## CLI Reference
 
@@ -474,7 +475,7 @@ Workflow:
 
 `prepare_download` is the mirror: it returns a `GET` URL, you `curl URL -o local`, and bytes stream back.
 
-Tickets are **single-use**, **path-scoped**, **byte-bounded**, and expire after `expires_in` seconds (default 300, max 900). Both endpoints reuse the same `check_protected_path` and audit log as the file tools. Server tunables: `MYMCP_TRANSFER_ENABLED`, `MYMCP_TRANSFER_MAX_BYTES` (default 2 GB), `MYMCP_TRANSFER_DEFAULT_TTL_SEC`, `MYMCP_TRANSFER_MAX_TTL_SEC`, `MYMCP_PUBLIC_BASE_URL` (set when behind a reverse proxy).
+Tickets are **single-use**, **path-scoped**, **byte-bounded**, and expire after `expires_in` seconds (default 300, max 900). Both endpoints reuse the same `check_protected_path` and audit log as the file tools. Server tunables: `MYMCP_TRANSFER_ENABLED`, `MYMCP_TRANSFER_MAX_BYTES` (default 2 GB), `MYMCP_TRANSFER_DEFAULT_TTL_SEC`, `MYMCP_TRANSFER_MAX_TTL_SEC`, `MYMCP_PUBLIC_BASE_URL` (set when behind a reverse proxy). For design details, see [docs/design/file-transfer.md](docs/design/file-transfer.md).
 
 ### `server_overview` (`ro`)
 
@@ -497,7 +498,8 @@ reading only the prose still sees that the document is not current.
 The recorder periodically folds successful mutating audit events into an
 overview of what's installed and recently changed on the host. The
 companion `changelog.md` in the same directory can be read with `read_file`.
-See the "Optional: server overview recorder" section above for setup.
+See the "Optional: server overview recorder" section above for setup; full
+design details are in [docs/design/overview-recorder.md](docs/design/overview-recorder.md).
 
 ### Tool behavior notes
 
