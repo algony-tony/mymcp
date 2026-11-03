@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.1.1] - 2026-11-04
+
+### Changed
+- Upgraded Go and Python dependencies, including `github.com/bmatcuk/doublestar/v4` to 4.10.4, OpenTelemetry to 1.45.2 / 0.66b2, pytest to 9.2.0, mypy to 2.4.1, ruff to 0.17.3, and pydantic to 2.14.2 (+ pydantic-core 2.50.2).
+
+### Added
+- Added Dependabot configuration for Go modules in `/go` and integrated `govulncheck` into the CI `security-audit` workflow (#115).
+
 ## [3.1.0] - 2026-10-27
 
 ### Added
@@ -386,7 +394,8 @@ now a **recorder-only sidecar**. This is the v3 lightweighting milestone — the
 
 Initial tagged release. See git history for details.
 
-[Unreleased]: https://github.com/algony-tony/mymcp/compare/v3.1.0...HEAD
+[Unreleased]: https://github.com/algony-tony/mymcp/compare/v3.1.1...HEAD
+[3.1.1]: https://github.com/algony-tony/mymcp/compare/v3.1.0...v3.1.1
 [3.1.0]: https://github.com/algony-tony/mymcp/compare/v3.0.1...v3.1.0
 [3.0.1]: https://github.com/algony-tony/mymcp/compare/v3.0.0...v3.0.1
 [3.0.0]: https://github.com/algony-tony/mymcp/compare/v2.5.0...v3.0.0
