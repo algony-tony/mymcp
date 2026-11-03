@@ -202,7 +202,7 @@ pydantic==2.14.2
     #   mcp
     #   mcp-types
     #   pydantic-settings
-pydantic-core==2.50.1
+pydantic-core==2.50.2
     # via pydantic
 pydantic-settings==2.16.2
     # via algony-mymcp
