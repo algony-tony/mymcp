@@ -72,6 +72,35 @@ def test_no_unknown_variables_in_env_example():
     )
 
 
+def test_every_variable_has_descriptive_comment():
+    """Ensure every variable in .env.example has at least one comment explaining it."""
+    path = _find_env_example()
+    lines = path.read_text(encoding="utf-8").splitlines()
+
+    undocumented = []
+    for i, line in enumerate(lines):
+        m = re.match(r"^[#\s]*(MYMCP_[A-Z0-9_]+)\s*=", line)
+        if m:
+            var = m.group(1)
+            has_doc = False
+            j = i - 1
+            while j >= 0:
+                prev = lines[j].strip()
+                if prev.startswith("# ===") or prev == "":
+                    break
+                if prev.startswith("#") and not re.match(r"^[#\s]*MYMCP_", prev):
+                    has_doc = True
+                    break
+                j -= 1
+            if not has_doc:
+                undocumented.append((var, i + 1))
+
+    assert not undocumented, (
+        f"Variables without documentation comment in .env.example: {undocumented}\n"
+        "Every configuration variable must have an explanatory comment above it."
+    )
+
+
 def test_env_example_defaults_match_settings():
     """All non-empty default values in .env.example must match Settings defaults."""
     env_vars = _parse_env_example(_find_env_example())

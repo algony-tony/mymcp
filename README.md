@@ -12,18 +12,6 @@ The core server `mymcp` is a single static Go binary. An optional Python sidecar
 
 ---
 
-## Features
-
-- **9 MCP Tools**: Shell command execution, safe file operations (`read`, `write`, `edit`), fast file search (`glob`, `grep`), streaming file transfer, and host overview.
-- **Context-Free File Transfer**: Upload and download binary or large files directly via signed HTTP streaming tickets — file bytes never enter the LLM context window.
-- **Role-Based Token Security**: Issue `ro` (read-only) or `rw` (read-write) Bearer tokens with strict tool filtering.
-- **Protected Paths**: Critical server files, tokens, configurations, and audit logs are automatically shielded from tool access.
-- **SOC-Compliant Audit Logging**: Complete JSON Lines audit trail with atomic write guarantees (mutations fail safely if logging fails).
-- **Stateless Streamable HTTP**: Built on modern Streamable HTTP transport; reconnects seamlessly without persistent session state.
-- **Production Observability**: Built-in Prometheus `/metrics` endpoint, OpenTelemetry tracing support, and pre-built Grafana dashboards.
-
----
-
 ## Quick Install
 
 ### 1. One-Line Script (Recommended)
