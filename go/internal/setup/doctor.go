@@ -237,12 +237,13 @@ func tlsChecks(certPath, keyPath string) []Check {
 			Detail: fmt.Sprintf("cannot read %s: %v", keyPath, errKey),
 			Remedy: "verify MYMCP_TLS_KEY path exists and is readable"})
 	}
-	if stKey.Mode().Perm() != 0o600 {
+	perm := stKey.Mode().Perm()
+	if perm&0077 != 0 || perm&0400 == 0 {
 		out = append(out, Check{Group: "SECURITY", Name: "TLS key permissions", Severity: SevWarn,
-			Detail: fmt.Sprintf("%s is mode %o; private keys should be 0600", keyPath, stKey.Mode().Perm()),
+			Detail: fmt.Sprintf("%s is mode %o; private keys should be 0600 or 0400", keyPath, perm),
 			Remedy: "chmod 600 " + keyPath})
 	} else {
-		out = append(out, Check{Group: "SECURITY", Name: "TLS key permissions", Severity: SevOK, Detail: "0600"})
+		out = append(out, Check{Group: "SECURITY", Name: "TLS key permissions", Severity: SevOK, Detail: fmt.Sprintf("%04o", perm)})
 	}
 
 	if _, err := tls.LoadX509KeyPair(certPath, keyPath); err != nil {
@@ -255,8 +256,22 @@ func tlsChecks(certPath, keyPath string) []Check {
 	return out
 }
 
+func isLoopbackHost(host string) bool {
+	if host == "127.0.0.1" || host == "::1" || strings.EqualFold(host, "localhost") {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return true
+	}
+	return false
+}
+
 func bindSecurityCheck(host string, isTLS bool, trustedProxies string) Check {
-	if isTLS || (!isWildcardHost(host) && host == "127.0.0.1") || strings.TrimSpace(trustedProxies) != "" {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		host = "0.0.0.0"
+	}
+	if isTLS || isLoopbackHost(host) || strings.TrimSpace(trustedProxies) != "" {
 		return Check{Group: "SECURITY", Name: "transport security", Severity: SevOK, Detail: "TLS or loopback/reverse-proxy active"}
 	}
 	return Check{

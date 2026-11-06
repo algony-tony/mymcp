@@ -204,16 +204,41 @@ func TestDoctorTLSChecks(t *testing.T) {
 		t.Errorf("expected SevWarn for 0644 key permissions")
 	}
 
+	// 4b. Read-only key permissions (0400) are accepted
+	roPermKey := filepath.Join(t.TempDir(), "roperm.key")
+	_ = os.WriteFile(roPermKey, rawKey, 0400)
+	checks = tlsChecks(certFile, roPermKey)
+	var foundPermOK bool
+	for _, c := range checks {
+		if c.Name == "TLS key permissions" && c.Severity == SevOK {
+			foundPermOK = true
+		}
+	}
+	if !foundPermOK {
+		t.Errorf("expected SevOK for 0400 key permissions")
+	}
+
 	// 5. Plain HTTP on 0.0.0.0 without trusted proxies -> SevWarn
 	check := bindSecurityCheck("0.0.0.0", false, "")
 	if check.Severity != SevWarn {
 		t.Errorf("expected SevWarn on public plain HTTP, got %v", check.Severity)
 	}
 
-	// 6. Plain HTTP on 127.0.0.1 is OK
-	check = bindSecurityCheck("127.0.0.1", false, "")
-	if check.Severity != SevOK {
-		t.Errorf("expected SevOK on loopback plain HTTP, got %v", check.Severity)
+	// 5b. Empty host normalizes to 0.0.0.0
+	emptyCheck := bindSecurityCheck("", false, "")
+	if emptyCheck.Severity != SevWarn {
+		t.Errorf("expected SevWarn on empty host, got %v", emptyCheck.Severity)
+	}
+	if !strings.Contains(emptyCheck.Detail, "0.0.0.0") {
+		t.Errorf("expected detail to mention 0.0.0.0, got %q", emptyCheck.Detail)
+	}
+
+	// 6. Plain HTTP on loopback hosts is OK
+	for _, loopbackHost := range []string{"127.0.0.1", "::1", "localhost", "127.0.0.2"} {
+		check = bindSecurityCheck(loopbackHost, false, "")
+		if check.Severity != SevOK {
+			t.Errorf("expected SevOK on loopback %s plain HTTP, got %v", loopbackHost, check.Severity)
+		}
 	}
 
 	// 7. Plain HTTP on 0.0.0.0 with trusted proxies is OK

@@ -315,6 +315,9 @@ func TestEnvExampleMatchesGoDefaults(t *testing.T) {
 	}{
 		{"MYMCP_HOST", cfg.Host},
 		{"MYMCP_PORT", strconv.Itoa(cfg.Port)},
+		{"MYMCP_TLS_CERT", cfg.TLSCert},
+		{"MYMCP_TLS_KEY", cfg.TLSKey},
+		{"MYMCP_TRUSTED_PROXIES", cfg.TrustedProxies},
 		{"MYMCP_TOKEN_FILE", cfg.TokenFile},
 		{"MYMCP_AUDIT_LOG_DIR", cfg.AuditLogDir},
 		{"MYMCP_AUDIT_ENABLED", strconv.FormatBool(cfg.AuditEnabled)},
