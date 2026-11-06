@@ -5,12 +5,18 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/algony-tony/mymcp/go/internal/audit"
+	"github.com/algony-tony/mymcp/go/internal/auth"
 	"github.com/algony-tony/mymcp/go/internal/config"
 	"github.com/algony-tony/mymcp/go/internal/metrics"
 	"github.com/algony-tony/mymcp/go/internal/tools"
+	"github.com/algony-tony/mymcp/go/internal/transfer"
 )
 
 func TestConstantTimeEquals(t *testing.T) {
@@ -71,11 +77,83 @@ func TestMaxBodySize(t *testing.T) {
 		writeJSON(w, 200, map[string]string{"status": "ok"})
 	}))
 
+	t.Run("payload within limit succeeds", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("POST", "/test", strings.NewReader("12345")) // 5 bytes <= 10 bytes limit
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rec.Code)
+		}
+	})
+
+	t.Run("payload exceeding limit fails with 413", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("POST", "/test", strings.NewReader("123456789012345")) // 15 bytes > 10 bytes limit
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusRequestEntityTooLarge {
+			t.Fatalf("expected 413, got %d", rec.Code)
+		}
+	})
+
+	t.Run("files raw route bypasses body limit", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("PUT", "/files/raw/ticket-xyz", strings.NewReader("123456789012345")) // 15 bytes > 10 bytes limit
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 on /files/raw/ bypass, got %d", rec.Code)
+		}
+	})
+}
+
+type repeatByteReader byte
+
+func (b repeatByteReader) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = byte(b)
+	}
+	return len(p), nil
+}
+
+func TestBuildMuxFilesRawBypassesMaxBodySize(t *testing.T) {
+	t.Setenv("MYMCP_AUDIT_LOG_DIR", filepath.Join(t.TempDir(), "audit"))
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.TransferEnabled = true
+	store, err := auth.NewTokenStore(filepath.Join(t.TempDir(), "tokens.json"), "admin-tok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, _ := audit.New(false, t.TempDir(), 1<<20, 5)
+	m := metrics.New(func() float64 { return 0 })
+	tickets := transfer.NewTicketStore()
+	d := tools.Deps{Cfg: cfg, Protected: tools.ProtectedFromConfig(cfg), Tickets: tickets}
+	handler := BuildMux(d, store, a, m, "", "test")
+
+	dst := filepath.Join(t.TempDir(), "uploaded.bin")
+	limit := int64(25 * 1024 * 1024) // 25 MiB
+	tk := tickets.Mint("upload", dst, limit, 300, "user", "rw")
+
+	// 21 MiB payload (> 20 MiB default maxBodySize limit)
+	payloadSize := int64(21 * 1024 * 1024)
+	zr := io.LimitReader(repeatByteReader('A'), payloadSize)
+
+	req := httptest.NewRequest("PUT", "/files/raw/"+tk.TicketID, zr)
+	req.Header.Set("Content-Length", strconv.FormatInt(payloadSize, 10))
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/", strings.NewReader("123456789012345")) // 15 bytes > 10 bytes limit
 	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusRequestEntityTooLarge {
-		t.Fatalf("expected 413, got %d", rec.Code)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for /files/raw upload exceeding general max body, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	fi, err := os.Stat(dst)
+	if err != nil {
+		t.Fatalf("failed to stat uploaded file: %v", err)
+	}
+	if fi.Size() != payloadSize {
+		t.Fatalf("expected file size %d, got %d", payloadSize, fi.Size())
 	}
 }
 

@@ -92,9 +92,11 @@ func BuildMux(d tools.Deps, store *auth.TokenStore, auditW *audit.Writer, m *met
 	mux.HandleFunc("GET /admin/tokens", adminList(store, m, trusted))
 
 	isTLS := d.Cfg != nil && d.Cfg.IsTLS()
-	maxBody := int64(10 * 1024 * 1024)
+	maxBody := int64(20 * 1024 * 1024)
 	if d.Cfg != nil && d.Cfg.WriteFileMaxBytes > 0 {
-		maxBody = int64(d.Cfg.WriteFileMaxBytes)
+		if calculated := int64(d.Cfg.WriteFileMaxBytes)*2 + 2*1024*1024; calculated > maxBody {
+			maxBody = calculated
+		}
 	}
 
 	h := httpMetrics(m, mux)

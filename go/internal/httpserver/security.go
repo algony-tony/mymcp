@@ -3,6 +3,7 @@ package httpserver
 import (
 	"crypto/subtle"
 	"net/http"
+	"strings"
 )
 
 // constantTimeEquals compares two strings in constant time to mitigate timing attacks.
@@ -27,7 +28,7 @@ func securityHeaders(isTLS bool) func(http.Handler) http.Handler {
 func maxBodySize(limitBytes int64) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if limitBytes > 0 {
+			if limitBytes > 0 && !strings.HasPrefix(r.URL.Path, "/files/raw/") {
 				r.Body = http.MaxBytesReader(w, r.Body, limitBytes)
 			}
 			next.ServeHTTP(w, r)
