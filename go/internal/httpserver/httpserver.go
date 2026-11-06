@@ -63,8 +63,9 @@ func BuildMux(d tools.Deps, store *auth.TokenStore, auditW *audit.Writer, m *met
 		}
 		ip := ExtractClientIP(r, trusted)
 		reqID := requestID(r)
-		if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") ||
-			!constantTimeEquals(r.Header.Get("Authorization")[7:], metricsToken) {
+		authz := r.Header.Get("Authorization")
+		if !strings.HasPrefix(authz, "Bearer ") ||
+			!constantTimeEquals(authz[7:], metricsToken) {
 			recordAuthFailure(w, m, ip, "/metrics", "metrics_unauthorized", reqID, 401, "Unauthorized")
 			return
 		}
@@ -90,7 +91,15 @@ func BuildMux(d tools.Deps, store *auth.TokenStore, auditW *audit.Writer, m *met
 	mux.HandleFunc("DELETE /admin/tokens/{token}", adminRevoke(store, m, trusted))
 	mux.HandleFunc("GET /admin/tokens", adminList(store, m, trusted))
 
-	return httpMetrics(m, mux)
+	isTLS := d.Cfg != nil && d.Cfg.IsTLS()
+	maxBody := int64(10 * 1024 * 1024)
+	if d.Cfg != nil && d.Cfg.WriteFileMaxBytes > 0 {
+		maxBody = int64(d.Cfg.WriteFileMaxBytes)
+	}
+
+	h := httpMetrics(m, mux)
+	h = maxBodySize(maxBody)(h)
+	return securityHeaders(isTLS)(h)
 }
 
 var authLogWriter io.Writer = os.Stderr
