@@ -3,6 +3,7 @@ package httpserver
 import (
 	"crypto/subtle"
 	"net/http"
+	"path"
 	"strings"
 )
 
@@ -28,7 +29,8 @@ func securityHeaders(isTLS bool) func(http.Handler) http.Handler {
 func maxBodySize(limitBytes int64) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if limitBytes > 0 && !strings.HasPrefix(r.URL.Path, "/files/raw/") {
+			cleanPath := path.Clean(r.URL.Path)
+			if limitBytes > 0 && !strings.HasPrefix(cleanPath, "/files/raw/") {
 				r.Body = http.MaxBytesReader(w, r.Body, limitBytes)
 			}
 			next.ServeHTTP(w, r)
