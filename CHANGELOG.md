@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.1.2] - 2026-11-07
+
+### Changed
+- Streamlined `README.md` to 108 lines, focusing on quick start, generic client configuration, and tool summary.
+- Converted all documentation links in `README.md` to absolute GitHub URLs for PyPI rendering compatibility.
+- Cleaned up obsolete implementation plans and extracted core architecture and tool references into `docs/design/` and `docs/reference/`.
+- Consolidated developer guidance into `AGENTS.md` and retired `CLAUDE.md`.
+- Realigned `.env.example` defaults with Go and Python source code, making `.env.example` the single source of truth for configuration.
+
+### Added
+- Added dual Go and Python contract tests (`test_env_example_parity.py` and `TestEnvExampleMatchesGoDefaults`) to prevent configuration drift.
+
 ## [3.1.1] - 2026-11-04
 
 ### Changed
@@ -392,7 +404,8 @@ now a **recorder-only sidecar**. This is the v3 lightweighting milestone — the
 
 Initial tagged release. See git history for details.
 
-[Unreleased]: https://github.com/algony-tony/mymcp/compare/v3.1.1...HEAD
+[Unreleased]: https://github.com/algony-tony/mymcp/compare/v3.1.2...HEAD
+[3.1.2]: https://github.com/algony-tony/mymcp/compare/v3.1.1...v3.1.2
 [3.1.1]: https://github.com/algony-tony/mymcp/compare/v3.1.0...v3.1.1
 [3.1.0]: https://github.com/algony-tony/mymcp/compare/v3.0.1...v3.1.0
 [3.0.1]: https://github.com/algony-tony/mymcp/compare/v3.0.0...v3.0.1
