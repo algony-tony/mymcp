@@ -7,6 +7,7 @@ package config
 import (
 	"bufio"
 	"fmt"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -17,6 +18,10 @@ type Config struct {
 	Port       int
 	AdminToken string
 	TokenFile  string
+
+	TLSCert        string
+	TLSKey         string
+	TrustedProxies string
 
 	MetricsToken string
 
@@ -87,6 +92,14 @@ func Load() (*Config, error) {
 	}
 	cfg.AdminToken = getStr(get, "MYMCP_ADMIN_TOKEN", "")
 	cfg.TokenFile = getStr(get, "MYMCP_TOKEN_FILE", "/etc/mymcp/tokens.json")
+
+	cfg.TLSCert = getStr(get, "MYMCP_TLS_CERT", "")
+	cfg.TLSKey = getStr(get, "MYMCP_TLS_KEY", "")
+	cfg.TrustedProxies = getStr(get, "MYMCP_TRUSTED_PROXIES", "")
+
+	if (cfg.TLSCert == "") != (cfg.TLSKey == "") {
+		return nil, fmt.Errorf("both MYMCP_TLS_CERT and MYMCP_TLS_KEY must be set to enable TLS, got cert=%q key=%q", cfg.TLSCert, cfg.TLSKey)
+	}
 
 	cfg.MetricsToken = getStr(get, "MYMCP_METRICS_TOKEN", "")
 	if cfg.BashMaxOutputBytes, err = getInt(get, "MYMCP_BASH_MAX_OUTPUT_BYTES", 102400); err != nil {
@@ -179,6 +192,43 @@ func (c *Config) ProtectedPaths() []string {
 		}
 	}
 	return paths
+}
+
+// IsTLS reports whether TLS certificate and key paths are both configured.
+func (c *Config) IsTLS() bool {
+	return c.TLSCert != "" && c.TLSKey != ""
+}
+
+// ParsedTrustedProxies returns the parsed IPNet slices from TrustedProxies.
+// Supports CIDR notation ("192.168.1.0/24") as well as bare IPs ("127.0.0.1" -> "127.0.0.1/32").
+func (c *Config) ParsedTrustedProxies() ([]*net.IPNet, error) {
+	if strings.TrimSpace(c.TrustedProxies) == "" {
+		return nil, nil
+	}
+	var out []*net.IPNet
+	for _, item := range strings.Split(c.TrustedProxies, ",") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if !strings.Contains(item, "/") {
+			ip := net.ParseIP(item)
+			if ip == nil {
+				return nil, fmt.Errorf("invalid trusted proxy IP: %q", item)
+			}
+			bits := 32
+			if ip.To4() == nil {
+				bits = 128
+			}
+			item = fmt.Sprintf("%s/%d", item, bits)
+		}
+		_, ipnet, err := net.ParseCIDR(item)
+		if err != nil {
+			return nil, fmt.Errorf("invalid trusted proxy CIDR %q: %w", item, err)
+		}
+		out = append(out, ipnet)
+	}
+	return out, nil
 }
 
 // DiscoveredEnvFile exposes env-file discovery for the temp-token decision.
