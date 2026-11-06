@@ -103,17 +103,6 @@ The server reads configuration from `/etc/mymcp/.env` (or environment variables)
 
 ---
 
-## Security & Observability
-
-- **Protected Paths**: Server configuration, tokens, and audit directories are strictly read- and write-protected from MCP file tools.
-- **Audit Logs**: Every tool invocation records timestamp, caller IP, token role, arguments, and duration to `/var/log/mymcp/audit.log`. Any write failure aborts mutations immediately (`500 InternalError`).
-- **Prometheus Metrics**: Pull runtime metrics from `GET /metrics` (Bearer protected by `MYMCP_METRICS_TOKEN`).
-- **Grafana Dashboards**: Ready-to-import dashboards available under [deploy/grafana/](https://github.com/algony-tony/mymcp/tree/master/deploy/grafana).
-
-👉 **Observability Setup**: See [Observability Guide](https://github.com/algony-tony/mymcp/blob/master/docs/reference/observability.md) for OTLP push recipes, LGTM Docker Compose, and PromQL alerting rules.
-
----
-
 ## Documentation Index
 
 - [MCP Tools Reference](https://github.com/algony-tony/mymcp/blob/master/docs/reference/tools.md) — Comprehensive parameter schemas, return formats, and transfer workflows.
