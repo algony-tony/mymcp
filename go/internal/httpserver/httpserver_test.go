@@ -2,14 +2,25 @@ package httpserver
 
 import (
 	"bytes"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
+	"encoding/pem"
+	"errors"
+	"fmt"
 	"io"
+	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/algony-tony/mymcp/go/internal/audit"
 	"github.com/algony-tony/mymcp/go/internal/auth"
@@ -293,5 +304,121 @@ func TestAuthFailureLoggingAndMetrics(t *testing.T) {
 	}
 	if !strings.Contains(metricsBody, `mymcp_auth_failures_total{path="/metrics",reason="metrics_unauthorized"} 1`) {
 		t.Errorf("expected metrics_unauthorized metric, got:\n%s", metricsBody)
+	}
+}
+
+func generateTestCertificate(t *testing.T) (certFile, keyFile string) {
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{Organization: []string{"MyMCP Test"}},
+		NotBefore:    time.Now().Add(-1 * time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
+		KeyUsage:     x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certPath := filepath.Join(t.TempDir(), "test.crt")
+	keyPath := filepath.Join(t.TempDir(), "test.key")
+	certOut, _ := os.Create(certPath)
+	pem.Encode(certOut, &pem.Block{Type: "CERTIFICATE", Bytes: der})
+	certOut.Close()
+
+	keyOut, _ := os.OpenFile(keyPath, os.O_CREATE|os.O_WRONLY, 0600)
+	pem.Encode(keyOut, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)})
+	keyOut.Close()
+	return certPath, keyPath
+}
+
+func TestHTTPSServerIntegration(t *testing.T) {
+	certFile, keyFile := generateTestCertificate(t)
+	cfg := &config.Config{
+		Host: "127.0.0.1", Port: 0,
+		TLSCert: certFile, TLSKey: keyFile,
+	}
+	store, _ := auth.NewTokenStore(filepath.Join(t.TempDir(), "tokens.json"), "admin")
+	m := metrics.New(func() float64 { return 0 })
+	handler := BuildMux(tools.Deps{Cfg: cfg}, store, nil, m, "metrics", "test")
+
+	server := &http.Server{
+		Handler:   handler,
+		TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12},
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	go server.ServeTLS(ln, certFile, keyFile)
+	defer server.Close()
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+	resp, err := client.Get(fmt.Sprintf("https://%s/health", ln.Addr().String()))
+	if err != nil {
+		t.Fatalf("HTTPS GET /health failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+	if resp.Header.Get("Strict-Transport-Security") == "" {
+		t.Errorf("missing HSTS header on HTTPS response")
+	}
+}
+
+func TestServeTLSValidation(t *testing.T) {
+	certFile, keyFile := generateTestCertificate(t)
+	t.Setenv("MYMCP_ADMIN_TOKEN", "admin-tok")
+	t.Setenv("MYMCP_TOKEN_FILE", filepath.Join(t.TempDir(), "tokens.json"))
+	t.Setenv("MYMCP_AUDIT_LOG_DIR", filepath.Join(t.TempDir(), "audit"))
+
+	// Missing cert
+	t.Setenv("MYMCP_TLS_CERT", filepath.Join(t.TempDir(), "nonexistent.crt"))
+	t.Setenv("MYMCP_TLS_KEY", keyFile)
+	err := Serve("127.0.0.1", 0, "test")
+	if err == nil || !strings.Contains(err.Error(), "TLS cert file") {
+		t.Fatalf("expected TLS cert file error, got %v", err)
+	}
+
+	// Missing key
+	t.Setenv("MYMCP_TLS_CERT", certFile)
+	t.Setenv("MYMCP_TLS_KEY", filepath.Join(t.TempDir(), "nonexistent.key"))
+	err = Serve("127.0.0.1", 0, "test")
+	if err == nil || !strings.Contains(err.Error(), "TLS key file") {
+		t.Fatalf("expected TLS key file error, got %v", err)
+	}
+}
+
+func TestServeTLSStartupErrorPropagates(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	certFile, keyFile := generateTestCertificate(t)
+	t.Setenv("MYMCP_ADMIN_TOKEN", "admin-tok")
+	t.Setenv("MYMCP_TOKEN_FILE", filepath.Join(t.TempDir(), "tokens.json"))
+	t.Setenv("MYMCP_AUDIT_LOG_DIR", filepath.Join(t.TempDir(), "audit"))
+	t.Setenv("MYMCP_HOST", "127.0.0.1")
+	t.Setenv("MYMCP_TLS_CERT", certFile)
+	t.Setenv("MYMCP_TLS_KEY", keyFile)
+
+	err = Serve("", port, "test")
+	if err == nil || errors.Is(err, http.ErrServerClosed) {
+		t.Fatalf("Serve on busy TLS port = %v, want a bind error", err)
 	}
 }

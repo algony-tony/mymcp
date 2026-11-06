@@ -7,6 +7,7 @@ package httpserver
 import (
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -330,8 +331,22 @@ func Serve(hostFlag string, portFlag int, version string) error {
 	}
 
 	errCh := make(chan error, 1)
-	go func() { errCh <- server.ListenAndServe() }()
-	fmt.Fprintf(os.Stderr, "[mymcp] serving on %s\n", server.Addr)
+	if cfg.IsTLS() {
+		if _, err := os.Stat(cfg.TLSCert); err != nil {
+			return fmt.Errorf("TLS cert file: %w", err)
+		}
+		if _, err := os.Stat(cfg.TLSKey); err != nil {
+			return fmt.Errorf("TLS key file: %w", err)
+		}
+		server.TLSConfig = &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		}
+		go func() { errCh <- server.ListenAndServeTLS(cfg.TLSCert, cfg.TLSKey) }()
+		fmt.Fprintf(os.Stderr, "[mymcp] serving HTTPS on https://%s\n", server.Addr)
+	} else {
+		go func() { errCh <- server.ListenAndServe() }()
+		fmt.Fprintf(os.Stderr, "[mymcp] serving HTTP on http://%s\n", server.Addr)
+	}
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
