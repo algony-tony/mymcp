@@ -2,6 +2,7 @@ package setup
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -126,6 +127,23 @@ func Doctor(configDir string, sys System) []Check {
 	}
 	checks = append(checks, tokenStoreChecks(tokenPath)...)
 
+	// --- SECURITY ---
+	tlsCert := envValue(string(raw), "MYMCP_TLS_CERT")
+	tlsKey := envValue(string(raw), "MYMCP_TLS_KEY")
+	trustedProxies := envValue(string(raw), "MYMCP_TRUSTED_PROXIES")
+
+	if tlsCert != "" || tlsKey != "" {
+		if tlsCert == "" || tlsKey == "" {
+			add(Check{Group: "SECURITY", Name: "TLS configuration", Severity: SevFail,
+				Detail: "both MYMCP_TLS_CERT and MYMCP_TLS_KEY must be set",
+				Remedy: "set both variables in " + envPath})
+		} else {
+			checks = append(checks, tlsChecks(tlsCert, tlsKey)...)
+		}
+	}
+	isTLS := tlsCert != "" && tlsKey != ""
+	add(bindSecurityCheck(envValue(string(raw), "MYMCP_HOST"), isTLS, trustedProxies))
+
 	// --- RUNTIME ---
 	checks = append(checks, runtimeChecks(sys)...)
 
@@ -202,6 +220,50 @@ func tokenStoreChecks(path string) []Check {
 	}
 	return append(out, Check{Group: "CONFIG", Name: "client tokens", Severity: SevOK,
 		Detail: fmt.Sprintf("%d enabled", enabled)})
+}
+
+func tlsChecks(certPath, keyPath string) []Check {
+	var out []Check
+	if _, err := os.Stat(certPath); err != nil {
+		return []Check{{Group: "SECURITY", Name: "TLS certificate", Severity: SevFail,
+			Detail: fmt.Sprintf("cannot read %s: %v", certPath, err),
+			Remedy: "verify MYMCP_TLS_CERT path exists and is readable"}}
+	}
+	out = append(out, Check{Group: "SECURITY", Name: "TLS certificate", Severity: SevOK, Detail: certPath})
+
+	stKey, errKey := os.Stat(keyPath)
+	if errKey != nil {
+		return append(out, Check{Group: "SECURITY", Name: "TLS private key", Severity: SevFail,
+			Detail: fmt.Sprintf("cannot read %s: %v", keyPath, errKey),
+			Remedy: "verify MYMCP_TLS_KEY path exists and is readable"})
+	}
+	if stKey.Mode().Perm() != 0o600 {
+		out = append(out, Check{Group: "SECURITY", Name: "TLS key permissions", Severity: SevWarn,
+			Detail: fmt.Sprintf("%s is mode %o; private keys should be 0600", keyPath, stKey.Mode().Perm()),
+			Remedy: "chmod 600 " + keyPath})
+	} else {
+		out = append(out, Check{Group: "SECURITY", Name: "TLS key permissions", Severity: SevOK, Detail: "0600"})
+	}
+
+	if _, err := tls.LoadX509KeyPair(certPath, keyPath); err != nil {
+		out = append(out, Check{Group: "SECURITY", Name: "TLS keypair", Severity: SevFail,
+			Detail: fmt.Sprintf("invalid certificate/key pair: %v", err),
+			Remedy: "ensure certificate matches the private key"})
+	} else {
+		out = append(out, Check{Group: "SECURITY", Name: "TLS keypair", Severity: SevOK})
+	}
+	return out
+}
+
+func bindSecurityCheck(host string, isTLS bool, trustedProxies string) Check {
+	if isTLS || (!isWildcardHost(host) && host == "127.0.0.1") || strings.TrimSpace(trustedProxies) != "" {
+		return Check{Group: "SECURITY", Name: "transport security", Severity: SevOK, Detail: "TLS or loopback/reverse-proxy active"}
+	}
+	return Check{
+		Group: "SECURITY", Name: "transport security", Severity: SevWarn,
+		Detail: fmt.Sprintf("mymcp is serving plain HTTP on %s; bearer tokens sent over public networks can be intercepted", host),
+		Remedy: "configure MYMCP_TLS_CERT/MYMCP_TLS_KEY, bind to 127.0.0.1, or configure MYMCP_TRUSTED_PROXIES behind a reverse proxy",
+	}
 }
 
 func runtimeChecks(sys System) []Check {
