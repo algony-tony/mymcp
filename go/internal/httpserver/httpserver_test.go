@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -198,5 +199,99 @@ func TestGenRequestID(t *testing.T) {
 	b := genRequestID()
 	if a == b || len(a) != 32 {
 		t.Fatalf("bad request ids: %q %q", a, b)
+	}
+}
+
+func TestAuthFailureLoggingAndMetrics(t *testing.T) {
+	stderrCapture := &bytes.Buffer{}
+	origStderr := authLogWriter
+	authLogWriter = stderrCapture
+	defer func() { authLogWriter = origStderr }()
+
+	store, err := auth.NewTokenStore(filepath.Join(t.TempDir(), "tokens.json"), "admin-secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := metrics.New(func() float64 { return 0 })
+	h := BuildMux(tools.Deps{Cfg: &config.Config{}}, store, nil, m, "metrics-secret", "test")
+
+	// 1. Missing bearer token on /mcp
+	req := httptest.NewRequest("POST", "/mcp", strings.NewReader(`{}`))
+	req.RemoteAddr = "192.0.2.1:1234"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != 401 {
+		t.Fatalf("expected 401, got %d", rec.Code)
+	}
+	if !strings.Contains(stderrCapture.String(), "[AUTH_FAIL] ip=192.0.2.1 path=/mcp reason=missing_token") {
+		t.Errorf("expected missing_token log, got: %s", stderrCapture.String())
+	}
+	stderrCapture.Reset()
+
+	// 2. Invalid bearer token on /mcp (verify token secret is NOT logged)
+	secretAttempt := "tok_super_secret_leak_test"
+	req = httptest.NewRequest("POST", "/mcp", strings.NewReader(`{}`))
+	req.RemoteAddr = "192.0.2.2:1234"
+	req.Header.Set("Authorization", "Bearer "+secretAttempt)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != 401 {
+		t.Fatalf("expected 401, got %d", rec.Code)
+	}
+	logOutput := stderrCapture.String()
+	if !strings.Contains(logOutput, "[AUTH_FAIL] ip=192.0.2.2 path=/mcp reason=invalid_token") {
+		t.Errorf("expected invalid_token log, got: %s", logOutput)
+	}
+	if strings.Contains(logOutput, secretAttempt) {
+		t.Fatalf("CRITICAL: auth failure logged the raw token!")
+	}
+	stderrCapture.Reset()
+
+	// 3. Invalid admin token on /admin/tokens
+	req = httptest.NewRequest("GET", "/admin/tokens", nil)
+	req.RemoteAddr = "192.0.2.3:1234"
+	req.Header.Set("Authorization", "Bearer wrong-admin")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != 403 {
+		t.Fatalf("expected 403, got %d", rec.Code)
+	}
+	if !strings.Contains(stderrCapture.String(), "[AUTH_FAIL] ip=192.0.2.3 path=/admin/tokens reason=invalid_admin_token") {
+		t.Errorf("expected invalid_admin_token log, got: %s", stderrCapture.String())
+	}
+	stderrCapture.Reset()
+
+	// 4. Missing / invalid metrics token on /metrics
+	req = httptest.NewRequest("GET", "/metrics", nil)
+	req.RemoteAddr = "192.0.2.4:1234"
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != 401 {
+		t.Fatalf("expected 401, got %d", rec.Code)
+	}
+	if !strings.Contains(stderrCapture.String(), "[AUTH_FAIL] ip=192.0.2.4 path=/metrics reason=metrics_unauthorized") {
+		t.Errorf("expected metrics_unauthorized log, got: %s", stderrCapture.String())
+	}
+
+	// 5. Verify Prometheus metrics scrape records the auth failures
+	req = httptest.NewRequest("GET", "/metrics", nil)
+	req.Header.Set("Authorization", "Bearer metrics-secret")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("metrics scrape failed: %d", rec.Code)
+	}
+	metricsBody := rec.Body.String()
+	if !strings.Contains(metricsBody, `mymcp_auth_failures_total{path="/mcp",reason="missing_token"} 1`) {
+		t.Errorf("expected missing_token metric, got:\n%s", metricsBody)
+	}
+	if !strings.Contains(metricsBody, `mymcp_auth_failures_total{path="/mcp",reason="invalid_token"} 1`) {
+		t.Errorf("expected invalid_token metric, got:\n%s", metricsBody)
+	}
+	if !strings.Contains(metricsBody, `mymcp_auth_failures_total{path="/admin/tokens",reason="invalid_admin_token"} 1`) {
+		t.Errorf("expected invalid_admin_token metric, got:\n%s", metricsBody)
+	}
+	if !strings.Contains(metricsBody, `mymcp_auth_failures_total{path="/metrics",reason="metrics_unauthorized"} 1`) {
+		t.Errorf("expected metrics_unauthorized metric, got:\n%s", metricsBody)
 	}
 }

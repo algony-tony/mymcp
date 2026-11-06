@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -37,12 +38,17 @@ import (
 func BuildMux(d tools.Deps, store *auth.TokenStore, auditW *audit.Writer, m *metrics.Metrics, metricsToken, version string) http.Handler {
 	mux := http.NewServeMux()
 
+	var trusted []*net.IPNet
+	if d.Cfg != nil {
+		trusted, _ = d.Cfg.ParsedTrustedProxies()
+	}
+
 	srv := mcpserver.New(d, auditW, m).Build()
 	mcpHandler := mcp.NewStreamableHTTPHandler(
 		func(*http.Request) *mcp.Server { return srv },
 		&mcp.StreamableHTTPOptions{Stateless: true},
 	)
-	mux.Handle("/mcp", authMiddleware(store, mcpHandler))
+	mux.Handle("/mcp", authMiddleware(store, m, trusted, mcpHandler))
 
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, 200, map[string]string{"status": "ok", "version": version})
@@ -55,46 +61,69 @@ func BuildMux(d tools.Deps, store *auth.TokenStore, auditW *audit.Writer, m *met
 			writeJSON(w, 503, map[string]string{"detail": "Metrics disabled: MYMCP_METRICS_TOKEN not configured"})
 			return
 		}
-		if r.Header.Get("Authorization") != "Bearer "+metricsToken {
-			writeJSON(w, 401, map[string]string{"detail": "Unauthorized"})
+		ip := ExtractClientIP(r, trusted)
+		reqID := requestID(r)
+		if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") ||
+			!constantTimeEquals(r.Header.Get("Authorization")[7:], metricsToken) {
+			recordAuthFailure(w, m, ip, "/metrics", "metrics_unauthorized", reqID, 401, "Unauthorized")
 			return
 		}
 		m.Handler().ServeHTTP(w, r)
 	})
 
 	// Transfer endpoints (ticket-only auth; share d.Tickets with the tools).
+	transferEnabled := false
+	if d.Cfg != nil {
+		transferEnabled = d.Cfg.TransferEnabled
+	}
+	var onAuditFail func()
+	if m != nil {
+		onAuditFail = m.IncAuditFailure
+	}
 	(&transfer.Endpoints{
 		Tickets: d.Tickets, Audit: auditW, Protected: d.Protected,
-		Enabled: d.Cfg.TransferEnabled, OnAuditFail: m.IncAuditFailure,
+		Enabled: transferEnabled, OnAuditFail: onAuditFail,
 	}).Register(mux)
 
 	// Admin token CRUD behind the admin token.
-	mux.HandleFunc("POST /admin/tokens", adminCreate(store))
-	mux.HandleFunc("DELETE /admin/tokens/{token}", adminRevoke(store))
-	mux.HandleFunc("GET /admin/tokens", adminList(store))
+	mux.HandleFunc("POST /admin/tokens", adminCreate(store, m, trusted))
+	mux.HandleFunc("DELETE /admin/tokens/{token}", adminRevoke(store, m, trusted))
+	mux.HandleFunc("GET /admin/tokens", adminList(store, m, trusted))
 
 	return httpMetrics(m, mux)
 }
 
+var authLogWriter io.Writer = os.Stderr
+
+func recordAuthFailure(w http.ResponseWriter, m *metrics.Metrics, ip, path, reason, reqID string, status int, detail string) {
+	if m != nil && m.AuthFailures != nil {
+		m.AuthFailures.WithLabelValues(path, reason).Inc()
+	}
+	fmt.Fprintf(authLogWriter, "[mymcp] [AUTH_FAIL] ip=%s path=%s reason=%s req_id=%s\n", ip, path, reason, reqID)
+	writeJSON(w, status, map[string]string{"detail": detail})
+}
+
 // requireAdmin returns true iff the Bearer token equals the admin token,
 // writing the Python-parity 401/403 response otherwise.
-func requireAdmin(store *auth.TokenStore, w http.ResponseWriter, r *http.Request) bool {
+func requireAdmin(store *auth.TokenStore, m *metrics.Metrics, trusted []*net.IPNet, w http.ResponseWriter, r *http.Request) bool {
 	const prefix = "Bearer "
 	authz := r.Header.Get("Authorization")
+	ip := ExtractClientIP(r, trusted)
+	reqID := requestID(r)
 	if len(authz) < len(prefix) || authz[:len(prefix)] != prefix {
-		writeJSON(w, 401, map[string]string{"detail": "Missing Bearer token"})
+		recordAuthFailure(w, m, ip, "/admin/tokens", "missing_admin_token", reqID, 401, "Missing Bearer token")
 		return false
 	}
-	if authz[len(prefix):] != store.AdminToken() {
-		writeJSON(w, 403, map[string]string{"detail": "Admin token required"})
+	if !constantTimeEquals(authz[len(prefix):], store.AdminToken()) {
+		recordAuthFailure(w, m, ip, "/admin/tokens", "invalid_admin_token", reqID, 403, "Admin token required")
 		return false
 	}
 	return true
 }
 
-func adminCreate(store *auth.TokenStore) http.HandlerFunc {
+func adminCreate(store *auth.TokenStore, m *metrics.Metrics, trusted []*net.IPNet) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !requireAdmin(store, w, r) {
+		if !requireAdmin(store, m, trusted, w, r) {
 			return
 		}
 		var body struct {
@@ -115,9 +144,9 @@ func adminCreate(store *auth.TokenStore) http.HandlerFunc {
 	}
 }
 
-func adminRevoke(store *auth.TokenStore) http.HandlerFunc {
+func adminRevoke(store *auth.TokenStore, m *metrics.Metrics, trusted []*net.IPNet) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !requireAdmin(store, w, r) {
+		if !requireAdmin(store, m, trusted, w, r) {
 			return
 		}
 		token := r.PathValue("token")
@@ -136,9 +165,9 @@ func adminRevoke(store *auth.TokenStore) http.HandlerFunc {
 	}
 }
 
-func adminList(store *auth.TokenStore) http.HandlerFunc {
+func adminList(store *auth.TokenStore, m *metrics.Metrics, trusted []*net.IPNet) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !requireAdmin(store, w, r) {
+		if !requireAdmin(store, m, trusted, w, r) {
 			return
 		}
 		writeJSON(w, 200, store.ListTokens())
@@ -176,25 +205,23 @@ func httpMetrics(m *metrics.Metrics, next http.Handler) http.Handler {
 	})
 }
 
-func authMiddleware(store *auth.TokenStore, next http.Handler) http.Handler {
+func authMiddleware(store *auth.TokenStore, m *metrics.Metrics, trusted []*net.IPNet, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		const prefix = "Bearer "
 		authz := r.Header.Get("Authorization")
+		ip := ExtractClientIP(r, trusted)
+		reqID := requestID(r)
 		if len(authz) < len(prefix) || authz[:len(prefix)] != prefix {
-			writeJSON(w, 401, map[string]string{"detail": "Missing Bearer token"})
+			recordAuthFailure(w, m, ip, "/mcp", "missing_token", reqID, 401, "Missing Bearer token")
 			return
 		}
 		info := store.Validate(authz[len(prefix):])
 		if info == nil {
-			writeJSON(w, 401, map[string]string{"detail": "Invalid or disabled token"})
+			recordAuthFailure(w, m, ip, "/mcp", "invalid_token", reqID, 401, "Invalid or disabled token")
 			return
 		}
-		ip, _, err := net.SplitHostPort(r.RemoteAddr)
-		if err != nil {
-			ip = "unknown"
-		}
 		ctx := mcpserver.WithAuthInfo(r.Context(), mcpserver.AuthInfo{
-			TokenName: info.Name, Role: info.Role, IP: ip, RequestID: requestID(r),
+			TokenName: info.Name, Role: info.Role, IP: ip, RequestID: reqID,
 		})
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
