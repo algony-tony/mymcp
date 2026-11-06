@@ -6,7 +6,7 @@ tests              export-ignore
 docs               export-ignore
 .github            export-ignore
 .claude            export-ignore
-CLAUDE.md          export-ignore
+AGENTS.md          export-ignore
 pytest.ini         export-ignore
 requirements-dev.txt export-ignore
 .gitignore         export-ignore

@@ -16,3 +16,6 @@ platform-dist/
 *.egg-info/
 src/mymcp/_version.py
 .worktrees/
+.superpowers/
+.claude/
+.omx/

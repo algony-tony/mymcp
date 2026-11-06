@@ -391,7 +391,7 @@ func recorderChecks(sys System, env, host, port string) []Check {
 		out = append(out, Check{Group: "RECORDER", Name: "backlog", Severity: SevWarn,
 			Detail: "recorder metrics not exported yet"})
 	case pending > 0 && age > 2*interval:
-		// The project's own stall predicate (CLAUDE.md). This is the failure
+		// The project's own stall predicate (AGENTS.md). This is the failure
 		// that went unnoticed for four weeks in production.
 		out = append(out, Check{Group: "RECORDER", Name: "backlog", Severity: SevFail,
 			Detail: fmt.Sprintf("%.0f events pending, last merge attempt %.0fs ago", pending, age),

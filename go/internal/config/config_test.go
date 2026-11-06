@@ -1,8 +1,10 @@
 package config
 
 import (
+	"bufio"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -244,5 +246,107 @@ func TestRecorderMergeIntervalSec(t *testing.T) {
 				t.Fatalf("got %d, want %d", cfg.RecorderMergeIntervalSec, tc.want)
 			}
 		})
+	}
+}
+
+func TestEnvExampleMatchesGoDefaults(t *testing.T) {
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envPath string
+	for i := 0; i < 5; i++ {
+		candidate := filepath.Join(dir, ".env.example")
+		if _, err := os.Stat(candidate); err == nil {
+			envPath = candidate
+			break
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	if envPath == "" {
+		t.Fatal(".env.example not found")
+	}
+
+	raw, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	envVars := make(map[string]string)
+	scanner := bufio.NewScanner(strings.NewReader(string(raw)))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "#") {
+			line = strings.TrimSpace(strings.TrimPrefix(line, "#"))
+		}
+		if idx := strings.Index(line, "="); idx != -1 {
+			k := strings.TrimSpace(line[:idx])
+			v := strings.TrimSpace(line[idx+1:])
+			if strings.HasPrefix(k, "MYMCP_") {
+				if commentIdx := strings.Index(v, "#"); commentIdx != -1 {
+					v = strings.TrimSpace(v[:commentIdx])
+				}
+				envVars[k] = v
+			}
+		}
+	}
+
+	// Clean environment to ensure we inspect true defaults
+	for k := range envVars {
+		t.Setenv(k, "")
+		os.Unsetenv(k)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	checks := []struct {
+		key  string
+		want string
+	}{
+		{"MYMCP_HOST", cfg.Host},
+		{"MYMCP_PORT", strconv.Itoa(cfg.Port)},
+		{"MYMCP_TOKEN_FILE", cfg.TokenFile},
+		{"MYMCP_AUDIT_LOG_DIR", cfg.AuditLogDir},
+		{"MYMCP_AUDIT_ENABLED", strconv.FormatBool(cfg.AuditEnabled)},
+		{"MYMCP_AUDIT_MAX_BYTES", strconv.FormatInt(cfg.AuditMaxBytes, 10)},
+		{"MYMCP_AUDIT_BACKUP_COUNT", strconv.Itoa(cfg.AuditBackupCount)},
+		{"MYMCP_AUDIT_OUTPUT_BASH_HEAD_BYTES", strconv.Itoa(cfg.AuditOutputBashHeadBytes)},
+		{"MYMCP_AUDIT_OUTPUT_BASH_TAIL_BYTES", strconv.Itoa(cfg.AuditOutputBashTailBytes)},
+		{"MYMCP_BASH_MAX_OUTPUT_BYTES", strconv.Itoa(cfg.BashMaxOutputBytes)},
+		{"MYMCP_BASH_MAX_OUTPUT_BYTES_HARD", strconv.Itoa(cfg.BashMaxOutputBytesHard)},
+		{"MYMCP_READ_FILE_DEFAULT_LIMIT", strconv.Itoa(cfg.ReadFileDefaultLimit)},
+		{"MYMCP_READ_FILE_MAX_LIMIT", strconv.Itoa(cfg.ReadFileMaxLimit)},
+		{"MYMCP_READ_FILE_MAX_LINE_BYTES", strconv.Itoa(cfg.ReadFileMaxLineBytes)},
+		{"MYMCP_WRITE_FILE_MAX_BYTES", strconv.Itoa(cfg.WriteFileMaxBytes)},
+		{"MYMCP_EDIT_STRING_MAX_BYTES", strconv.Itoa(cfg.EditStringMaxBytes)},
+		{"MYMCP_GLOB_MAX_RESULTS", strconv.Itoa(cfg.GlobMaxResults)},
+		{"MYMCP_GREP_DEFAULT_MAX_RESULTS", strconv.Itoa(cfg.GrepDefaultMaxResults)},
+		{"MYMCP_GREP_MAX_RESULTS", strconv.Itoa(cfg.GrepMaxResults)},
+		{"MYMCP_SHUTDOWN_GRACE_SEC", strconv.Itoa(cfg.ShutdownGraceSec)},
+		{"MYMCP_TRANSFER_ENABLED", strconv.FormatBool(cfg.TransferEnabled)},
+		{"MYMCP_TRANSFER_DEFAULT_TTL_SEC", strconv.Itoa(cfg.TransferDefaultTTLSec)},
+		{"MYMCP_TRANSFER_MAX_TTL_SEC", strconv.Itoa(cfg.TransferMaxTTLSec)},
+		{"MYMCP_TRANSFER_MAX_BYTES", strconv.FormatInt(cfg.TransferMaxBytes, 10)},
+		{"MYMCP_RECORDER_DATA_DIR", cfg.RecorderDataDir},
+		{"MYMCP_RECORDER_MERGE_INTERVAL_SEC", strconv.Itoa(cfg.RecorderMergeIntervalSec)},
+	}
+
+	for _, tc := range checks {
+		got, ok := envVars[tc.key]
+		if !ok {
+			t.Errorf(".env.example missing key %s", tc.key)
+		} else if got != tc.want {
+			t.Errorf(".env.example default for %s = %q, want %q", tc.key, got, tc.want)
+		}
 	}
 }
