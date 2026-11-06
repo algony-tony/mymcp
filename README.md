@@ -87,7 +87,7 @@ Configure your MCP client (Claude Desktop, Cursor, or any Streamable HTTP MCP cl
 
 ## Configuration
 
-The server reads configuration from `/etc/mymcp/.env` (or environment variables). All options, default values, and explanations are documented directly inside [.env.example](https://github.com/algony-tony/mymcp/blob/master/.env.example) and the [Configuration Reference](https://github.com/algony-tony/mymcp/blob/master/docs/reference/configuration.md).
+The server reads configuration from `/etc/mymcp/.env` (or environment variables). All options, default values, and explanations are documented directly inside [.env.example](https://github.com/algony-tony/mymcp/blob/master/.env.example).
 
 ---
 
@@ -95,7 +95,6 @@ The server reads configuration from `/etc/mymcp/.env` (or environment variables)
 
 - [MCP Tools Reference](https://github.com/algony-tony/mymcp/blob/master/docs/reference/tools.md) — Comprehensive parameter schemas, return formats, and transfer workflows.
 - [CLI Reference](https://github.com/algony-tony/mymcp/blob/master/docs/reference/cli.md) — Server command-line management and token administration (`mymcp token`).
-- [Configuration Reference](https://github.com/algony-tony/mymcp/blob/master/docs/reference/configuration.md) — Environment variables, safety caps, and default values.
 - [Observability Guide](https://github.com/algony-tony/mymcp/blob/master/docs/reference/observability.md) — Prometheus metrics, Grafana dashboards, and OTLP setups.
 - [Architecture Design](https://github.com/algony-tony/mymcp/blob/master/docs/design/architecture.md) — Dual-component Go core + sidecar design and security invariants.
 - [File Transfer Design](https://github.com/algony-tony/mymcp/blob/master/docs/design/file-transfer.md) — HTTP bypass ticket protocol for large files.
