@@ -163,8 +163,8 @@ now a **recorder-only sidecar**. This is the v3 lightweighting milestone — the
   - CI runs `pip-audit` against `requirements-dev.txt` as a separate job.
 - (#54) Hypothesis property tests for audit writer↔tailer round-tripping,
   transfer-ticket single-consume + TTL invariants, plus a real-uvicorn
-  end-to-end suite. New `docs/runbooks/backup-and-dr.md` runbook documents
-  the backup and disaster-recovery procedure.
+  end-to-end suite. Backup and disaster-recovery procedure documented
+  (runbook retired in v3.1).
 - (#49) Project assessment plus five themed implementation plans.
 
 ### Changed
