@@ -4,7 +4,7 @@
 [![Go Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/algony-tony/f5b7d1a23781d63db40ea2e2dcdf71c2/raw/mymcp-go-coverage.json&cacheSeconds=3600)](https://github.com/algony-tony/mymcp/actions/workflows/ci.yml)
 [![Recorder Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/algony-tony/f5b7d1a23781d63db40ea2e2dcdf71c2/raw/mymcp-coverage.json&cacheSeconds=3600)](https://github.com/algony-tony/mymcp/actions/workflows/ci.yml)
 [![Mutation Score](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/algony-tony/f5b7d1a23781d63db40ea2e2dcdf71c2/raw/mymcp-mutation.json&cacheSeconds=3600)](https://github.com/algony-tony/mymcp/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://github.com/algony-tony/mymcp/blob/master/LICENSE)
 
 A high-performance, secure Go MCP (Model Context Protocol) server that exposes Linux system control to AI clients (Claude Desktop, Claude Code, Cursor, Gemini CLI, etc.) over Streamable HTTP with Bearer token authentication.
 
@@ -59,9 +59,7 @@ To upgrade: `pipx upgrade algony-mymcp && sudo systemctl restart mymcp`.
 
 ## Connecting Clients
 
-### Claude Desktop / Cursor
-
-Add the server to your MCP client configuration (`claude_desktop_config.json` or Cursor Settings):
+Configure your MCP client (Claude Desktop, Cursor, or any Streamable HTTP MCP client) using standard Streamable HTTP transport:
 
 ```json
 {
@@ -76,69 +74,6 @@ Add the server to your MCP client configuration (`claude_desktop_config.json` or
   }
 }
 ```
-
-### Claude Code
-
-```bash
-claude mcp add linux-server \
-  --transport streamable-http \
-  --url http://your-server:8765/mcp \
-  --header "Authorization: Bearer <YOUR_TOKEN>"
-```
-
-### Gemini CLI
-
-Configure `gemini` with Streamable HTTP headers:
-
-```json
-{
-  "mcpServers": {
-    "linux-server": {
-      "url": "http://your-server:8765/mcp",
-      "headers": {
-        "Authorization": "Bearer <YOUR_TOKEN>"
-      }
-    }
-  }
-}
-```
-
----
-
-## CLI Reference
-
-`mymcp` uses Go-style command flags (`-host`, `-port`).
-
-| Command | Purpose |
-|---------|---------|
-| `mymcp init [--yes]` | Run interactive setup wizard (generates tokens, `.env`, systemd service) |
-| `mymcp doctor` | Run preflight health diagnostics and inspect host environment |
-| `mymcp serve [-host H] [-port P]` | Run MCP server in foreground (default `0.0.0.0:8765`) |
-| `mymcp token list` | List all active `ro` and `rw` client tokens |
-| `mymcp token add [-role ro\|rw] <name>` | Generate and display a new Bearer token |
-| `mymcp token revoke <token>` | Revoke a client token |
-| `mymcp config example` | Print an example `.env` configuration file |
-| `mymcp version` | Print server binary version |
-
-### Managing Tokens
-
-Tokens can be managed directly on the host using the CLI without restarting the server:
-
-```bash
-# List all active tokens
-sudo mymcp token list
-
-# Create a read-only token for an untrusted client
-sudo mymcp token add -role ro claude-reader
-
-# Create a read-write token for system administration
-sudo mymcp token add -role rw admin-client
-
-# Revoke a token
-sudo mymcp token revoke tok_1234567890abcdef
-```
-
-Alternatively, remote clients can use the HTTP Admin API with `Authorization: Bearer <MYMCP_ADMIN_TOKEN>` at `POST/GET/DELETE /admin/tokens`.
 
 ---
 
@@ -158,78 +93,40 @@ Alternatively, remote clients can use the HTTP Admin API with `Authorization: Be
 | `prepare_download` | `ro` | Mint signed one-time URL for streaming file downloads |
 | `server_overview` | `ro` | Retrieve live host status maintained by the recorder sidecar |
 
-👉 **Full Schema & Examples**: See [docs/reference/tools.md](docs/reference/tools.md) for detailed JSON parameters, return structures, and curl transfer examples.
+👉 **Full Schema & Examples**: See [MCP Tools Reference](https://github.com/algony-tony/mymcp/blob/master/docs/reference/tools.md) for detailed JSON parameters, return structures, and curl transfer examples.
 
 ---
 
 ## Configuration
 
-Settings are resolved in order: CLI flags → `MYMCP_*` environment variables → `/etc/mymcp/.env`.
-
-### Common Settings
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `MYMCP_HOST` | `0.0.0.0` | Bind IP address |
-| `MYMCP_PORT` | `8765` | Listen port |
-| `MYMCP_TOKEN_FILE` | `/etc/mymcp/tokens.json` | Token store file path |
-| `MYMCP_PROTECTED_PATHS` | *(empty)* | Additional paths protected from file tools (comma-separated) |
-| `MYMCP_AUDIT_ENABLED` | `false` | Enable structured audit logging |
-| `MYMCP_AUDIT_LOG_DIR` | `/var/log/mymcp` | Directory for `audit.log` (auto-protected) |
-| `MYMCP_TRANSFER_MAX_BYTES` | `2147483648` (2 GB) | Maximum file size for streaming transfer tickets |
-| `MYMCP_TRANSFER_MAX_TTL_SEC` | `900` | Maximum ticket expiration time in seconds |
-| `MYMCP_METRICS_TOKEN` | *(empty)* | Optional Bearer token required for `/metrics` |
-
-👉 **Complete Configuration**: See [.env.example](.env.example) for all tuning knobs including tool memory caps, audit buffer sizes, and recorder options.
+The server reads configuration from `/etc/mymcp/.env` (or environment variables). All options, default values, and explanations are documented directly inside [.env.example](https://github.com/algony-tony/mymcp/blob/master/.env.example) and the [Configuration Reference](https://github.com/algony-tony/mymcp/blob/master/docs/reference/configuration.md).
 
 ---
 
 ## Security & Observability
 
-### Security Model
 - **Protected Paths**: Server configuration, tokens, and audit directories are strictly read- and write-protected from MCP file tools.
-- **Audit Logs**: Every tool invocation records timestamp, caller IP, token role, arguments, and duration to `/var/log/mymcp/audit.log`.
-- **Safe Mutation Rule**: In accordance with SOC requirements, any failure to write to the audit log immediately aborts the mutation and returns `500 InternalError`.
+- **Audit Logs**: Every tool invocation records timestamp, caller IP, token role, arguments, and duration to `/var/log/mymcp/audit.log`. Any write failure aborts mutations immediately (`500 InternalError`).
+- **Prometheus Metrics**: Pull runtime metrics from `GET /metrics` (Bearer protected by `MYMCP_METRICS_TOKEN`).
+- **Grafana Dashboards**: Ready-to-import dashboards available under [deploy/grafana/](https://github.com/algony-tony/mymcp/tree/master/deploy/grafana).
 
-### Observability
-- **Prometheus Metrics**: Pull runtime metrics directly from `GET /metrics` (protected by `MYMCP_METRICS_TOKEN`).
-- **Grafana Dashboards**: Ready-to-import dashboards available under [deploy/grafana/](deploy/grafana/):
-  - `mymcp-dashboard.json`: Server performance, tool invocation rates, and error tracking.
-  - `mymcp-logs-dashboard.json`: Correlated trace exploration with Loki and Tempo.
-
-👉 **Setup Recipes**: See [docs/reference/observability.md](docs/reference/observability.md) for OTLP push recipes, LGTM Docker Compose, and PromQL alerting rules.
-
----
-
-## Roadmap
-
-### v3.2 (Near-Term: Polish & Reliability)
-- [ ] **Dedicated System Tools**: First-class `systemctl` and `journalctl` tools to avoid raw shell text parsing.
-- [ ] **Real-Time Streaming**: Stream stdout/stderr chunks from `bash_execute` in real-time via SSE/WebSocket.
-- [ ] **Per-Token ACLs**: Granular path and command whitelist/blacklist scoped to individual client tokens.
-
-### v3.3 (Medium-Term: Architecture Unification)
-- [ ] **Pure Go Recorder**: Re-implement the overview recorder sidecar natively in Go, removing the Python runtime requirement entirely.
-- [ ] **Container Sandboxing**: Optional rootless Docker/Podman isolation wrapper for `bash_execute`.
-
-### v4.0 (Long-Term: Multi-Platform & Enterprise)
-- [ ] **Cross-Platform Support**: Extend core server support to macOS (Darwin) with launchd integration.
-- [ ] **Dual Transports**: Full bi-directional WebSocket support alongside Streamable HTTP.
-- [ ] **Pluggable Tools**: Dynamic tool provider protocol via Go IPC plugins.
+👉 **Observability Setup**: See [Observability Guide](https://github.com/algony-tony/mymcp/blob/master/docs/reference/observability.md) for OTLP push recipes, LGTM Docker Compose, and PromQL alerting rules.
 
 ---
 
 ## Documentation Index
 
-- [MCP Tools Reference](docs/reference/tools.md) — Comprehensive parameter schemas, return formats, and transfer workflows.
-- [Observability Guide](docs/reference/observability.md) — Prometheus metrics, Grafana dashboards, and OTLP setups.
-- [Architecture Design](docs/design/architecture.md) — Dual-component Go core + sidecar design and security invariants.
-- [File Transfer Design](docs/design/file-transfer.md) — HTTP bypass ticket protocol for large files.
-- [Overview Recorder Design](docs/design/overview-recorder.md) — Self-updating host overview architecture.
-- [Developer Guide (AGENTS.md)](AGENTS.md) — Git workflow, conventional commits, test execution, and CI conventions.
+- [MCP Tools Reference](https://github.com/algony-tony/mymcp/blob/master/docs/reference/tools.md) — Comprehensive parameter schemas, return formats, and transfer workflows.
+- [CLI Reference](https://github.com/algony-tony/mymcp/blob/master/docs/reference/cli.md) — Server command-line management and token administration (`mymcp token`).
+- [Configuration Reference](https://github.com/algony-tony/mymcp/blob/master/docs/reference/configuration.md) — Environment variables, safety caps, and default values.
+- [Observability Guide](https://github.com/algony-tony/mymcp/blob/master/docs/reference/observability.md) — Prometheus metrics, Grafana dashboards, and OTLP setups.
+- [Architecture Design](https://github.com/algony-tony/mymcp/blob/master/docs/design/architecture.md) — Dual-component Go core + sidecar design and security invariants.
+- [File Transfer Design](https://github.com/algony-tony/mymcp/blob/master/docs/design/file-transfer.md) — HTTP bypass ticket protocol for large files.
+- [Overview Recorder Design](https://github.com/algony-tony/mymcp/blob/master/docs/design/overview-recorder.md) — Self-updating host overview architecture.
+- [Developer Guide (AGENTS.md)](https://github.com/algony-tony/mymcp/blob/master/AGENTS.md) — Git workflow, conventional commits, test execution, and CI conventions.
 
 ---
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE) for details.
+Apache License 2.0. See [LICENSE](https://github.com/algony-tony/mymcp/blob/master/LICENSE) for details.
