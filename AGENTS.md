@@ -13,6 +13,35 @@ zero base dependencies.
 - **Python recorder sidecar** (`src/mymcp/`) — optional `mymcp-recorder` daemon
   that consumes `audit.log` and uses an LLM to maintain a live system overview.
 
+## Repository Structure
+
+```
+.
+├── AGENTS.md               # Developer guide, architecture contracts, commands, and conventions
+├── README.md               # User-facing introduction, quick install, and docs index
+├── CHANGELOG.md            # Release notes and version history (Keep a Changelog format)
+├── pyproject.toml          # Python build config, package metadata, tool settings (ruff, mypy, pytest)
+├── requirements-dev.txt    # Pinned Python dev dependencies lockfile
+├── .env.example            # Reference configuration template for all server environment variables
+│
+├── go/                     # Go core MCP server (mymcp static binary)
+│   ├── cmd/mymcp/          # Server executable main package
+│   └── internal/           # Server modules (httpserver, auth, audit, tools, config, metrics, setup)
+│
+├── src/mymcp/              # Python recorder sidecar package (optional background daemon)
+│   ├── recorder/           # Event tailing, LLM merge cycle, live overview maintenance
+│   └── deploy/             # Embedded systemd templates and helpers
+│
+├── docs/                   # Official documentation
+│   ├── design/             # Architecture, security, and protocol design specifications
+│   └── reference/          # Detailed technical references (CLI, observability, tools)
+│
+├── scripts/                # Packaging, installer, and release helper scripts (assemble_wheel.py, install.sh)
+├── deploy/                 # Production deployment templates (Grafana dashboards, etc.)
+├── tests/                  # Test suites (Python unit/integration, Go compat, pentest, loadtest)
+└── .github/workflows/      # GitHub Actions CI/CD pipelines (ci.yml, release.yml)
+```
+
 ## Quick Reference Commands
 
 ```bash
@@ -70,6 +99,17 @@ build: exclude Markdown from ruff check/format
 **Types:** `feat`, `fix`, `chore`, `docs`, `test`, `ci`, `build`, `refactor`, `perf`.
 **Scopes** (optional): `deps`, `ci`, `install`, `go`, `recorder`, `changelog`, etc.
 Breaking changes: use `!` suffix (`feat!:`, `build!:`) or `BREAKING CHANGE:` in body.
+
+### Plan Artifact & Documentation Lifecycle
+
+When developing features or refactoring using planning tools (e.g. `superpowers` plans and specs):
+
+1. **Intermediate artifacts are ephemeral**: Files created under temporary or process directories (such as `docs/superpowers/plans/` and `docs/superpowers/specs/`) are intermediate execution tracking artifacts used during implementation.
+2. **Migrate durable design before merge**:
+   - Extract all permanent architectural decisions, threat models, protocols, API contracts, and security invariants from the spec/plan into the formal documentation hierarchy:
+     - High-level architecture and subsystem designs → `docs/design/` (e.g. `docs/design/security.md`, `docs/design/architecture.md`).
+     - CLI flags, configuration variables, metrics, or tool schemas → `docs/reference/` (e.g. `docs/reference/cli.md`, `docs/reference/observability.md`).
+3. **Clean up intermediate files**: Delete all temporary plans, execution logs, and spec drafts (`docs/superpowers/`) before merging into `master`. The `master` branch must only contain production code, tests, and permanent documentation.
 
 ## Testing
 
