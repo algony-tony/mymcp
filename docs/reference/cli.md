@@ -58,6 +58,11 @@ Checks performed:
 - Read and write permissions on `/var/log/mymcp` and `/etc/mymcp/`.
 - Validity and syntax of `/etc/mymcp/.env` and `/etc/mymcp/tokens.json`.
 - Systemd service status (if installed).
+- **Security & TLS configuration**:
+  - Validates TLS certificate and private key files if configured (`MYMCP_TLS_CERT`, `MYMCP_TLS_KEY`).
+  - Enforces private key permissions (`0600` or `0400`, warns if group/other readable).
+  - Validates keypair match via `tls.LoadX509KeyPair`.
+  - Warns if binding to a public non-loopback address without TLS or configured trusted proxies.
 
 ---
 

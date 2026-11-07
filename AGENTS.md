@@ -143,4 +143,4 @@ CI runs on every push to `master` and on all pull requests:
   `MYMCP_*` env vars, `tokens.json`, `cursor.json` shape, and the `MUTATING_TOOLS`
   set. Changes to these shared interfaces require coordination across both sides.
 - **Design docs**: detailed architecture and protocol designs live under `docs/design/`
-  (`architecture.md`, `overview-recorder.md`, `file-transfer.md`).
+  (`architecture.md`, `overview-recorder.md`, `file-transfer.md`, `security.md`).

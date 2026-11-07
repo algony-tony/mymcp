@@ -97,6 +97,7 @@ The server reads configuration from `/etc/mymcp/.env` (or environment variables)
 - [CLI Reference](https://github.com/algony-tony/mymcp/blob/master/docs/reference/cli.md) — Server command-line management and token administration (`mymcp token`).
 - [Observability Guide](https://github.com/algony-tony/mymcp/blob/master/docs/reference/observability.md) — Prometheus metrics, Grafana dashboards, and OTLP setups.
 - [Architecture Design](https://github.com/algony-tony/mymcp/blob/master/docs/design/architecture.md) — Dual-component Go core + sidecar design and security invariants.
+- [Security Hardening Design](https://github.com/algony-tony/mymcp/blob/master/docs/design/security.md) — Native TLS, trusted reverse-proxy real IP parsing, auth failure observability, and defense-in-depth.
 - [File Transfer Design](https://github.com/algony-tony/mymcp/blob/master/docs/design/file-transfer.md) — HTTP bypass ticket protocol for large files.
 - [Overview Recorder Design](https://github.com/algony-tony/mymcp/blob/master/docs/design/overview-recorder.md) — Self-updating host overview architecture.
 - [Developer Guide (AGENTS.md)](https://github.com/algony-tony/mymcp/blob/master/AGENTS.md) — Git workflow, conventional commits, test execution, and CI conventions.
