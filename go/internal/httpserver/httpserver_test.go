@@ -171,6 +171,25 @@ func TestAdminRequiresAdminToken(t *testing.T) {
 	if rec.Code != 403 {
 		t.Fatalf("wrong-token = %d", rec.Code)
 	}
+
+	// Empty store admin token must fail closed even with "Bearer "
+	emptyStore, err := auth.NewTokenStore(filepath.Join(t.TempDir(), "tokens.json"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := config.Load()
+	a, _ := audit.New(false, t.TempDir(), 1<<20, 5)
+	m := metrics.New(func() float64 { return 0 })
+	d := tools.Deps{Cfg: cfg, Protected: tools.ProtectedFromConfig(cfg), Tickets: transfer.NewTicketStore()}
+	emptyMux := BuildMux(d, emptyStore, a, m, "", "test")
+
+	reqEmpty := httptest.NewRequest("GET", "/admin/tokens", nil)
+	reqEmpty.Header.Set("Authorization", "Bearer ")
+	recEmpty := httptest.NewRecorder()
+	emptyMux.ServeHTTP(recEmpty, reqEmpty)
+	if recEmpty.Code != 403 {
+		t.Fatalf("empty admin token must fail closed, got %d", recEmpty.Code)
+	}
 }
 
 func TestAdminCreateListRevoke(t *testing.T) {

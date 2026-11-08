@@ -24,6 +24,7 @@
 - **SOC Red Line (Audit Failure)**: Any failure writing to the audit log returns `InternalError / 500`. Unauditable mutations are strictly forbidden.
 - **Zero Token Disclosure**: Client-supplied token values, partial fragments, or hashes of failed tokens MUST NEVER appear in log files, error responses, HTTP headers, or metric labels.
 - **Fail-Closed TLS Configuration**: If either `MYMCP_TLS_CERT` or `MYMCP_TLS_KEY` is provided without the other, the server aborts startup immediately with a descriptive error.
+- **Fail-Closed on Empty Admin Credentials**: If `store.AdminToken()` is empty, `requireAdmin` fails closed immediately, rejecting all administrative operations.
 - **Fail-Safe IP Extraction**: Forwarded IP headers (`X-Forwarded-For`, `X-Real-IP`) are only parsed if the direct TCP peer (`r.RemoteAddr`) is within `MYMCP_TRUSTED_PROXIES`. Untrusted direct peers always fall back to `r.RemoteAddr`.
 
 ---
@@ -94,10 +95,11 @@ When logging audit events or auth failures, the client IP is extracted using a r
    - If **untrusted**, ignore forwarded headers and return direct IP immediately (prevents client header spoofing).
    - If **trusted**, proceed to evaluate headers.
 3. If `X-Forwarded-For` is present:
-   - Split by comma into IP list.
+   - Combine all header lines per RFC 9110 §5.3, then split by comma.
+   - For each candidate IP (and `X-Real-IP`), strip client port numbers if present (e.g. `203.0.113.50:54321` or `[2001:db8::1]:1234`).
    - Walk right-to-left: the first IP that is *not* in the trusted proxy CIDR list is returned as the client IP.
    - If all IPs in the chain are trusted, return the leftmost IP.
-4. If `X-Forwarded-For` is empty, check `X-Real-IP`.
+4. If `X-Forwarded-For` is empty, check `X-Real-IP` (also stripping any port number).
 5. If no headers are present or valid, fall back to the direct peer IP.
 
 ### 3.3 Auth Failure Observability
@@ -154,5 +156,7 @@ The preflight diagnostic tool `mymcp doctor` includes dedicated security checks:
    - Verifies key pair validity using `tls.LoadX509KeyPair`.
 2. **Public Bind Exposure Check**:
    - If the server binds to a non-loopback interface (e.g., `0.0.0.0` or a public IP):
-     - Emits a warning (`SevWarn`) if native TLS is disabled and `MYMCP_TRUSTED_PROXIES` is not configured.
+     - Emits a warning (`SevWarn`) if native TLS is disabled and `MYMCP_TRUSTED_PROXIES` is not configured (or contains invalid syntax).
      - Directs administrators to configure TLS certificates or route traffic through a trusted reverse proxy.
+3. **Trusted Proxies Preflight Check**:
+   - When `MYMCP_TRUSTED_PROXIES` is specified, verifies that all entries are valid IP addresses or CIDR notations (`SevFail` if syntax is malformed).

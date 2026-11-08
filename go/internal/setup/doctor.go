@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/algony-tony/mymcp/go/internal/auth"
+	"github.com/algony-tony/mymcp/go/internal/config"
 )
 
 type Severity int
@@ -142,6 +143,13 @@ func Doctor(configDir string, sys System) []Check {
 		}
 	}
 	isTLS := tlsCert != "" && tlsKey != ""
+	if strings.TrimSpace(trustedProxies) != "" {
+		if err := validateTrustedProxies(trustedProxies); err != nil {
+			add(Check{Group: "SECURITY", Name: "trusted proxies", Severity: SevFail,
+				Detail: fmt.Sprintf("invalid MYMCP_TRUSTED_PROXIES: %v", err),
+				Remedy: "specify comma-separated IPs or CIDRs (e.g. 127.0.0.1/32, 10.0.0.0/8) in " + envPath})
+		}
+	}
 	add(bindSecurityCheck(envValue(string(raw), "MYMCP_HOST"), isTLS, trustedProxies))
 
 	// --- RUNTIME ---
@@ -266,12 +274,24 @@ func isLoopbackHost(host string) bool {
 	return false
 }
 
+func validateTrustedProxies(raw string) error {
+	cfg := config.Config{TrustedProxies: raw}
+	_, err := cfg.ParsedTrustedProxies()
+	return err
+}
+
 func bindSecurityCheck(host string, isTLS bool, trustedProxies string) Check {
 	host = strings.TrimSpace(host)
 	if host == "" {
 		host = "0.0.0.0"
 	}
-	if isTLS || isLoopbackHost(host) || strings.TrimSpace(trustedProxies) != "" {
+	validProxies := false
+	if strings.TrimSpace(trustedProxies) != "" {
+		if err := validateTrustedProxies(trustedProxies); err == nil {
+			validProxies = true
+		}
+	}
+	if isTLS || isLoopbackHost(host) || validProxies {
 		return Check{Group: "SECURITY", Name: "transport security", Severity: SevOK, Detail: "TLS or loopback/reverse-proxy active"}
 	}
 	return Check{

@@ -26,7 +26,7 @@ func ExtractClientIP(r *http.Request, trustedCIDRs []*net.IPNet) string {
 	if xff := strings.Join(r.Header.Values("X-Forwarded-For"), ","); xff != "" {
 		parts := strings.Split(xff, ",")
 		for i := len(parts) - 1; i >= 0; i-- {
-			candidate := strings.TrimSpace(parts[i])
+			candidate := stripPort(strings.TrimSpace(parts[i]))
 			cip := net.ParseIP(candidate)
 			if cip == nil {
 				continue
@@ -36,19 +36,26 @@ func ExtractClientIP(r *http.Request, trustedCIDRs []*net.IPNet) string {
 			}
 		}
 		if len(parts) > 0 {
-			if first := net.ParseIP(strings.TrimSpace(parts[0])); first != nil {
+			if first := net.ParseIP(stripPort(strings.TrimSpace(parts[0]))); first != nil {
 				return first.String()
 			}
 		}
 	}
 
-	if xri := strings.TrimSpace(r.Header.Get("X-Real-IP")); xri != "" {
+	if xri := stripPort(strings.TrimSpace(r.Header.Get("X-Real-IP"))); xri != "" {
 		if rip := net.ParseIP(xri); rip != nil {
 			return rip.String()
 		}
 	}
 
 	return directIP.String()
+}
+
+func stripPort(s string) string {
+	if host, _, err := net.SplitHostPort(s); err == nil {
+		return host
+	}
+	return s
 }
 
 func ipInCIDRs(ip net.IP, cidrs []*net.IPNet) bool {

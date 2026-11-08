@@ -126,7 +126,7 @@ func requireAdmin(store *auth.TokenStore, m *metrics.Metrics, trusted []*net.IPN
 		recordAuthFailure(w, m, ip, "/admin/tokens", "missing_admin_token", reqID, 401, "Missing Bearer token")
 		return false
 	}
-	if !constantTimeEquals(authz[len(prefix):], store.AdminToken()) {
+	if store.AdminToken() == "" || !constantTimeEquals(authz[len(prefix):], store.AdminToken()) {
 		recordAuthFailure(w, m, ip, "/admin/tokens", "invalid_admin_token", reqID, 403, "Admin token required")
 		return false
 	}

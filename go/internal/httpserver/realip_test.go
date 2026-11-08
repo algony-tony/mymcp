@@ -113,4 +113,35 @@ func TestExtractClientIP(t *testing.T) {
 			t.Errorf("got %q, want 198.51.100.25", ip)
 		}
 	})
+
+	t.Run("X-Forwarded-For and X-Real-IP with client port numbers", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.RemoteAddr = "10.0.0.1:4321"
+		req.Header.Set("X-Forwarded-For", "203.0.113.50:54321, 10.0.0.2:8080")
+
+		ip := ExtractClientIP(req, trusted)
+		if ip != "203.0.113.50" {
+			t.Errorf("got %q, want 203.0.113.50 (stripped port)", ip)
+		}
+
+		// IPv6 with port in brackets
+		reqIPv6 := httptest.NewRequest(http.MethodGet, "/", nil)
+		reqIPv6.RemoteAddr = "10.0.0.1:4321"
+		reqIPv6.Header.Set("X-Forwarded-For", "[2001:db8::1]:1234, 10.0.0.2")
+
+		ip = ExtractClientIP(reqIPv6, trusted)
+		if ip != "2001:db8::1" {
+			t.Errorf("got %q, want 2001:db8::1", ip)
+		}
+
+		// X-Real-IP with port
+		reqRealIP := httptest.NewRequest(http.MethodGet, "/", nil)
+		reqRealIP.RemoteAddr = "10.0.0.1:4321"
+		reqRealIP.Header.Set("X-Real-IP", "198.51.100.77:9999")
+
+		ip = ExtractClientIP(reqRealIP, trusted)
+		if ip != "198.51.100.77" {
+			t.Errorf("got %q, want 198.51.100.77", ip)
+		}
+	})
 }

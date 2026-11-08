@@ -275,6 +275,12 @@ func TestDoctorTLSChecks(t *testing.T) {
 		t.Errorf("expected SevOK on 0.0.0.0 with trusted proxies, got %v", check.Severity)
 	}
 
+	// 7b. Plain HTTP on 0.0.0.0 with invalid trusted proxies falls back to SevWarn
+	check = bindSecurityCheck("0.0.0.0", false, "invalid-cidr-or-ip")
+	if check.Severity != SevWarn {
+		t.Errorf("expected SevWarn on 0.0.0.0 with invalid trusted proxies, got %v", check.Severity)
+	}
+
 	// 8. HTTPS on 0.0.0.0 is OK
 	check = bindSecurityCheck("0.0.0.0", true, "")
 	if check.Severity != SevOK {
@@ -308,5 +314,19 @@ func TestDoctorWiringTLS(t *testing.T) {
 	secCheck := findCheck(checks, "transport security")
 	if secCheck == nil || secCheck.Severity != SevOK {
 		t.Fatalf("expected SevOK on transport security, got %+v", secCheck)
+	}
+
+	// Invalid trusted proxies produces SevFail on trusted proxies check and SevWarn on transport security
+	if err := os.WriteFile(envPath, []byte("MYMCP_ADMIN_TOKEN=admin-tok\nMYMCP_HOST=0.0.0.0\nMYMCP_TRUSTED_PROXIES=not-a-cidr\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	checks = Doctor(dir, newFakeSystem())
+	proxyCheck := findCheck(checks, "trusted proxies")
+	if proxyCheck == nil || proxyCheck.Severity != SevFail {
+		t.Fatalf("expected SevFail on invalid trusted proxies, got %+v", proxyCheck)
+	}
+	secCheck = findCheck(checks, "transport security")
+	if secCheck == nil || secCheck.Severity != SevWarn {
+		t.Fatalf("expected SevWarn on transport security when trusted proxies are invalid, got %+v", secCheck)
 	}
 }

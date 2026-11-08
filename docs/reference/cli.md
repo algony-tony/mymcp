@@ -62,7 +62,8 @@ Checks performed:
   - Validates TLS certificate and private key files if configured (`MYMCP_TLS_CERT`, `MYMCP_TLS_KEY`).
   - Enforces private key permissions (`0600`, `0640`, or `0400`, warns if group-writable or world-accessible).
   - Validates keypair match via `tls.LoadX509KeyPair`.
-  - Warns if binding to a public non-loopback address without TLS or configured trusted proxies.
+  - Validates `MYMCP_TRUSTED_PROXIES` syntax when configured.
+  - Warns if binding to a public non-loopback address without TLS or valid trusted proxies.
 
 ---
 
