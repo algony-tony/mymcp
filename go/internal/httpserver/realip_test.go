@@ -134,6 +134,16 @@ func TestExtractClientIP(t *testing.T) {
 			t.Errorf("got %q, want 2001:db8::1", ip)
 		}
 
+		// IPv6 in brackets without port in X-Forwarded-For
+		reqIPv6NoPort := httptest.NewRequest(http.MethodGet, "/", nil)
+		reqIPv6NoPort.RemoteAddr = "10.0.0.1:4321"
+		reqIPv6NoPort.Header.Set("X-Forwarded-For", "[2001:db8::1], 10.0.0.2")
+
+		ip = ExtractClientIP(reqIPv6NoPort, trusted)
+		if ip != "2001:db8::1" {
+			t.Errorf("got %q, want 2001:db8::1", ip)
+		}
+
 		// X-Real-IP with port
 		reqRealIP := httptest.NewRequest(http.MethodGet, "/", nil)
 		reqRealIP.RemoteAddr = "10.0.0.1:4321"
@@ -142,6 +152,25 @@ func TestExtractClientIP(t *testing.T) {
 		ip = ExtractClientIP(reqRealIP, trusted)
 		if ip != "198.51.100.77" {
 			t.Errorf("got %q, want 198.51.100.77", ip)
+		}
+
+		// X-Real-IP with bracketed IPv6 without port
+		reqRealIPv6 := httptest.NewRequest(http.MethodGet, "/", nil)
+		reqRealIPv6.RemoteAddr = "10.0.0.1:4321"
+		reqRealIPv6.Header.Set("X-Real-IP", "[2001:db8::2]")
+
+		ip = ExtractClientIP(reqRealIPv6, trusted)
+		if ip != "2001:db8::2" {
+			t.Errorf("got %q, want 2001:db8::2", ip)
+		}
+
+		// RemoteAddr with bracketed IPv6
+		reqRemoteIPv6 := httptest.NewRequest(http.MethodGet, "/", nil)
+		reqRemoteIPv6.RemoteAddr = "[2001:db8::3]"
+
+		ip = ExtractClientIP(reqRemoteIPv6, trusted)
+		if ip != "2001:db8::3" {
+			t.Errorf("got %q, want 2001:db8::3", ip)
 		}
 	})
 }

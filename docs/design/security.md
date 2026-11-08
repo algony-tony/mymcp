@@ -96,7 +96,7 @@ When logging audit events or auth failures, the client IP is extracted using a r
    - If **trusted**, proceed to evaluate headers.
 3. If `X-Forwarded-For` is present:
    - Combine all header lines per RFC 9110 §5.3, then split by comma.
-   - For each candidate IP (and `X-Real-IP`), strip client port numbers if present (e.g. `203.0.113.50:54321` or `[2001:db8::1]:1234`).
+   - For each candidate IP (and `X-Real-IP`), strip client port numbers if present (e.g. `203.0.113.50:54321` or `[2001:db8::1]:1234`) and enclosing brackets for IPv6 addresses.
    - Walk right-to-left: the first IP that is *not* in the trusted proxy CIDR list is returned as the client IP.
    - If all IPs in the chain are trusted, return the leftmost IP.
 4. If `X-Forwarded-For` is empty, check `X-Real-IP` (also stripping any port number).

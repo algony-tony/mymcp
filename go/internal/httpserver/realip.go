@@ -11,11 +11,7 @@ import (
 // untrusted IP) and X-Real-IP. If direct remote IP is not trusted or trustedCIDRs
 // is empty, it returns the direct connection IP to prevent spoofing.
 func ExtractClientIP(r *http.Request, trustedCIDRs []*net.IPNet) string {
-	remoteHost, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		remoteHost = r.RemoteAddr
-	}
-	directIP := net.ParseIP(remoteHost)
+	directIP := net.ParseIP(stripPort(r.RemoteAddr))
 	if directIP == nil {
 		return "unknown"
 	}
@@ -55,7 +51,7 @@ func stripPort(s string) string {
 	if host, _, err := net.SplitHostPort(s); err == nil {
 		return host
 	}
-	return s
+	return strings.TrimPrefix(strings.TrimSuffix(s, "]"), "[")
 }
 
 func ipInCIDRs(ip net.IP, cidrs []*net.IPNet) bool {
