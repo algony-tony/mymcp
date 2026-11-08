@@ -204,7 +204,7 @@ func TestDoctorTLSChecks(t *testing.T) {
 		t.Errorf("expected SevWarn for 0644 key permissions")
 	}
 
-	// 4b. Read-only key permissions (0400) are accepted
+	// 4b. Read-only key permissions (0400) and daemon group-readable (0640) are accepted
 	roPermKey := filepath.Join(t.TempDir(), "roperm.key")
 	_ = os.WriteFile(roPermKey, rawKey, 0400)
 	checks = tlsChecks(certFile, roPermKey)
@@ -216,6 +216,34 @@ func TestDoctorTLSChecks(t *testing.T) {
 	}
 	if !foundPermOK {
 		t.Errorf("expected SevOK for 0400 key permissions")
+	}
+
+	groupReadableKey := filepath.Join(t.TempDir(), "group.key")
+	_ = os.WriteFile(groupReadableKey, rawKey, 0640)
+	checks = tlsChecks(certFile, groupReadableKey)
+	foundPermOK = false
+	for _, c := range checks {
+		if c.Name == "TLS key permissions" && c.Severity == SevOK {
+			foundPermOK = true
+		}
+	}
+	if !foundPermOK {
+		t.Errorf("expected SevOK for 0640 key permissions")
+	}
+
+	// 4c. Group-writable key permissions (0660) produce SevWarn
+	groupWritableKey := filepath.Join(t.TempDir(), "groupwrite.key")
+	_ = os.WriteFile(groupWritableKey, rawKey, 0600)
+	_ = os.Chmod(groupWritableKey, 0660)
+	checks = tlsChecks(certFile, groupWritableKey)
+	var foundGroupWriteWarn bool
+	for _, c := range checks {
+		if c.Name == "TLS key permissions" && c.Severity == SevWarn {
+			foundGroupWriteWarn = true
+		}
+	}
+	if !foundGroupWriteWarn {
+		t.Errorf("expected SevWarn for 0660 key permissions")
 	}
 
 	// 5. Plain HTTP on 0.0.0.0 without trusted proxies -> SevWarn

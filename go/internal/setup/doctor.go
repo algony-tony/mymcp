@@ -238,9 +238,9 @@ func tlsChecks(certPath, keyPath string) []Check {
 			Remedy: "verify MYMCP_TLS_KEY path exists and is readable"})
 	}
 	perm := stKey.Mode().Perm()
-	if perm&0077 != 0 || perm&0400 == 0 {
+	if perm&0007 != 0 || perm&0030 != 0 || perm&0400 == 0 {
 		out = append(out, Check{Group: "SECURITY", Name: "TLS key permissions", Severity: SevWarn,
-			Detail: fmt.Sprintf("%s is mode %o; private keys should be 0600 or 0400", keyPath, perm),
+			Detail: fmt.Sprintf("%s is mode %o; private keys should not be group-writable or world-accessible", keyPath, perm),
 			Remedy: "chmod 600 " + keyPath})
 	} else {
 		out = append(out, Check{Group: "SECURITY", Name: "TLS key permissions", Severity: SevOK, Detail: fmt.Sprintf("%04o", perm)})

@@ -422,6 +422,12 @@ func TestConfigTLSAndTrustedProxies(t *testing.T) {
 		t.Errorf("expected error for invalid CIDR")
 	}
 
+	// Invalid trusted proxies must fail Load()
+	t.Setenv("MYMCP_TRUSTED_PROXIES", "invalid-ip-string")
+	if _, err := Load(); err == nil {
+		t.Errorf("expected Load() to fail on invalid MYMCP_TRUSTED_PROXIES")
+	}
+
 	// IsTLS false when empty
 	cfgNoTLS := &Config{}
 	if cfgNoTLS.IsTLS() {

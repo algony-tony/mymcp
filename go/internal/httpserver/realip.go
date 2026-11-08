@@ -23,7 +23,7 @@ func ExtractClientIP(r *http.Request, trustedCIDRs []*net.IPNet) string {
 		return directIP.String()
 	}
 
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+	if xff := strings.Join(r.Header.Values("X-Forwarded-For"), ","); xff != "" {
 		parts := strings.Split(xff, ",")
 		for i := len(parts) - 1; i >= 0; i-- {
 			candidate := strings.TrimSpace(parts[i])

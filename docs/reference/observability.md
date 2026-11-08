@@ -99,11 +99,11 @@ rate(mymcp_audit_write_failures_total[5m]) > 0
 
 | Metric | Type | Labels | Description |
 |---|---|---|---|
-| `mymcp_auth_failures_total` | counter | `path`, `reason` | Total count of rejected authentication attempts across `/mcp`, `/admin/*`, `/metrics`, and `/files/raw/*`. |
+| `mymcp_auth_failures_total` | counter | `path`, `reason` | Total count of rejected authentication attempts across `/mcp`, `/admin/*`, and `/metrics`. |
 
 Labels:
 - `path`: Request path where failure occurred (e.g. `/mcp`, `/admin/tokens`, `/metrics`).
-- `reason`: Classification of failure (`missing_token`, `invalid_token`, `missing_admin_token`, `invalid_admin_token`, `metrics_unauthorized`, `ticket_invalid`).
+- `reason`: Classification of failure (`missing_token`, `invalid_token`, `missing_admin_token`, `invalid_admin_token`, `metrics_unauthorized`).
 
 **Recommended Brute-Force Alert Rule (PromQL):**
 ```promql

@@ -77,7 +77,7 @@
   - `MYMCP_TLS_CERT`: Path to PEM-encoded certificate chain file.
   - `MYMCP_TLS_KEY`: Path to PEM-encoded private key file.
 - The server enforces `tls.VersionTLS12` as the minimum protocol version.
-- Private key permissions are verified by `mymcp doctor` to be restrictive (`0600` or `0400`).
+- Private key permissions are verified by `mymcp doctor` to be restrictive (`0600`, `0640`, or `0400`; warns if group-writable or world-accessible).
 
 #### Track B: Reverse Proxy Termination
 - External proxies (e.g., Caddy, Nginx, Cloudflare) terminate TLS and forward requests to `mymcp`.
@@ -102,7 +102,7 @@ When logging audit events or auth failures, the client IP is extracted using a r
 
 ### 3.3 Auth Failure Observability
 
-Authentication failures across all endpoints (`/mcp`, `/admin/*`, `/metrics`, `/files/raw/*`) invoke `recordAuthFailure`:
+Authentication failures across authenticated endpoints (`/mcp`, `/admin/*`, `/metrics`) invoke `recordAuthFailure`:
 
 1. **Structured Log to `stderr`**:
    Emits a single-line parseable log entry:
@@ -115,7 +115,6 @@ Authentication failures across all endpoints (`/mcp`, `/admin/*`, `/metrics`, `/
      - `missing_admin_token`: Admin endpoint requested without credentials.
      - `invalid_admin_token`: Admin credentials incorrect.
      - `metrics_unauthorized`: `/metrics` accessed without valid metrics token.
-     - `ticket_invalid`: File transfer ticket not found, expired, or invalid.
 2. **Prometheus Metric Counter**:
    Increments `mymcp_auth_failures_total{path="<path>", reason="<reason>"}`.
 3. **Response Sanitization**:
@@ -151,7 +150,7 @@ The preflight diagnostic tool `mymcp doctor` includes dedicated security checks:
 
 1. **TLS Configuration Check**:
    - Verifies that both certificate and key files exist and are readable.
-   - Verifies that the private key file permissions do not allow group or other access (requires `0600` or `0400`).
+   - Verifies that the private key file permissions do not allow group-write/execute or world access (requires `0600`, `0640`, or `0400`).
    - Verifies key pair validity using `tls.LoadX509KeyPair`.
 2. **Public Bind Exposure Check**:
    - If the server binds to a non-loopback interface (e.g., `0.0.0.0` or a public IP):

@@ -100,6 +100,9 @@ func Load() (*Config, error) {
 	if (cfg.TLSCert == "") != (cfg.TLSKey == "") {
 		return nil, fmt.Errorf("both MYMCP_TLS_CERT and MYMCP_TLS_KEY must be set to enable TLS, got cert=%q key=%q", cfg.TLSCert, cfg.TLSKey)
 	}
+	if _, err := cfg.ParsedTrustedProxies(); err != nil {
+		return nil, fmt.Errorf("invalid MYMCP_TRUSTED_PROXIES: %w", err)
+	}
 
 	cfg.MetricsToken = getStr(get, "MYMCP_METRICS_TOKEN", "")
 	if cfg.BashMaxOutputBytes, err = getInt(get, "MYMCP_BASH_MAX_OUTPUT_BYTES", 102400); err != nil {

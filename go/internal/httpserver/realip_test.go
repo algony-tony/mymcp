@@ -100,4 +100,17 @@ func TestExtractClientIP(t *testing.T) {
 			t.Errorf("got %q, want 203.0.113.195", ip)
 		}
 	})
+
+	t.Run("multiple X-Forwarded-For header lines joined per RFC 9110", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.RemoteAddr = "10.0.0.1:4321"
+		req.Header.Add("X-Forwarded-For", "203.0.113.50")
+		req.Header.Add("X-Forwarded-For", "198.51.100.25, 10.0.0.2")
+
+		// 10.0.0.2 is trusted. First untrusted right-to-left is 198.51.100.25
+		ip := ExtractClientIP(req, trusted)
+		if ip != "198.51.100.25" {
+			t.Errorf("got %q, want 198.51.100.25", ip)
+		}
+	})
 }
