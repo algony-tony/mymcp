@@ -2,6 +2,7 @@ package setup
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/algony-tony/mymcp/go/internal/auth"
+	"github.com/algony-tony/mymcp/go/internal/config"
 )
 
 type Severity int
@@ -126,6 +128,30 @@ func Doctor(configDir string, sys System) []Check {
 	}
 	checks = append(checks, tokenStoreChecks(tokenPath)...)
 
+	// --- SECURITY ---
+	tlsCert := envValue(string(raw), "MYMCP_TLS_CERT")
+	tlsKey := envValue(string(raw), "MYMCP_TLS_KEY")
+	trustedProxies := envValue(string(raw), "MYMCP_TRUSTED_PROXIES")
+
+	if tlsCert != "" || tlsKey != "" {
+		if tlsCert == "" || tlsKey == "" {
+			add(Check{Group: "SECURITY", Name: "TLS configuration", Severity: SevFail,
+				Detail: "both MYMCP_TLS_CERT and MYMCP_TLS_KEY must be set",
+				Remedy: "set both variables in " + envPath})
+		} else {
+			checks = append(checks, tlsChecks(tlsCert, tlsKey)...)
+		}
+	}
+	isTLS := tlsCert != "" && tlsKey != ""
+	if strings.TrimSpace(trustedProxies) != "" {
+		if err := validateTrustedProxies(trustedProxies); err != nil {
+			add(Check{Group: "SECURITY", Name: "trusted proxies", Severity: SevFail,
+				Detail: fmt.Sprintf("invalid MYMCP_TRUSTED_PROXIES: %v", err),
+				Remedy: "specify comma-separated IPs or CIDRs (e.g. 127.0.0.1/32, 10.0.0.0/8) in " + envPath})
+		}
+	}
+	add(bindSecurityCheck(envValue(string(raw), "MYMCP_HOST"), isTLS, trustedProxies))
+
 	// --- RUNTIME ---
 	checks = append(checks, runtimeChecks(sys)...)
 
@@ -202,6 +228,77 @@ func tokenStoreChecks(path string) []Check {
 	}
 	return append(out, Check{Group: "CONFIG", Name: "client tokens", Severity: SevOK,
 		Detail: fmt.Sprintf("%d enabled", enabled)})
+}
+
+func tlsChecks(certPath, keyPath string) []Check {
+	var out []Check
+	if _, err := os.Stat(certPath); err != nil {
+		return []Check{{Group: "SECURITY", Name: "TLS certificate", Severity: SevFail,
+			Detail: fmt.Sprintf("cannot read %s: %v", certPath, err),
+			Remedy: "verify MYMCP_TLS_CERT path exists and is readable"}}
+	}
+	out = append(out, Check{Group: "SECURITY", Name: "TLS certificate", Severity: SevOK, Detail: certPath})
+
+	stKey, errKey := os.Stat(keyPath)
+	if errKey != nil {
+		return append(out, Check{Group: "SECURITY", Name: "TLS private key", Severity: SevFail,
+			Detail: fmt.Sprintf("cannot read %s: %v", keyPath, errKey),
+			Remedy: "verify MYMCP_TLS_KEY path exists and is readable"})
+	}
+	perm := stKey.Mode().Perm()
+	if perm&0007 != 0 || perm&0030 != 0 || perm&0400 == 0 {
+		out = append(out, Check{Group: "SECURITY", Name: "TLS key permissions", Severity: SevWarn,
+			Detail: fmt.Sprintf("%s is mode %o; private keys should not be group-writable or world-accessible", keyPath, perm),
+			Remedy: "chmod 600 " + keyPath})
+	} else {
+		out = append(out, Check{Group: "SECURITY", Name: "TLS key permissions", Severity: SevOK, Detail: fmt.Sprintf("%04o", perm)})
+	}
+
+	if _, err := tls.LoadX509KeyPair(certPath, keyPath); err != nil {
+		out = append(out, Check{Group: "SECURITY", Name: "TLS keypair", Severity: SevFail,
+			Detail: fmt.Sprintf("invalid certificate/key pair: %v", err),
+			Remedy: "ensure certificate matches the private key"})
+	} else {
+		out = append(out, Check{Group: "SECURITY", Name: "TLS keypair", Severity: SevOK})
+	}
+	return out
+}
+
+func isLoopbackHost(host string) bool {
+	if host == "127.0.0.1" || host == "::1" || strings.EqualFold(host, "localhost") {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return true
+	}
+	return false
+}
+
+func validateTrustedProxies(raw string) error {
+	cfg := config.Config{TrustedProxies: raw}
+	_, err := cfg.ParsedTrustedProxies()
+	return err
+}
+
+func bindSecurityCheck(host string, isTLS bool, trustedProxies string) Check {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		host = "0.0.0.0"
+	}
+	validProxies := false
+	if strings.TrimSpace(trustedProxies) != "" {
+		if err := validateTrustedProxies(trustedProxies); err == nil {
+			validProxies = true
+		}
+	}
+	if isTLS || isLoopbackHost(host) || validProxies {
+		return Check{Group: "SECURITY", Name: "transport security", Severity: SevOK, Detail: "TLS or loopback/reverse-proxy active"}
+	}
+	return Check{
+		Group: "SECURITY", Name: "transport security", Severity: SevWarn,
+		Detail: fmt.Sprintf("mymcp is serving plain HTTP on %s; bearer tokens sent over public networks can be intercepted", host),
+		Remedy: "configure MYMCP_TLS_CERT/MYMCP_TLS_KEY, bind to 127.0.0.1, or configure MYMCP_TRUSTED_PROXIES behind a reverse proxy",
+	}
 }
 
 func runtimeChecks(sys System) []Check {

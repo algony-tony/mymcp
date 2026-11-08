@@ -16,6 +16,7 @@ type Metrics struct {
 	ToolCalls     *prometheus.CounterVec
 	ToolDuration  *prometheus.HistogramVec
 	HTTPRequests  *prometheus.CounterVec
+	AuthFailures  *prometheus.CounterVec
 	auditFailures prometheus.Counter
 }
 
@@ -36,11 +37,15 @@ func New(inflight func() float64) *Metrics {
 		HTTPRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "mymcp_http_requests_total", Help: "Total HTTP requests",
 		}, []string{"path", "method", "status"}),
+		AuthFailures: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "mymcp_auth_failures_total",
+			Help: "Total count of failed authentication attempts.",
+		}, []string{"path", "reason"}),
 		auditFailures: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "mymcp_audit_write_failures_total", Help: "Audit log write failures",
 		}),
 	}
-	reg.MustRegister(m.ToolCalls, m.ToolDuration, m.HTTPRequests, m.auditFailures)
+	reg.MustRegister(m.ToolCalls, m.ToolDuration, m.HTTPRequests, m.AuthFailures, m.auditFailures)
 	reg.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
 		Name: "mymcp_bash_inflight_processes",
 		Help: "Live count of tracked bash subprocesses",

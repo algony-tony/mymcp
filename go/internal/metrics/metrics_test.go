@@ -46,3 +46,21 @@ func TestRegistryIsIsolated(t *testing.T) {
 		t.Fatalf("registry should contain only mymcp_* metrics:\n%s", out)
 	}
 }
+
+func TestAuthFailuresMetric(t *testing.T) {
+	m := New(func() float64 { return 0 })
+	m.AuthFailures.WithLabelValues("/mcp", "invalid_token").Inc()
+	m.AuthFailures.WithLabelValues("/admin/tokens", "missing_admin_token").Inc()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	m.Handler().ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	if !strings.Contains(body, `mymcp_auth_failures_total{path="/mcp",reason="invalid_token"} 1`) {
+		t.Errorf("metrics missing auth failure for /mcp: %s", body)
+	}
+	if !strings.Contains(body, `mymcp_auth_failures_total{path="/admin/tokens",reason="missing_admin_token"} 1`) {
+		t.Errorf("metrics missing auth failure for /admin/tokens: %s", body)
+	}
+}

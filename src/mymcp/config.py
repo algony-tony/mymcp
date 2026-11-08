@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     host: str = Field(default="0.0.0.0")
     port: int = Field(default=8765)
 
+    # TLS & Reverse Proxy
+    tls_cert: str = Field(default="")
+    tls_key: str = Field(default="")
+    trusted_proxies: str = Field(default="")
+
     # Auth
     admin_token: str = Field(default="")
     metrics_token: str = Field(default="")

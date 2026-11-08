@@ -315,6 +315,9 @@ func TestEnvExampleMatchesGoDefaults(t *testing.T) {
 	}{
 		{"MYMCP_HOST", cfg.Host},
 		{"MYMCP_PORT", strconv.Itoa(cfg.Port)},
+		{"MYMCP_TLS_CERT", cfg.TLSCert},
+		{"MYMCP_TLS_KEY", cfg.TLSKey},
+		{"MYMCP_TRUSTED_PROXIES", cfg.TrustedProxies},
 		{"MYMCP_TOKEN_FILE", cfg.TokenFile},
 		{"MYMCP_AUDIT_LOG_DIR", cfg.AuditLogDir},
 		{"MYMCP_AUDIT_ENABLED", strconv.FormatBool(cfg.AuditEnabled)},
@@ -348,5 +351,86 @@ func TestEnvExampleMatchesGoDefaults(t *testing.T) {
 		} else if got != tc.want {
 			t.Errorf(".env.example default for %s = %q, want %q", tc.key, got, tc.want)
 		}
+	}
+}
+
+func TestConfigTLSAndTrustedProxies(t *testing.T) {
+	t.Setenv("MYMCP_TLS_CERT", "/etc/ssl/cert.pem")
+	t.Setenv("MYMCP_TLS_KEY", "/etc/ssl/key.pem")
+	t.Setenv("MYMCP_TRUSTED_PROXIES", "127.0.0.1/32, 10.0.0.0/8, ::1/128")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.TLSCert != "/etc/ssl/cert.pem" || cfg.TLSKey != "/etc/ssl/key.pem" {
+		t.Errorf("got cert=%q key=%q", cfg.TLSCert, cfg.TLSKey)
+	}
+	if !cfg.IsTLS() {
+		t.Errorf("expected IsTLS() == true")
+	}
+
+	nets, err := cfg.ParsedTrustedProxies()
+	if err != nil {
+		t.Fatalf("ParsedTrustedProxies: %v", err)
+	}
+	if len(nets) != 3 {
+		t.Fatalf("expected 3 nets, got %d", len(nets))
+	}
+
+	// Incomplete TLS configuration must fail
+	t.Setenv("MYMCP_TLS_CERT", "/etc/ssl/cert.pem")
+	t.Setenv("MYMCP_TLS_KEY", "")
+	if _, err := Load(); err == nil {
+		t.Errorf("expected error when only MYMCP_TLS_CERT is provided")
+	}
+	t.Setenv("MYMCP_TLS_CERT", "")
+	t.Setenv("MYMCP_TLS_KEY", "/etc/ssl/key.pem")
+	if _, err := Load(); err == nil {
+		t.Errorf("expected error when only MYMCP_TLS_KEY is provided")
+	}
+
+	// Bare IPs and empty string handling
+	cfgBare := &Config{TrustedProxies: "127.0.0.1, ::1, "}
+	bareNets, err := cfgBare.ParsedTrustedProxies()
+	if err != nil {
+		t.Fatalf("ParsedTrustedProxies bare IPs: %v", err)
+	}
+	if len(bareNets) != 2 {
+		t.Fatalf("expected 2 nets, got %d", len(bareNets))
+	}
+
+	// Empty trusted proxies
+	cfgEmpty := &Config{TrustedProxies: "  "}
+	emptyNets, err := cfgEmpty.ParsedTrustedProxies()
+	if err != nil {
+		t.Fatalf("ParsedTrustedProxies empty: %v", err)
+	}
+	if len(emptyNets) != 0 {
+		t.Fatalf("expected 0 nets, got %d", len(emptyNets))
+	}
+
+	// Invalid trusted proxy IP
+	cfgInvalid := &Config{TrustedProxies: "not-an-ip"}
+	if _, err := cfgInvalid.ParsedTrustedProxies(); err == nil {
+		t.Errorf("expected error for invalid IP")
+	}
+
+	// Invalid trusted proxy CIDR
+	cfgInvalidCIDR := &Config{TrustedProxies: "127.0.0.1/99"}
+	if _, err := cfgInvalidCIDR.ParsedTrustedProxies(); err == nil {
+		t.Errorf("expected error for invalid CIDR")
+	}
+
+	// Invalid trusted proxies must fail Load()
+	t.Setenv("MYMCP_TRUSTED_PROXIES", "invalid-ip-string")
+	if _, err := Load(); err == nil {
+		t.Errorf("expected Load() to fail on invalid MYMCP_TRUSTED_PROXIES")
+	}
+
+	// IsTLS false when empty
+	cfgNoTLS := &Config{}
+	if cfgNoTLS.IsTLS() {
+		t.Errorf("expected IsTLS() == false")
 	}
 }

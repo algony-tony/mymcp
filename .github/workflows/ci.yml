@@ -50,7 +50,8 @@ jobs:
           # exercises (an honest module-wide number), not just each package's
           # self-coverage. Go has no native branch coverage, so this is the one
           # mainstream Go coverage metric: statement coverage.
-          go test -covermode=atomic -coverpkg=./... -coverprofile=cover.out ./...
+          # -count=1 avoids Go test cache so all packages execute and populate coverprofile.
+          go test -count=1 -covermode=atomic -coverpkg=./... -coverprofile=cover.out ./...
           COV=$(go tool cover -func=cover.out | awk '/^total:/{print substr($NF,1,length($NF)-1)}')
           echo "Go statement coverage: ${COV}%"
           awk -v c="$COV" -v m="$GO_COVER_MIN" 'BEGIN{exit !(c+0 >= m+0)}' \
