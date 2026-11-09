@@ -31,10 +31,13 @@ certifi==2026.10.23
     # via
     #   httpcore
     #   httpx
+    #   requests
 cffi==2.1.1
     # via cryptography
 cfgv==3.5.0
     # via pre-commit
+charset-normalizer==3.5.2
+    # via requests
 click==8.5.0
     # via
     #   mutmut
@@ -76,6 +79,7 @@ idna==3.20
     #   anyio
     #   httpx
     #   httpx2
+    #   requests
 iniconfig==2.3.1
     # via pytest
 jsonschema==4.26.0
@@ -202,7 +206,7 @@ pydantic==2.14.3
     #   mcp
     #   mcp-types
     #   pydantic-settings
-pydantic-core==2.50.2
+pydantic-core==2.50.4
     # via pydantic
 pydantic-settings==2.16.2
     # via algony-mymcp
@@ -252,6 +256,10 @@ referencing==0.37.0
     # via
     #   jsonschema
     #   jsonschema-specifications
+requests==2.34.2
+    # via
+    #   opentelemetry-exporter-http-transport
+    #   opentelemetry-exporter-otlp-proto-http
 rich==15.0.0
     # via textual
 rpds-py==2026.9.1
@@ -300,7 +308,7 @@ typing-inspection==0.4.5
     #   pydantic
     #   pydantic-settings
 urllib3==2.8.0
-    # via opentelemetry-exporter-http-transport
+    # via requests
 uvicorn==0.54.0
     # via mcp
 virtualenv==21.15.5
