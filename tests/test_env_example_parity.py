@@ -135,10 +135,9 @@ def test_env_example_defaults_match_settings():
                 mismatches.append(
                     f"{var_name}: .env.example default is {parsed_val}, code default is {code_val}"
                 )
-        elif isinstance(code_val, str):
-            if doc_val != code_val:
-                mismatches.append(
-                    f"{var_name}: .env.example default is {doc_val!r}, code default is {code_val!r}"
-                )
+        elif isinstance(code_val, str) and doc_val != code_val:
+            mismatches.append(
+                f"{var_name}: .env.example default is {doc_val!r}, code default is {code_val!r}"
+            )
 
     assert not mismatches, "Defaults in .env.example diverged from code:\n" + "\n".join(mismatches)
